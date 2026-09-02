@@ -554,7 +554,133 @@ else:
                 else:
                     st.info("No hay registro de exámenes realizados.")
 
-        # --- SECCIÓN: ADMIN CROMA (GESTIÓN DE DOCUMENTOS) ---
+# --- SECCIÓN: ADMIN CROMA (RESULTADOS Y EDICIÓN DE PREGUNTAS) ---
+        if st.session_state.es_croma and tab_admin_resultados:
+            with tab_admin_resultados:
+                st.subheader("📊 Historial General y Edición por Usuario")
+                
+                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=True).execute()
+                todos_intentos = res_todos.data if res_todos.data else []
+                
+                if todos_intentos:
+                    tabla_admin = []
+                    for it in todos_intentos:
+                        tabla_admin.append({
+                            "ID Intento": it["id"],
+                            "Empleado": it.get("nombre_empleado", "N/A"),
+                            "Apartado": it.get("apartado", "General"),
+                            "Nota": it.get("nota", 0),
+                            "Porcentaje": f"{it.get('porcentaje_obtenido', 0)}%",
+                            "Estado": "🟢 APROBADO" if it.get('porcentaje_obtenido', 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO",
+                            "Fecha": it.get("fecha_inicio", "")[:10]
+                        })
+                    
+                    st.write("### Exámenes Realizados por Todos los Empleados")
+                    st.table(tabla_admin)
+                    
+                    st.markdown("---")
+                    st.subheader("✏️ Modificar Pregunta Respondida por un Empleado")
+                    
+                    # Se incluye explícitamente el 'ID Intento' en la clave para evitar ambigüedades
+                    dict_intentos = {f"ID Intento #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')})": it for it in todos_intentos}
+                    intento_sel_key = st.selectbox("Selecciona el intento a editar:", list(dict_intentos.keys()))
+                    
+                    # Copia profunda o aislamiento del objeto seleccionado
+                    intento_obj = dict_intentos[intento_sel_key]
+                    intento_target_id = intento_obj["id"]  # ID PRIMARIO ÚNICO DE LA TABLA intentos_examen
+                    
+                    # Cargar el banco original únicamente como referencia de lectura
+                    banco_preguntas_original = []
+                    ex_id = intento_obj.get("examen_id")
+                    if ex_id and ex_id > 0:
+                        res_ex_orig = supabase.table("examenes").select("preguntas_json").eq("id", ex_id).execute()
+                        if res_ex_orig.data:
+                            banco_preguntas_original = res_ex_orig.data[0].get("preguntas_json", [])
+
+                    # Clonar la lista de respuestas de ESTE intento específico
+                    respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
+                    
+                    if respuestas_lista:
+                        dict_preguntas = {f"P{idx+1}: {p['pregunta'][:50]}...": idx for idx, p in enumerate(respuestas_lista)}
+                        p_sel_key = st.selectbox("Selecciona la pregunta a modificar:", list(dict_preguntas.keys()))
+                        p_idx = dict_preguntas[p_sel_key]
+                        p_objetivo = respuestas_lista[p_idx]
+                        
+                        # Buscar la respuesta correcta original en el banco para sugerirla
+                        respuesta_correcta_original = "No disponible"
+                        opciones_disponibles = [p_objetivo.get("opcion_elegida", "")]
+                        
+                        for p_orig in banco_preguntas_original:
+                            if p_orig["pregunta"] == p_objetivo["pregunta"]:
+                                idx_c = p_orig["respuesta_correcta"]
+                                respuesta_correcta_original = p_orig["opciones"][idx_c]
+                                opciones_disponibles = p_orig["opciones"]
+                                break
+
+                        st.write(f"**Pregunta completa:** {p_objetivo['pregunta']}")
+                        
+                        st.info(f"""
+                        📌 **Respuesta elegida por el alumno:** {p_objetivo.get('opcion_elegida')}  
+                        ✅ **Respuesta correcta teórica del examen:** {respuesta_correcta_original}  
+                        📊 **Estado actual:** {'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}
+                        """)
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            nuevo_estado_correcta = st.checkbox("¿Marcar como correcta?", value=p_objetivo.get("es_correcta", False))
+                            
+                            idx_default = 0
+                            if respuesta_correcta_original in opciones_disponibles:
+                                idx_default = opciones_disponibles.index(respuesta_correcta_original)
+                                
+                            nueva_opcion_texto = st.selectbox(
+                                "Nueva opción asignada (Respuesta Correcta Sugerida):",
+                                opciones_disponibles,
+                                index=idx_default
+                            )
+                        
+                        with col2:
+                            editor_nombre = st.text_input("Nombre de la persona que edita:", value=st.session_state.user_nombre)
+                            motivo_edicion = st.text_area("Motivo de la edición (obligatorio):")
+                        
+                        if st.button("Guardar Cambios Auditados"):
+                            if not motivo_edicion.strip():
+                                st.error("❌ El motivo de la edición es obligatorio.")
+                            else:
+                                fecha_hora_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                                
+                                # Modificar ÚNICAMENTE en la estructura clonada del intento actual
+                                respuestas_lista[p_idx]["es_correcta"] = nuevo_estado_correcta
+                                respuestas_lista[p_idx]["opcion_elegida"] = nueva_opcion_texto
+                                respuestas_lista[p_idx]["audit_edicion"] = {
+                                    "editado_por": editor_nombre,
+                                    "fecha_hora": fecha_hora_utc,
+                                    "motivo": motivo_edicion
+                                }
+                                
+                                total_preg = len(respuestas_lista)
+                                nuevas_correctas = sum(1 for r in respuestas_lista if r["es_correcta"])
+                                nuevo_porcentaje = round((nuevas_correctas / total_preg) * 100, 2)
+                                nueva_nota = round((nuevas_correctas / total_preg) * 10, 2)
+                                
+                                try:
+                                    # UPDATE aislado filtrando ESTRICTAMENTE por la clave primaria 'id' del intento
+                                    supabase.table("intentos_examen").update({
+                                        "respuestas_usuario": respuestas_lista,
+                                        "nota": nueva_nota,
+                                        "porcentaje_obtenido": nuevo_porcentaje
+                                    }).eq("id", intento_target_id).execute()
+                                    
+                                    st.success(f"✅ Intento #{intento_target_id} modificado correctamente. Nueva nota recalculada: **{nueva_nota} / 10** ({nuevo_porcentaje}%). Auditoría registrada a las {fecha_hora_utc}.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al actualizar el intento en la base de datos: {e}")
+                    else:
+                        st.info("El intento seleccionado no contiene detalle de respuestas.")
+                else:
+                    st.info("No hay registro de exámenes realizados.")
+
+# --- SECCIÓN: ADMIN CROMA (GESTIÓN DE DOCUMENTOS) ---
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Panel de Administración - Documentos")
