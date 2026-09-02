@@ -124,7 +124,7 @@ Texto a evaluar:
                     
                     # Cambiar 'gemini-3.6-flash' por 'gemini-2.5-flash' o 'gemini-1.5-flash'
                     res = gemini_client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-2.0-flash',  # <--- Cambiado a gemini-2.0-flash
                         contents=prompt,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
