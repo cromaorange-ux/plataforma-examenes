@@ -181,7 +181,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
 """
                         try:
                             res_pista = gemini_client.models.generate_content(
-                                model='gemini-2.0-flash',
+                                model='gemini-3.6-flash',
                                 contents=prompt_pista
                             )
                             st.session_state.pistas_obtenidas[idx] = res_pista.text
@@ -333,22 +333,45 @@ Responde ÚNICAMENTE con un array JSON estructurado así:
 
 Texto de estudio:
 """ + texto[:6000]
+
+                        # Lista de modelos a intentar en orden de preferencia si hay saturación (503)
+                        modelos = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite']
+                        res = None
                         
-                        res = gemini_client.models.generate_content(
-                            model='gemini-3.6-flash',
-                            contents=prompt,
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
-                        )
-                        
-                        preguntas_json = json.loads(res.text)
-                        
-                        supabase.table("examenes").insert({
-                            "apartado": nombre_apartado, 
-                            "preguntas_json": preguntas_json
-                        }).execute()
-                        
-                        st.success(f"✅ Se han generado {len(preguntas_json)} preguntas y se guardaron en el apartado '{nombre_apartado}'.")
-                        st.rerun()
+                        with st.spinner("Generando 15 preguntas con IA... Esto puede tomar unos segundos."):
+                            for model_name in modelos:
+                                intencion = 0
+                                exito = False
+                                while intencion < 3 and not exito:
+                                    try:
+                                        res = gemini_client.models.generate_content(
+                                            model=model_name,
+                                            contents=prompt,
+                                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                                        )
+                                        exito = True
+                                    except Exception as err:
+                                        if "503" in str(err) or "UNAVAILABLE" in str(err):
+                                            intencion += 1
+                                            time.sleep(2)  # Espera 2 segundos antes de reintentar
+                                        else:
+                                            raise err  # Si es otro tipo de error, lo lanza de inmediato
+                                if exito:
+                                    break
+
+                        if res and res.text:
+                            preguntas_json = json.loads(res.text)
+                            
+                            supabase.table("examenes").insert({
+                                "apartado": nombre_apartado, 
+                                "preguntas_json": preguntas_json
+                            }).execute()
+                            
+                            st.success(f"✅ Se han generado {len(preguntas_json)} preguntas y se guardaron en el apartado '{nombre_apartado}'.")
+                            st.rerun()
+                        else:
+                            st.error("❌ El servicio de IA está muy saturado en este momento. Por favor, reinténtalo en 1 minuto.")
+
                     except Exception as e:
                         st.error(f"❌ Error al generar el examen: {e}")
                 else:
