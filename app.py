@@ -26,35 +26,50 @@ if "examen_iniciado" not in st.session_state:
     st.session_state.examen_iniciado = False
 
 # ---------------------------------------------------------
-# MODULO 1: AUTENTICACIÓN Y VALIDACIÓN DE INTENTOS
+# MÓDULO 1: AUTENTICACIÓN CON DESPLEGABLE DE USUARIOS
 # ---------------------------------------------------------
 st.title("📝 Sistema de Evaluación Mensual")
 
 if not st.session_state.autenticado:
     st.subheader("Iniciar Sesión")
-    usuario_input = st.text_input("Usuario")
-    password_input = st.text_input("Contraseña", type="password")
     
-    if st.button("Ingresar"):
-        res = supabase.table("empleados").select("*").eq("nombre", usuario_input).execute()
+    # 1. Obtener la lista de usuarios desde la base de datos
+    try:
+        res_usuarios = supabase.table("empleados").select("nombre").execute()
+        # Extraer los nombres en una lista ordenada
+        lista_usuarios = [emp["nombre"] for emp in res_usuarios.data] if res_usuarios.data else []
+    except Exception as e:
+        lista_usuarios = []
+        st.error(f"Error al conectar con la base de datos: {e}")
+
+    if lista_usuarios:
+        # 2. Menú desplegable para seleccionar el usuario
+        usuario_seleccionado = st.selectbox("Selecciona tu Usuario", lista_usuarios)
+        password_input = st.text_input("Contraseña", type="password")
         
-        if res.data and res.data[0]["password_hash"] == password_input: # En producción usar bcrypt
-            emp = res.data[0]
-            st.session_state.user_id = emp["id"]
-            st.session_state.user_nombre = emp["nombre"]
-            st.session_state.es_croma = emp["es_admin_croma"]
+        if st.button("Ingresar"):
+            # Consultar los datos completos del usuario elegido
+            res = supabase.table("empleados").select("*").eq("nombre", usuario_seleccionado).execute()
             
-            # Validar intentos en el mes actual
-            inicio_mes = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0).isoformat()
-            intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", emp["id"]).gte("fecha_inicio", inicio_mes).execute()
-            
-            if len(intentos.data) > 0 and not st.session_state.es_croma:
-                st.error("❌ Ya has realizado tu examen correspondiente a este mes.")
+            if res.data and res.data[0]["password_hash"] == password_input:
+                emp = res.data[0]
+                st.session_state.user_id = emp["id"]
+                st.session_state.user_nombre = emp["nombre"]
+                st.session_state.es_croma = emp["es_admin_croma"]
+                
+                # Validar intentos en el mes actual
+                inicio_mes = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0).isoformat()
+                intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", emp["id"]).gte("fecha_inicio", inicio_mes).execute()
+                
+                if len(intentos.data) > 0 and not st.session_state.es_croma:
+                    st.error("❌ Ya has realizado tu examen correspondiente a este mes.")
+                else:
+                    st.session_state.autenticado = True
+                    st.rerun()
             else:
-                st.session_state.autenticado = True
-                st.rerun()
-        else:
-            st.error("Credenciales incorrectas")
+                st.error("❌ Contraseña incorrecta.")
+    else:
+        st.warning("No se encontraron usuarios en la base de datos. Verifica la conexión con Supabase o la tabla 'empleados'.")
 
 # ---------------------------------------------------------
 # MODULO 2: PANEL DE CONTROL Y Carga DE EXÁMENES
