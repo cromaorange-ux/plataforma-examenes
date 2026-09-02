@@ -104,29 +104,38 @@ else:
         else:
             st.info("No hay exámenes disponibles cargados en el sistema.")
 
-        # Opción extra para admins: Generar nuevo examen desde PDF
-            if st.button("Procesar con IA e Insertar en BBDD") and archivo_pdf and nombre_apartado:
-            reader = PdfReader(archivo_pdf)
-            texto = "".join([page.extract_text() or "" for page in reader.pages])
+# Opción extra para admins: Generar nuevo examen desde PDF
+        if st.session_state.es_croma:
+            st.markdown("---")
+            st.subheader("⚙️ Panel Admin: Generar Nuevo Examen")
+            archivo_pdf = st.file_uploader("Cargar PDF con manual operativo", type=["pdf"])
+            nombre_apartado = st.text_input("Nombre de la materia/apartado")
             
-            # NOTA: Sin 'f' al principio para evitar el ValueError de Python
-            prompt = """Genera un examen de 5 preguntas tipo test del texto. Responde ÚNICAMENTE con un array JSON.
-                    Estructura: [{"pregunta": "texto", "opciones": ["A", "B", "C"], "respuesta_correcta": 0, "tipo": "test"}]
+            if st.button("Procesar con IA e Insertar en BBDD"):
+                if archivo_pdf and nombre_apartado:
+                    reader = PdfReader(archivo_pdf)
+                    texto = "".join([page.extract_text() or "" for page in reader.pages])
+                    
+                    prompt = """Genera un examen de 5 preguntas tipo test del texto. Responde ÚNICAMENTE con un array JSON.
+Estructura: [{"pregunta": "texto", "opciones": ["A", "B", "C"], "respuesta_correcta": 0, "tipo": "test"}]
 
-                    Texto a evaluar:
-                    """ + texto[:4000]
-            
-            res = gemini_client.models.generate_content(
-                model='gemini-3.6-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json")
-            )
-            
-            preguntas_json = json.loads(res.text)
-            supabase.table("examenes").insert({"apartado": nombre_apartado, "preguntas_json": preguntas_json}).execute()
-            st.success("Examen generado e introducido en la base de datos.")
-            st.rerun()
+Texto a evaluar:
+""" + texto[:4000]
+                    
+                    res = gemini_client.models.generate_content(
+                        model='gemini-3.6-flash',
+                        contents=prompt,
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    
+                    preguntas_json = json.loads(res.text)
+                    supabase.table("examenes").insert({"apartado": nombre_apartado, "preguntas_json": preguntas_json}).execute()
+                    st.success("Examen generado e introducido en la base de datos.")
+                    st.rerun()
+                else:
+                    st.error("Por favor, sube un archivo PDF y escribe un nombre para el apartado.")
 
+    
 # ---------------------------------------------------------
 # MODULO 3: EJECUCIÓN Y EVALUACIÓN DEL EXAMEN
 # ---------------------------------------------------------
