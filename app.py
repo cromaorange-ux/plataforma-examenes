@@ -335,7 +335,7 @@ Texto de estudio:
 """ + texto[:6000]
 
                         # Lista de modelos a intentar en orden de preferencia si hay saturación (503)
-                        modelos = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite']
+                        modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                         res = None
                         
                         with st.spinner("Generando 15 preguntas con IA... Esto puede tomar unos segundos."):
