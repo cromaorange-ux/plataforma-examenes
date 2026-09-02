@@ -2,24 +2,25 @@ import streamlit as st
 import datetime
 import json
 import time
+import random
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
 from supabase import create_client, Client
 
 # ---------------------------------------------------------
-# CONFIGURACIÓN DE PÁGINA Y CONEXIONES
+# CONFIGURACIÓN PÁGINA Y CONEXIONES
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="centered")
 
-SUPABASE_URL = "https://vezkigrbksmsndasxldu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemtpZ3Jia3Ntc25kYXN4bGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTgyMjgsImV4cCI6MjEwMzgzNDIyOH0.0jkzfl0zceROHR0Xl00r-5TthJ7Z5neqY7b4h9PAyzw"
-GEMINI_API_KEY = "AQ.Ab8RN6L66WvdO0jOeDW15-EElhDz6lo8WtJX-rfnpwRwPtn8pA"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Variables de estado globales
+# Variables de Estado de Sesión
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "user_id" not in st.session_state:
@@ -29,21 +30,33 @@ if "user_nombre" not in st.session_state:
 if "es_croma" not in st.session_state:
     st.session_state.es_croma = False
 
-# Estado de la prueba/examen activo
+# Estado de la prueba
 if "examen_activo" not in st.session_state:
     st.session_state.examen_activo = False
-if "preguntas" not in st.session_state:
-    st.session_state.preguntas = []
+if "preguntas_seleccionadas" not in st.session_state:
+    st.session_state.preguntas_seleccionadas = []
 if "indice_pregunta" not in st.session_state:
     st.session_state.indice_pregunta = 0
-if "respuestas_usuario" not in st.session_state:
-    st.session_state.respuestas_usuario = []
+if "respuestas_detalle" not in st.session_state:
+    st.session_state.respuestas_detalle = []
 if "tiempo_inicio_pregunta" not in st.session_state:
     st.session_state.tiempo_inicio_pregunta = None
+if "tiempo_inicio_examen" not in st.session_state:
+    st.session_state.tiempo_inicio_examen = None
 if "examen_id" not in st.session_state:
     st.session_state.examen_id = None
+if "apartado_actual" not in st.session_state:
+    st.session_state.apartado_actual = ""
+if "sobrepaso_tiempo_global" not in st.session_state:
+    st.session_state.sobrepaso_tiempo_global = False
 
-TIEMPO_LIMITE_SEGUNDOS = 45
+# Sistema de Ayudas (3 Comodines)
+if "comodines_restantes" not in st.session_state:
+    st.session_state.comodines_restantes = 3
+if "pistas_obtenidas" not in st.session_state:
+    st.session_state.pistas_obtenidas = {}  # Guarda la pista obtenida por cada pregunta
+
+TIEMPO_LIMITE_PREGUNTA = 45  # Segundos por pregunta
 
 # ---------------------------------------------------------
 # MÓDULO 1: AUTENTICACIÓN
@@ -73,7 +86,7 @@ if not st.session_state.autenticado:
                 st.session_state.user_nombre = emp["nombre"]
                 st.session_state.es_croma = emp["es_admin_croma"]
                 
-                # Verificar intentos del mes
+                # Comprobar si ya realizó el examen este mes
                 inicio_mes = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0).isoformat()
                 intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", emp["id"]).gte("fecha_inicio", inicio_mes).execute()
                 
@@ -88,7 +101,7 @@ if not st.session_state.autenticado:
         st.warning("No se encontraron usuarios en la base de datos.")
 
 # ---------------------------------------------------------
-# MÓDULO 2: PANEL DE EXAMEN Y ADMIN
+# MÓDULO 2: PANEL Y EVALUACIÓN
 # ---------------------------------------------------------
 else:
     st.write(f"Bienvenido/a, **{st.session_state.user_nombre}**")
@@ -101,86 +114,137 @@ else:
     st.markdown("---")
     
     # -----------------------------------------------------
-    # INTERFAZ DEL EXAMEN EN CURSO (CON TEMPORIZADOR)
+    # CUESTIONARIO ACTIVO
     # -----------------------------------------------------
     if st.session_state.examen_activo:
         idx = st.session_state.indice_pregunta
-        total_preguntas = len(st.session_state.preguntas)
+        total_p = len(st.session_state.preguntas_seleccionadas)
         
-        if idx < total_preguntas:
-            pregunta_actual = st.session_state.preguntas[idx]
+        if idx < total_p:
+            p_actual = st.session_state.preguntas_seleccionadas[idx]
             
-            # Cálculo del temporizador
+            # Encabezado con estado de comodines de ayuda
+            col_info, col_ayuda = st.columns([3, 2])
+            with col_info:
+                st.subheader(f"Pregunta {idx + 1} de {total_p}")
+            with col_ayuda:
+                st.caption(f"💡 Ayudas disponibles: **{st.session_state.comodines_restantes} / 3**")
+
+            # Temporizador por pregunta
             tiempo_transcurrido = int(time.time() - st.session_state.tiempo_inicio_pregunta)
-            tiempo_restante = TIEMPO_LIMITE_SEGUNDOS - tiempo_transcurrido
+            tiempo_restante = TIEMPO_LIMITE_PREGUNTA - tiempo_transcurrido
             
-            st.progress(max(0.0, tiempo_restante / TIEMPO_LIMITE_SEGUNDOS))
+            st.progress(max(0.0, tiempo_restante / TIEMPO_LIMITE_PREGUNTA))
             
             if tiempo_restante > 0:
-                st.caption(f"⏱️ Tiempo restante para esta pregunta: **{tiempo_restante} segundos**")
+                st.caption(f"⏱️ Tiempo restante: **{tiempo_restante} segundos**")
             else:
-                st.warning("⏰ ¡Se agotó el tiempo para esta pregunta!")
-                st.session_state.respuestas_usuario.append(None)
+                st.warning("⏰ ¡Tiempo agotado en esta pregunta!")
+                st.session_state.sobrepaso_tiempo_global = True
+                
+                st.session_state.respuestas_detalle.append({
+                    "pregunta": p_actual["pregunta"],
+                    "opcion_elegida": "Sin respuesta (Agotado tiempo)",
+                    "es_correcta": False
+                })
                 st.session_state.indice_pregunta += 1
                 st.session_state.tiempo_inicio_pregunta = time.time()
                 st.rerun()
 
-            st.subheader(f"Pregunta {idx + 1} de {total_preguntas}")
-            st.write(f"**{pregunta_actual['pregunta']}**")
+            st.write(f"**{p_actual['pregunta']}**")
             
-            eleccion = st.radio(
-                "Selecciona una respuesta:", 
-                pregunta_actual["opciones"], 
-                key=f"p_{idx}"
-            )
+            eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], key=f"p_{idx}")
             
-            if st.button("Siguiente Pregunta"):
-                # Registrar el índice de la respuesta elegida
-                idx_respuesta = pregunta_actual["opciones"].index(eleccion)
-                st.session_state.respuestas_usuario.append(idx_respuesta)
+            # BOTÓN DE PISTA DE AYUDA (IA)
+            if idx in st.session_state.pistas_obtenidas:
+                st.info(f"💡 **Pista:** {st.session_state.pistas_obtenidas[idx]}")
+            else:
+                if st.session_state.comodines_restantes > 0:
+                    if st.button("💡 Pedir Ayuda de IA (Gasta 1 comodín)"):
+                        st.session_state.comodines_restantes -= 1
+                        
+                        prompt_pista = f"""El usuario está respondiendo a esta pregunta de examen:
+Pregunta: {p_actual['pregunta']}
+Opciones: {p_actual['opciones_barajadas']}
+
+Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respuesta correcta SIN revelar directamente cuál de las opciones es.
+"""
+                        try:
+                            res_pista = gemini_client.models.generate_content(
+                                model='gemini-2.0-flash',
+                                contents=prompt_pista
+                            )
+                            st.session_state.pistas_obtenidas[idx] = res_pista.text
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al solicitar la ayuda: {e}")
+                else:
+                    st.caption("🚫 Has agotado tus 3 comodines de ayuda en este examen.")
+
+            st.write("")
+            if st.button("Responder / Siguiente"):
+                es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
+                
+                st.session_state.respuestas_detalle.append({
+                    "pregunta": p_actual["pregunta"],
+                    "opcion_elegida": eleccion,
+                    "es_correcta": es_correcta
+                })
+                
                 st.session_state.indice_pregunta += 1
                 st.session_state.tiempo_inicio_pregunta = time.time()
                 st.rerun()
                 
-            # Autorrefresco para mantener el temporizador visualizando el conteo en tiempo real
             time.sleep(1)
             st.rerun()
             
         else:
-            # PROCESAR Y GUARDAR RESULTADOS AL FINALIZAR
-            st.success("🎉 ¡Has completado todas las preguntas del examen!")
+            # COMPLETADO: PROCESAR Y GUARDAR
+            st.success("🎉 Examen finalizado.")
             
-            aciertos = 0
-            for i, p in enumerate(st.session_state.preguntas):
-                resp = st.session_state.respuestas_usuario[i]
-                if resp is not None and resp == p["respuesta_correcta"]:
-                    aciertos += 1
-                    
-            nota_final = round((aciertos / total_preguntas) * 10, 2)
-            st.metric(label="Nota Final", value=f"{nota_final} / 10")
+            correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
+            porcentaje = round((correctas / total_p) * 100, 2)
+            nota_final = round((correctas / total_p) * 10, 2)
+            
+            tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc)
+            duracion_total = int(time.time() - st.session_state.tiempo_inicio_examen)
+            tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
+            
+            st.metric(label="Calificación", value=f"{nota_final} / 10 ({porcentaje}%)")
+            st.write(f"⏱️ Tiempo total empleado: **{duracion_total} segundos**")
+            st.write(f"💡 Comodines de ayuda utilizados: **{3 - st.session_state.comodines_restantes} / 3**")
             
             # Guardar en Supabase
             try:
-                supabase.table("intentos_examen").insert({
+                registro_intento = {
                     "empleado_id": st.session_state.user_id,
+                    "nombre_empleado": st.session_state.user_nombre,
                     "examen_id": st.session_state.examen_id,
+                    "apartado": st.session_state.apartado_actual,
                     "nota": nota_final,
-                    "respuestas": st.session_state.respuestas_usuario
-                }).execute()
-                st.success("Resultado guardado en el historial de evaluaciones.")
-            except Exception as e:
-                st.error(f"Error al guardar la calificación: {e}")
+                    "porcentaje_obtenido": porcentaje,
+                    "respuestas_usuario": st.session_state.respuestas_detalle,
+                    "fecha_inicio": datetime.datetime.fromtimestamp(st.session_state.tiempo_inicio_examen, datetime.timezone.utc).isoformat(),
+                    "fecha_fin": tiempo_fin_examen.isoformat(),
+                    "tiempo_total_segundos": duracion_total,
+                    "tiempo_limite": tiempo_limite_total,
+                    "sobrepasado_tiempo": st.session_state.sobrepaso_tiempo_global
+                }
                 
-            if st.button("Volver al Inicio"):
+                supabase.table("intentos_examen").insert(registro_intento).execute()
+                st.success("✅ Intento guardado con éxito en la base de datos.")
+            except Exception as e:
+                st.error(f"Error guardando intento: {e}")
+                
+            if st.button("Finalizar y Volver"):
                 st.session_state.examen_activo = False
                 st.rerun()
 
-# -----------------------------------------------------
-    # PANTALLA PRINCIPAL DE SELECCIÓN DE EXAMEN
+    # -----------------------------------------------------
+    # SELECCIÓN Y CARGA DE EXÁMENES
     # -----------------------------------------------------
     else:
         try:
-            # Seleccionamos el id, el nombre de la materia y el array JSON de preguntas
             res_examenes = supabase.table("examenes").select("id, apartado, preguntas_json").execute()
             examenes_disponibles = res_examenes.data if res_examenes.data else []
         except Exception as e:
@@ -188,45 +252,77 @@ else:
             st.error(f"Error al cargar exámenes: {e}")
 
         if examenes_disponibles:
-            # Creamos un diccionario para buscar fácilmente por el nombre del apartado
             dict_examenes = {ex["apartado"]: ex for ex in examenes_disponibles}
             examen_seleccionado = st.selectbox("Seleccionar Examen", list(dict_examenes.keys()))
             
             if st.button("Comenzar Examen"):
                 ex_obj = dict_examenes[examen_seleccionado]
+                banco_completo = ex_obj["preguntas_json"]
                 
-                # Cargar el examen en la sesión y activar el reloj/preguntas
+                # Seleccionar 3 preguntas al azar de la BBDD
+                num_a_seleccionar = min(3, len(banco_completo))
+                preguntas_elegidas = random.sample(banco_completo, num_a_seleccionar)
+                
+                # Mezclar opciones de respuesta
+                preguntas_preparadas = []
+                for p in preguntas_elegidas:
+                    idx_correcta = p["respuesta_correcta"]
+                    texto_correcto = p["opciones"][idx_correcta]
+                    
+                    opciones_shuffled = p["opciones"].copy()
+                    random.shuffle(opciones_shuffled)
+                    
+                    preguntas_preparadas.append({
+                        "pregunta": p["pregunta"],
+                        "opciones_barajadas": opciones_shuffled,
+                        "respuesta_correcta_texto": texto_correcto
+                    })
+                
+                # Configurar Estado inicial del examen
                 st.session_state.examen_id = ex_obj["id"]
-                st.session_state.preguntas = ex_obj["preguntas_json"]
+                st.session_state.apartado_actual = ex_obj["apartado"]
+                st.session_state.preguntas_seleccionadas = preguntas_preparadas
                 st.session_state.indice_pregunta = 0
-                st.session_state.respuestas_usuario = []
+                st.session_state.respuestas_detalle = []
+                st.session_state.sobrepaso_tiempo_global = False
+                st.session_state.tiempo_inicio_examen = time.time()
                 st.session_state.tiempo_inicio_pregunta = time.time()
+                st.session_state.comodines_restantes = 3
+                st.session_state.pistas_obtenidas = {}
                 st.session_state.examen_activo = True
                 
-                st.rerun()  # Recarga inmediata para mostrar la Pregunta 1
+                st.rerun()
         else:
-            st.warning("No hay exámenes disponibles cargados en el sistema.")
-            
+            st.warning("No hay exámenes disponibles en el sistema.")
+
         # -------------------------------------------------
-        # PANEL ADMIN (GENERACIÓN CON GEMINI)
+        # PANEL ADMIN: GENERAR BBDD DE 15 PREGUNTAS CON IA
         # -------------------------------------------------
         if st.session_state.es_croma:
             st.markdown("---")
-            st.subheader("⚙️ Panel Admin: Generar Nuevo Examen")
+            st.subheader("⚙️ Panel Admin: Generar Banco de 15 Preguntas")
             archivo_pdf = st.file_uploader("Cargar PDF con manual operativo", type=["pdf"])
             nombre_apartado = st.text_input("Nombre de la materia/apartado")
             
-            if st.button("Procesar con IA e Insertar en BBDD"):
+            if st.button("Procesar e Insertar 15 Preguntas con IA"):
                 if archivo_pdf and nombre_apartado:
                     try:
                         reader = PdfReader(archivo_pdf)
                         texto = "".join([page.extract_text() or "" for page in reader.pages])
                         
-                        prompt = """Genera un examen de 5 preguntas tipo test del texto. Responde ÚNICAMENTE con un array JSON.
-Estructura: [{"pregunta": "texto", "opciones": ["A", "B", "C"], "respuesta_correcta": 0, "tipo": "test"}]
+                        prompt = """Genera un examen con EXACTAMENTE 15 preguntas tipo test basadas en el texto.
+Responde ÚNICAMENTE con un array JSON estructurado así:
+[
+  {
+    "pregunta": "texto de la pregunta",
+    "opciones": ["Opcion A", "Opcion B", "Opcion C", "Opcion D"],
+    "respuesta_correcta": 0,
+    "tipo": "test"
+  }
+]
 
-Texto a evaluar:
-""" + texto[:4000]
+Texto de estudio:
+""" + texto[:6000]
                         
                         res = gemini_client.models.generate_content(
                             model='gemini-2.0-flash',
@@ -235,18 +331,15 @@ Texto a evaluar:
                         )
                         
                         preguntas_json = json.loads(res.text)
+                        
                         supabase.table("examenes").insert({
                             "apartado": nombre_apartado, 
                             "preguntas_json": preguntas_json
                         }).execute()
                         
-                        st.success("✅ Examen generado e introducido en la base de datos correctamente.")
+                        st.success(f"✅ Se han generado {len(preguntas_json)} preguntas y se guardaron en el apartado '{nombre_apartado}'.")
                         st.rerun()
                     except Exception as e:
-                        msg_error = str(e)
-                        if "401" in msg_error or "UNAUTHENTICATED" in msg_error:
-                            st.error("❌ **Error 401: Clave de API no autorizada**. Revisa que GEMINI_API_KEY en Secrets sea correcta y no tenga espacios sobrantes.")
-                        else:
-                            st.error(f"❌ Error al procesar con IA: {e}")
+                        st.error(f"❌ Error al generar el examen: {e}")
                 else:
-                    st.error("Por favor, sube un archivo PDF e indica el nombre del apartado.")
+                    st.error("Sube un PDF e introduce un nombre de apartado.")
