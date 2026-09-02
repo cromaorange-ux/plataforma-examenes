@@ -431,8 +431,13 @@ Texto del documento:
                     if st.button("🔴 Eliminar Documento Seleccionado"):
                         id_borrar = dict_borrado[doc_a_eliminar]
                         try:
+                            # 1. Eliminar intentos históricos asociados para evitar error de clave foránea (23503)
+                            supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
+                            
+                            # 2. Eliminar el examen/apartado principal
                             supabase.table("examenes").delete().eq("id", id_borrar).execute()
-                            st.success(f"✅ Apartado '{doc_a_eliminar}' eliminado correctamente.")
+                            
+                            st.success(f"✅ Apartado '{doc_a_eliminar}' e historial asociado eliminados correctamente.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error al eliminar apartado: {e}")
