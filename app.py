@@ -122,8 +122,9 @@ Estructura: [{"pregunta": "texto", "opciones": ["A", "B", "C"], "respuesta_corre
 Texto a evaluar:
 """ + texto[:4000]
                     
+                    # Cambiar 'gemini-3.6-flash' por 'gemini-2.5-flash' o 'gemini-1.5-flash'
                     res = gemini_client.models.generate_content(
-                        model='gemini-3.6-flash',
+                        model='gemini-2.5-flash',
                         contents=prompt,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
