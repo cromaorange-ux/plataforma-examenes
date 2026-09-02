@@ -14,17 +14,14 @@ from supabase import create_client, Client
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="centered")
 
-# CORRECTO: Se queda con la etiqueta literal "SUPABASE_URL"
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# Configuración de variable de entorno para compatibilidad GCP/Vertex AI
 os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Inicialización adaptada para credenciales de proyecto GCP
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 except Exception as e:
@@ -63,10 +60,11 @@ if "sobrepaso_tiempo_global" not in st.session_state:
 # Sistema de Ayudas (3 Comodines)
 if "comodines_restantes" not in st.session_state:
     st.session_state.comodines_restantes = 3
-if "pistas_obtenidas" not in st.session_state:
-    st.session_state.pistas_obtenidas = {}
+if "pistas_activadas" not in st.session_state:
+    st.session_state.pistas_activadas = set()
 
 TIEMPO_LIMITE_PREGUNTA = 45  # Segundos por pregunta
+UMBRAL_APROBADO_PORCENTAJE = 70.0  # Criterio experto: 70% para aprobar
 
 # ---------------------------------------------------------
 # MÓDULO 1: AUTENTICACIÓN
@@ -96,7 +94,6 @@ if not st.session_state.autenticado:
                 st.session_state.user_nombre = emp["nombre"]
                 st.session_state.es_croma = emp["es_admin_croma"]
                 
-                # Comprobar si ya realizó el examen este mes
                 inicio_mes = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0).isoformat()
                 intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", emp["id"]).gte("fecha_inicio", inicio_mes).execute()
                 
@@ -133,7 +130,6 @@ else:
         if idx < total_p:
             p_actual = st.session_state.preguntas_seleccionadas[idx]
             
-            # Encabezado con apartado y comodines de ayuda
             col_info, col_ayuda = st.columns([3, 2])
             with col_info:
                 st.subheader(f"Pregunta {idx + 1} de {total_p}")
@@ -141,7 +137,6 @@ else:
             with col_ayuda:
                 st.caption(f"💡 Ayudas disponibles: **{st.session_state.comodines_restantes} / 3**")
 
-            # Temporizador por pregunta
             tiempo_transcurrido = int(time.time() - st.session_state.tiempo_inicio_pregunta)
             tiempo_restante = TIEMPO_LIMITE_PREGUNTA - tiempo_transcurrido
             
@@ -166,29 +161,16 @@ else:
             
             eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], key=f"p_{idx}")
             
-            # PISTA DE AYUDA DE IA
-            if idx in st.session_state.pistas_obtenidas:
-                st.info(f"💡 **Pista:** {st.session_state.pistas_obtenidas[idx]}")
+            # PISTA PREGENERADA EN TIEMPO REAL (INSTANTÁNEA)
+            if idx in st.session_state.pistas_activadas:
+                pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
+                st.info(f"💡 **Pista:** {pista_texto}")
             else:
                 if st.session_state.comodines_restantes > 0:
-                    if st.button("💡 Pedir Ayuda de IA (Gasta 1 comodín)"):
+                    if st.button("💡 Pedir Ayuda (Gasta 1 comodín)"):
                         st.session_state.comodines_restantes -= 1
-                        
-                        prompt_pista = f"""El usuario está respondiendo a esta pregunta de examen:
-Pregunta: {p_actual['pregunta']}
-Opciones: {p_actual['opciones_barajadas']}
-
-Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respuesta correcta SIN revelar directamente cuál de las opciones es.
-"""
-                        try:
-                            res_pista = gemini_client.models.generate_content(
-                                model='gemini-3.6-flash',
-                                contents=prompt_pista
-                            )
-                            st.session_state.pistas_obtenidas[idx] = res_pista.text
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al solicitar la ayuda: {e}")
+                        st.session_state.pistas_activadas.add(idx)
+                        st.rerun()
                 else:
                     st.caption("🚫 Has agotado tus 3 comodines de ayuda en este examen.")
 
@@ -210,27 +192,38 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
             st.rerun()
             
         else:
-            # COMPLETADO: PROCESAR Y GUARDAR
+            # COMPLETADO: EVALUACIÓN Y GUARDADO
             st.success("🎉 Examen finalizado.")
             
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
             porcentaje = round((correctas / total_p) * 100, 2)
             nota_final = round((correctas / total_p) * 10, 2)
             
+            # Criterio experto de aprobación
+            es_aprobado = porcentaje >= UMBRAL_APROBADO_PORCENTAJE
+            estado_resultado = "🟢 APROBADO" if es_aprobado else "🔴 SUSPENSO"
+            
             tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc)
             duracion_total = int(time.time() - st.session_state.tiempo_inicio_examen)
             tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
             
-            st.metric(label="Calificación", value=f"{nota_final} / 10 ({porcentaje}%)")
+            st.metric(label="Calificación Final", value=f"{nota_final} / 10 ({porcentaje}%)", delta=estado_resultado)
+            
+            if es_aprobado:
+                st.success(f"¡Felicidades! Has superado el examen alcanzando el mínimo requerido del {UMBRAL_APROBADO_PORCENTAJE}%.")
+            else:
+                st.error(f"No has alcanzado la nota mínima de aprobación ({UMBRAL_APROBADO_PORCENTAJE}%). Se recomienda repasar los apartados evaluados.")
+                
             st.write(f"⏱️ Tiempo total empleado: **{duracion_total} segundos**")
             st.write(f"💡 Comodines de ayuda utilizados: **{3 - st.session_state.comodines_restantes} / 3**")
             
-            # Guardar auditoría en Supabase
             try:
+                id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) else 0
+
                 registro_intento = {
                     "empleado_id": st.session_state.user_id,
                     "nombre_empleado": st.session_state.user_nombre,
-                    "examen_id": st.session_state.examen_id,
+                    "examen_id": id_examen_validado,
                     "apartado": st.session_state.apartado_actual,
                     "nota": nota_final,
                     "porcentaje_obtenido": porcentaje,
@@ -252,7 +245,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
                 st.rerun()
 
     # -----------------------------------------------------
-    # SELECCIÓN Y CARGA DE EXÁMENES (TODOS LOS APARTADOS)
+    # SELECCIÓN Y CONFIGURACIÓN DE EXÁMENES
     # -----------------------------------------------------
     else:
         try:
@@ -263,122 +256,185 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
             st.error(f"Error al cargar exámenes: {e}")
 
         if examenes_disponibles:
-            st.info(f"📚 Se han encontrado **{len(examenes_disponibles)} apartados** en el sistema. El examen constará de **3 preguntas de cada apartado**.")
+            st.subheader("📋 Seleccionar Modalidad de Examen")
             
-            if st.button("Comenzar Examen Global"):
-                preguntas_preparadas = []
-                nombres_apartados = []
+            tab_global, tab_individual = st.tabs(["🌐 Examen Global (3 preguntas x apartado)", "📌 Examen por Apartado Específico"])
+            
+            with tab_global:
+                st.info(f"Se seleccionarán **3 preguntas de cada uno de los {len(examenes_disponibles)} apartados** registrados.")
+                if st.button("Comenzar Examen Global Combinado"):
+                    preguntas_preparadas = []
+                    nombres_apartados = []
+                    
+                    for ex_obj in examenes_disponibles:
+                        apartado_nombre = ex_obj["apartado"]
+                        nombres_apartados.append(apartado_nombre)
+                        banco_completo = ex_obj["preguntas_json"]
+                        
+                        num_a_seleccionar = min(3, len(banco_completo))
+                        preguntas_elegidas = random.sample(banco_completo, num_a_seleccionar)
+                        
+                        for p in preguntas_elegidas:
+                            idx_correcta = p["respuesta_correcta"]
+                            texto_correcto = p["opciones"][idx_correcta]
+                            opciones_shuffled = p["opciones"].copy()
+                            random.shuffle(opciones_shuffled)
+                            
+                            preguntas_preparadas.append({
+                                "apartado": apartado_nombre,
+                                "pregunta": p["pregunta"],
+                                "opciones_barajadas": opciones_shuffled,
+                                "respuesta_correcta_texto": texto_correcto,
+                                "pista": p.get("pista", "Revisa detenidamente los conceptos clave.")
+                            })
+                    
+                    random.shuffle(preguntas_preparadas)
+                    
+                    st.session_state.examen_id = 0
+                    st.session_state.apartado_actual = "GLOBAL: " + ", ".join(nombres_apartados)
+                    st.session_state.preguntas_seleccionadas = preguntas_preparadas
+                    st.session_state.indice_pregunta = 0
+                    st.session_state.respuestas_detalle = []
+                    st.session_state.sobrepaso_tiempo_global = False
+                    st.session_state.tiempo_inicio_examen = time.time()
+                    st.session_state.tiempo_inicio_pregunta = time.time()
+                    st.session_state.comodines_restantes = 3
+                    st.session_state.pistas_activadas = set()
+                    st.session_state.examen_activo = True
+                    st.rerun()
+
+            with tab_individual:
+                opciones_apartados = {ex["apartado"]: ex for ex in examenes_disponibles}
+                apartado_sel = st.selectbox("Selecciona un apartado:", list(opciones_apartados.keys()))
                 
-                # Seleccionar 3 preguntas al azar de CADA uno de los apartados registrados
-                for ex_obj in examenes_disponibles:
-                    apartado_nombre = ex_obj["apartado"]
-                    nombres_apartados.append(apartado_nombre)
+                if st.button("Comenzar Examen del Apartado"):
+                    ex_obj = opciones_apartados[apartado_sel]
                     banco_completo = ex_obj["preguntas_json"]
+                    preguntas_preparadas = []
                     
-                    num_a_seleccionar = min(3, len(banco_completo))
-                    preguntas_elegidas = random.sample(banco_completo, num_a_seleccionar)
-                    
-                    for p in preguntas_elegidas:
+                    for p in banco_completo:
                         idx_correcta = p["respuesta_correcta"]
                         texto_correcto = p["opciones"][idx_correcta]
-                        
                         opciones_shuffled = p["opciones"].copy()
                         random.shuffle(opciones_shuffled)
                         
                         preguntas_preparadas.append({
-                            "apartado": apartado_nombre,
+                            "apartado": apartado_sel,
                             "pregunta": p["pregunta"],
                             "opciones_barajadas": opciones_shuffled,
-                            "respuesta_correcta_texto": texto_correcto
+                            "respuesta_correcta_texto": texto_correcto,
+                            "pista": p.get("pista", "Revisa detenidamente los conceptos clave.")
                         })
-                
-                # Mezclar el orden global de las preguntas
-                random.shuffle(preguntas_preparadas)
-                
-                # Configurar Estado inicial
-                st.session_state.examen_id = "MULTIPLE"
-                st.session_state.apartado_actual = ", ".join(nombres_apartados)
-                st.session_state.preguntas_seleccionadas = preguntas_preparadas
-                st.session_state.indice_pregunta = 0
-                st.session_state.respuestas_detalle = []
-                st.session_state.sobrepaso_tiempo_global = False
-                st.session_state.tiempo_inicio_examen = time.time()
-                st.session_state.tiempo_inicio_pregunta = time.time()
-                st.session_state.comodines_restantes = 3
-                st.session_state.pistas_obtenidas = {}
-                st.session_state.examen_activo = True
-                
-                st.rerun()
+                    
+                    random.shuffle(preguntas_preparadas)
+                    
+                    st.session_state.examen_id = ex_obj["id"] if isinstance(ex_obj["id"], int) else 0
+                    st.session_state.apartado_actual = apartado_sel
+                    st.session_state.preguntas_seleccionadas = preguntas_preparadas
+                    st.session_state.indice_pregunta = 0
+                    st.session_state.respuestas_detalle = []
+                    st.session_state.sobrepaso_tiempo_global = False
+                    st.session_state.tiempo_inicio_examen = time.time()
+                    st.session_state.tiempo_inicio_pregunta = time.time()
+                    st.session_state.comodines_restantes = 3
+                    st.session_state.pistas_activadas = set()
+                    st.session_state.examen_activo = True
+                    st.rerun()
         else:
             st.warning("No hay exámenes disponibles en el sistema.")
 
         # -------------------------------------------------
-        # PANEL ADMIN: GENERAR BBDD DE 15 PREGUNTAS CON IA
+        # PANEL ADMIN: GENERACIÓN Y ELIMINACIÓN DE DOCUMENTOS
         # -------------------------------------------------
         if st.session_state.es_croma:
             st.markdown("---")
-            st.subheader("⚙️ Panel Admin: Generar Banco de 15 Preguntas")
-            archivo_pdf = st.file_uploader("Cargar PDF con manual operativo", type=["pdf"])
-            nombre_apartado = st.text_input("Nombre de la materia/apartado")
+            st.subheader("⚙️ Panel de Administración")
             
-            if st.button("Procesar e Insertar 15 Preguntas con IA"):
-                if archivo_pdf and nombre_apartado:
-                    try:
-                        reader = PdfReader(archivo_pdf)
-                        texto = "".join([page.extract_text() or "" for page in reader.pages])
-                        
-                        prompt = """Genera un examen con EXACTAMENTE 15 preguntas de cada apartado tipo test basadas en el texto.
+            col_gen, col_del = st.columns(2)
+            
+            with col_gen:
+                st.write("### 📥 Cargar Nuevo PDF y Generar Examen")
+                archivo_pdf = st.file_uploader("Cargar PDF con manual operativo", type=["pdf"])
+                nombre_apartado = st.text_input("Nombre de la materia/apartado")
+                
+                if st.button("Procesar e Insertar 15 Preguntas con IA"):
+                    if archivo_pdf and nombre_apartado:
+                        try:
+                            reader = PdfReader(archivo_pdf)
+                            texto = "".join([page.extract_text() or "" for page in reader.pages])
+                            
+                            prompt = """Genera un examen con EXACTAMENTE 15 preguntas tipo test basadas exclusivamente en el documento adjunto.
+Incluye para cada pregunta una pista de ayuda breve (máximo 2 frases) que guíe al estudiante sin revelar la opción correcta.
+
 Responde ÚNICAMENTE con un array JSON estructurado así:
 [
   {
     "pregunta": "texto de la pregunta",
     "opciones": ["Opcion A", "Opcion B", "Opcion C", "Opcion D"],
     "respuesta_correcta": 0,
+    "pista": "pista explicativa sin decir la respuesta",
     "tipo": "test"
   }
 ]
 
-Texto de estudio:
+Texto del documento:
 """ + texto[:6000]
 
-                        modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
-                        res = None
-                        
-                        with st.spinner("Generando 15 preguntas con IA... Esto puede tomar unos segundos."):
-                            for model_name in modelos:
-                                intencion = 0
-                                exito = False
-                                while intencion < 3 and not exito:
-                                    try:
-                                        res = gemini_client.models.generate_content(
-                                            model=model_name,
-                                            contents=prompt,
-                                            config=types.GenerateContentConfig(response_mime_type="application/json")
-                                        )
-                                        exito = True
-                                    except Exception as err:
-                                        if "503" in str(err) or "UNAVAILABLE" in str(err):
-                                            intencion += 1
-                                            time.sleep(2)  # Espera 2 segundos antes de reintentar
-                                        else:
-                                            raise err  # Si es otro tipo de error, lo lanza de inmediato
-                                if exito:
-                                    break
+                            modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
+                            res = None
+                            
+                            with st.spinner("Generando 15 preguntas y pistas precalculadas..."):
+                                for model_name in modelos:
+                                    intencion = 0
+                                    exito = False
+                                    while intencion < 3 and not exito:
+                                        try:
+                                            res = gemini_client.models.generate_content(
+                                                model=model_name,
+                                                contents=prompt,
+                                                config=types.GenerateContentConfig(response_mime_type="application/json")
+                                            )
+                                            exito = True
+                                        except Exception as err:
+                                            if "503" in str(err) or "UNAVAILABLE" in str(err):
+                                                intencion += 1
+                                                time.sleep(2)
+                                            else:
+                                                raise err
+                                    if exito:
+                                        break
 
-                        if res and res.text:
-                            preguntas_json = json.loads(res.text)
-                            
-                            supabase.table("examenes").insert({
-                                "apartado": nombre_apartado, 
-                                "preguntas_json": preguntas_json
-                            }).execute()
-                            
-                            st.success(f"✅ Se han generado {len(preguntas_json)} preguntas y se guardaron en el apartado '{nombre_apartado}'.")
+                            if res and res.text:
+                                preguntas_json = json.loads(res.text)
+                                
+                                supabase.table("examenes").insert({
+                                    "apartado": nombre_apartado, 
+                                    "preguntas_json": preguntas_json
+                                }).execute()
+                                
+                                st.success(f"✅ Se generaron {len(preguntas_json)} preguntas con pistas en '{nombre_apartado}'.")
+                                st.rerun()
+                            else:
+                                st.error("❌ El servicio de IA está saturado. Inténtalo en un minuto.")
+
+                        except Exception as e:
+                            st.error(f"❌ Error al generar el examen: {e}")
+                    else:
+                        st.error("Sube un PDF e introduce un nombre de apartado.")
+
+            with col_del:
+                st.write("### 🗑️ Eliminar Documentos / Apartados")
+                if examenes_disponibles:
+                    dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_disponibles}
+                    doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
+                    
+                    if st.button("🔴 Eliminar Documento Seleccionado"):
+                        id_borrar = dict_borrado[doc_a_eliminar]
+                        try:
+                            supabase.table("examenes").delete().eq("id", id_borrar).execute()
+                            st.success(f"✅ Apartado '{doc_a_eliminar}' eliminado correctamente.")
                             st.rerun()
-                        else:
-                            st.error("❌ El servicio de IA está muy saturado en este momento. Por favor, reinténtalo en 1 minuto.")
-
-                    except Exception as e:
-                        st.error(f"❌ Error al generar el examen: {e}")
+                        except Exception as e:
+                            st.error(f"Error al eliminar apartado: {e}")
                 else:
-                    st.error("Sube un PDF e introduce un nombre de apartado.")
+                    st.info("No hay documentos guardados para eliminar.")
