@@ -66,6 +66,63 @@ if "pistas_activadas" not in st.session_state:
 TIEMPO_LIMITE_PREGUNTA = 45  # Segundos por pregunta
 UMBRAL_APROBADO_PORCENTAJE = 70.0  # Criterio experto: 70% para aprobar
 
+
+def seleccionar_15_preguntas(banco_completo):
+    """
+    Selecciona 15 preguntas únicas de un banco de 50:
+    - 3 Principales
+    - 3 por Dificultad (1 Fácil, 1 Media, 1 Difícil)
+    - 9 Aleatorias entre las restantes
+    """
+    disponibles = banco_completo.copy()
+    random.shuffle(disponibles)
+    
+    seleccionadas = []
+    ids_seleccionados = set()
+
+    # 1. Seleccionar 3 Principales
+    principales = [p for p in disponibles if p.get("es_principal", False)]
+    for p in principales[:3]:
+        seleccionadas.append(p)
+        ids_seleccionados.add(p["pregunta"])
+
+    # Actualizar pool de disponibles
+    disponibles = [p for p in disponibles if p["pregunta"] not in ids_seleccionados]
+
+    # 2. Seleccionar 3 por Dificultad (1 facil, 1 media, 1 dificil)
+    faciles = [p for p in disponibles if p.get("dificultad") == "facil"]
+    medias = [p for p in disponibles if p.get("dificultad") == "media"]
+    dificiles = [p for p in disponibles if p.get("dificultad") == "dificil"]
+
+    if faciles:
+        p_facil = faciles[0]
+        seleccionadas.append(p_facil)
+        ids_seleccionados.add(p_facil["pregunta"])
+    if medias:
+        p_media = [p for p in medias if p["pregunta"] not in ids_seleccionados][0]
+        seleccionadas.append(p_media)
+        ids_seleccionados.add(p_media["pregunta"])
+    if dificiles:
+        p_dificil = [p for p in dificiles if p["pregunta"] not in ids_seleccionados][0]
+        seleccionadas.append(p_dificil)
+        ids_seleccionados.add(p_dificil["pregunta"])
+
+    # Actualizar pool de disponibles
+    disponibles = [p for p in disponibles if p["pregunta"] not in ids_seleccionados]
+
+    # 3. Completar hasta 15 con selección aleatoria del resto
+    faltantes = 15 - len(seleccionadas)
+    if faltantes > 0 and len(disponibles) >= faltantes:
+        resto = random.sample(disponibles, faltantes)
+        seleccionadas.extend(resto)
+    elif faltantes > 0:
+        seleccionadas.extend(disponibles)
+
+    # Barajar el orden final para que no siempre aparezcan primero las principales
+    random.shuffle(seleccionadas)
+    return seleccionadas
+
+
 # ---------------------------------------------------------
 # MÓDULO 1: AUTENTICACIÓN
 # ---------------------------------------------------------
@@ -161,7 +218,7 @@ else:
             
             eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], key=f"p_{idx}")
             
-            # PISTA PREGENERADA EN TIEMPO REAL (INSTANTÁNEA)
+            # PISTA PREGENERADA
             if idx in st.session_state.pistas_activadas:
                 pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
                 st.info(f"💡 **Pista:** {pista_texto}")
@@ -199,7 +256,6 @@ else:
             porcentaje = round((correctas / total_p) * 100, 2)
             nota_final = round((correctas / total_p) * 10, 2)
             
-            # Criterio experto de aprobación
             es_aprobado = porcentaje >= UMBRAL_APROBADO_PORCENTAJE
             estado_resultado = "🟢 APROBADO" if es_aprobado else "🔴 SUSPENSO"
             
@@ -258,7 +314,7 @@ else:
         if examenes_disponibles:
             st.subheader("📋 Seleccionar Modalidad de Examen")
             
-            tab_global, tab_individual = st.tabs(["🌐 Examen Global (3 preguntas x apartado)", "📌 Examen por Apartado Específico"])
+            tab_global, tab_individual = st.tabs(["🌐 Examen Global (3 preguntas x apartado)", "📌 Examen por Apartado Específico (15 de 50)"])
             
             with tab_global:
                 st.info(f"Se seleccionarán **3 preguntas de cada uno de los {len(examenes_disponibles)} apartados** registrados.")
@@ -309,10 +365,13 @@ else:
                 
                 if st.button("Comenzar Examen del Apartado"):
                     ex_obj = opciones_apartados[apartado_sel]
-                    banco_completo = ex_obj["preguntas_json"]
+                    banco_50 = ex_obj["preguntas_json"]
+                    
+                    # Filtrar las 15 según la regla (3 principales + 3 por dificultad + 9 aleatorias)
+                    seleccion_15 = seleccionar_15_preguntas(banco_50)
                     preguntas_preparadas = []
                     
-                    for p in banco_completo:
+                    for p in seleccion_15:
                         idx_correcta = p["respuesta_correcta"]
                         texto_correcto = p["opciones"][idx_correcta]
                         opciones_shuffled = p["opciones"].copy()
@@ -325,8 +384,6 @@ else:
                             "respuesta_correcta_texto": texto_correcto,
                             "pista": p.get("pista", "Revisa detenidamente los conceptos clave.")
                         })
-                    
-                    random.shuffle(preguntas_preparadas)
                     
                     st.session_state.examen_id = ex_obj["id"] if isinstance(ex_obj["id"], int) else 0
                     st.session_state.apartado_actual = apartado_sel
@@ -353,18 +410,22 @@ else:
             col_gen, col_del = st.columns(2)
             
             with col_gen:
-                st.write("### 📥 Cargar Nuevo PDF y Generar Examen")
+                st.write("### 📥 Cargar Nuevo PDF y Generar Banco (50 Preguntas)")
                 archivo_pdf = st.file_uploader("Cargar PDF con manual operativo", type=["pdf"])
                 nombre_apartado = st.text_input("Nombre de la materia/apartado")
                 
-                if st.button("Procesar e Insertar 15 Preguntas con IA"):
+                if st.button("Procesar e Insertar 50 Preguntas con IA"):
                     if archivo_pdf and nombre_apartado:
                         try:
                             reader = PdfReader(archivo_pdf)
                             texto = "".join([page.extract_text() or "" for page in reader.pages])
                             
-                            prompt = """Genera un examen con EXACTAMENTE 15 preguntas tipo test basadas exclusivamente en el documento adjunto.
-Incluye para cada pregunta una pista de ayuda breve (máximo 2 frases) que guíe al estudiante sin revelar la opción correcta.
+                            prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
+
+Requisitos estrictos para el JSON:
+1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
+2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
+3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
 
 Responde ÚNICAMENTE con un array JSON estructurado así:
 [
@@ -373,17 +434,19 @@ Responde ÚNICAMENTE con un array JSON estructurado así:
     "opciones": ["Opcion A", "Opcion B", "Opcion C", "Opcion D"],
     "respuesta_correcta": 0,
     "pista": "pista explicativa sin decir la respuesta",
+    "es_principal": true,
+    "dificultad": "media",
     "tipo": "test"
   }
 ]
 
 Texto del documento:
-""" + texto[:6000]
+""" + texto[:8000]
 
                             modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                             res = None
                             
-                            with st.spinner("Generando 15 preguntas y pistas precalculadas..."):
+                            with st.spinner("Generando banco de 50 preguntas con metadatos de dificultad y pistas..."):
                                 for model_name in modelos:
                                     intencion = 0
                                     exito = False
@@ -412,7 +475,7 @@ Texto del documento:
                                     "preguntas_json": preguntas_json
                                 }).execute()
                                 
-                                st.success(f"✅ Se generaron {len(preguntas_json)} preguntas con pistas en '{nombre_apartado}'.")
+                                st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
                                 st.rerun()
                             else:
                                 st.error("❌ El servicio de IA está saturado. Inténtalo en un minuto.")
@@ -431,13 +494,13 @@ Texto del documento:
                     if st.button("🔴 Eliminar Documento Seleccionado"):
                         id_borrar = dict_borrado[doc_a_eliminar]
                         try:
-                            # 1. Eliminar intentos históricos asociados para evitar error de clave foránea (23503)
+                            # 1. Eliminar intentos históricos asociados
                             supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
                             
-                            # 2. Eliminar el examen/apartado principal
+                            # 2. Eliminar apartado
                             supabase.table("examenes").delete().eq("id", id_borrar).execute()
                             
-                            st.success(f"✅ Apartado '{doc_a_eliminar}' e historial asociado eliminados correctamente.")
+                            st.success(f"✅ Apartado '{doc_a_eliminar}' e historial borrados con éxito.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error al eliminar apartado: {e}")
