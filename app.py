@@ -290,7 +290,6 @@ else:
     # MENÚ PRINCIPAL
     # -----------------------------------------------------
     else:
-        # Pestañas diferenciadas según el rol
         if st.session_state.es_croma:
             tab_examenes, tab_admin_resultados, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen", 
@@ -415,7 +414,6 @@ else:
                 mis_intentos = res_mis_intentos.data if res_mis_intentos.data else []
                 
                 dias_restantes = obtener_dias_restantes_mes()
-                
                 st.info(f"📅 **Habilitación de Examen:** Te quedan **{dias_restantes} días** para realizar la evaluación correspondiente al próximo ciclo mensual.")
                 
                 if mis_intentos:
@@ -468,6 +466,14 @@ else:
                     intento_sel_key = st.selectbox("Selecciona el intento a editar:", list(dict_intentos.keys()))
                     intento_obj = dict_intentos[intento_sel_key]
                     
+                    # Cargar el banco original para contrastar la respuesta correcta
+                    banco_preguntas_original = []
+                    ex_id = intento_obj.get("examen_id")
+                    if ex_id and ex_id > 0:
+                        res_ex_orig = supabase.table("examenes").select("preguntas_json").eq("id", ex_id).execute()
+                        if res_ex_orig.data:
+                            banco_preguntas_original = res_ex_orig.data[0].get("preguntas_json", [])
+
                     respuestas_lista = intento_obj.get("respuestas_usuario", [])
                     
                     if respuestas_lista:
@@ -476,14 +482,38 @@ else:
                         p_idx = dict_preguntas[p_sel_key]
                         p_objetivo = respuestas_lista[p_idx]
                         
+                        # Buscar la respuesta correcta original en el banco
+                        respuesta_correcta_original = "No disponible"
+                        opciones_disponibles = [p_objetivo.get("opcion_elegida", "")]
+                        
+                        for p_orig in banco_preguntas_original:
+                            if p_orig["pregunta"] == p_objetivo["pregunta"]:
+                                idx_c = p_orig["respuesta_correcta"]
+                                respuesta_correcta_original = p_orig["opciones"][idx_c]
+                                opciones_disponibles = p_orig["opciones"]
+                                break
+
                         st.write(f"**Pregunta completa:** {p_objetivo['pregunta']}")
-                        st.write(f"**Respuesta actual elegida:** {p_objetivo.get('opcion_elegida')}")
-                        st.write(f"**Estado actual:** {'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}")
+                        
+                        st.info(f"""
+                        📌 **Respuesta elegida por el alumno:** {p_objetivo.get('opcion_elegida')}  
+                        ✅ **Respuesta correcta teórica del examen:** {respuesta_correcta_original}  
+                        📊 **Estado actual:** {'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}
+                        """)
                         
                         col1, col2 = st.columns(2)
                         with col1:
                             nuevo_estado_correcta = st.checkbox("¿Marcar como correcta?", value=p_objetivo.get("es_correcta", False))
-                            nueva_opcion_texto = st.text_input("Nueva opción elegida (opcional):", value=p_objetivo.get("opcion_elegida", ""))
+                            
+                            idx_default = 0
+                            if respuesta_correcta_original in opciones_disponibles:
+                                idx_default = opciones_disponibles.index(respuesta_correcta_original)
+                                
+                            nueva_opcion_texto = st.selectbox(
+                                "Nueva opción asignada (Respuesta Correcta Sugerida):",
+                                opciones_disponibles,
+                                index=idx_default
+                            )
                         
                         with col2:
                             editor_nombre = st.text_input("Nombre de la persona que edita:", value=st.session_state.user_nombre)
@@ -495,7 +525,6 @@ else:
                             else:
                                 fecha_hora_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
                                 
-                                # Actualizar la pregunta
                                 respuestas_lista[p_idx]["es_correcta"] = nuevo_estado_correcta
                                 respuestas_lista[p_idx]["opcion_elegida"] = nueva_opcion_texto
                                 respuestas_lista[p_idx]["audit_edicion"] = {
@@ -504,7 +533,6 @@ else:
                                     "motivo": motivo_edicion
                                 }
                                 
-                                # Recalcular nota y porcentaje
                                 total_preg = len(respuestas_lista)
                                 nuevas_correctas = sum(1 for r in respuestas_lista if r["es_correcta"])
                                 nuevo_porcentaje = round((nuevas_correctas / total_preg) * 100, 2)
@@ -517,7 +545,7 @@ else:
                                         "porcentaje_obtenido": nuevo_porcentaje
                                     }).eq("id", intento_obj["id"]).execute()
                                     
-                                    st.success(f"✅ Respuesta modificada correctamente. Nueva nota recalculada: **{nueva_nota} / 10** ({nuevo_porcentaje}%). Auditoría guardada a las {fecha_hora_utc}.")
+                                    st.success(f"✅ Respuesta modificada correctamente. Nueva nota recalculada: **{nueva_nota} / 10** ({nuevo_porcentaje}%). Auditoría registrada a las {fecha_hora_utc}.")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error al actualizar intento: {e}")
