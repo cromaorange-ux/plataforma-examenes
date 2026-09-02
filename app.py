@@ -10,9 +10,9 @@ from google.genai import types
 # ---------------------------------------------------------
 # CONFIGURACIÓN DE APIS Y BASE DE DATOS
 # ---------------------------------------------------------
-SUPABASE_URL = "https://tu-proyecto.supabase.co"
-SUPABASE_KEY = "tu-anon-key-de-supabase"
-GEMINI_API_KEY = "tu-api-key-de-gemini"
+SUPABASE_URL = "https://vezkigrbksmsndasxldu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemtpZ3Jia3Ntc25kYXN4bGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTgyMjgsImV4cCI6MjEwMzgzNDIyOH0.0jkzfl0zceROHR0Xl00r-5TthJ7Z5neqY7b4h9PAyzw"
+GEMINI_API_KEY = "AQ.Ab8RN6J-S9DRtaJ5Bkj7n_L0_uK2D4EhbEKiLaNeO7Ry7o0TJg"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
