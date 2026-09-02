@@ -133,10 +133,11 @@ else:
         if idx < total_p:
             p_actual = st.session_state.preguntas_seleccionadas[idx]
             
-            # Encabezado con comodines de ayuda
+            # Encabezado con apartado y comodines de ayuda
             col_info, col_ayuda = st.columns([3, 2])
             with col_info:
                 st.subheader(f"Pregunta {idx + 1} de {total_p}")
+                st.caption(f"📌 **Materia/Apartado:** {p_actual.get('apartado', 'General')}")
             with col_ayuda:
                 st.caption(f"💡 Ayudas disponibles: **{st.session_state.comodines_restantes} / 3**")
 
@@ -251,7 +252,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
                 st.rerun()
 
     # -----------------------------------------------------
-    # SELECCIÓN Y CARGA DE EXÁMENES
+    # SELECCIÓN Y CARGA DE EXÁMENES (TODOS LOS APARTADOS)
     # -----------------------------------------------------
     else:
         try:
@@ -262,35 +263,41 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
             st.error(f"Error al cargar exámenes: {e}")
 
         if examenes_disponibles:
-            dict_examenes = {ex["apartado"]: ex for ex in examenes_disponibles}
-            examen_seleccionado = st.selectbox("Seleccionar Examen", list(dict_examenes.keys()))
+            st.info(f"📚 Se han encontrado **{len(examenes_disponibles)} apartados** en el sistema. El examen constará de **3 preguntas de cada apartado**.")
             
-            if st.button("Comenzar Examen"):
-                ex_obj = dict_examenes[examen_seleccionado]
-                banco_completo = ex_obj["preguntas_json"]
-                
-                # Seleccionar 3 preguntas al azar
-                num_a_seleccionar = min(3, len(banco_completo))
-                preguntas_elegidas = random.sample(banco_completo, num_a_seleccionar)
-                
-                # Mezclar opciones de respuesta
+            if st.button("Comenzar Examen Global"):
                 preguntas_preparadas = []
-                for p in preguntas_elegidas:
-                    idx_correcta = p["respuesta_correcta"]
-                    texto_correcto = p["opciones"][idx_correcta]
+                nombres_apartados = []
+                
+                # Seleccionar 3 preguntas al azar de CADA uno de los apartados registrados
+                for ex_obj in examenes_disponibles:
+                    apartado_nombre = ex_obj["apartado"]
+                    nombres_apartados.append(apartado_nombre)
+                    banco_completo = ex_obj["preguntas_json"]
                     
-                    opciones_shuffled = p["opciones"].copy()
-                    random.shuffle(opciones_shuffled)
+                    num_a_seleccionar = min(3, len(banco_completo))
+                    preguntas_elegidas = random.sample(banco_completo, num_a_seleccionar)
                     
-                    preguntas_preparadas.append({
-                        "pregunta": p["pregunta"],
-                        "opciones_barajadas": opciones_shuffled,
-                        "respuesta_correcta_texto": texto_correcto
-                    })
+                    for p in preguntas_elegidas:
+                        idx_correcta = p["respuesta_correcta"]
+                        texto_correcto = p["opciones"][idx_correcta]
+                        
+                        opciones_shuffled = p["opciones"].copy()
+                        random.shuffle(opciones_shuffled)
+                        
+                        preguntas_preparadas.append({
+                            "apartado": apartado_nombre,
+                            "pregunta": p["pregunta"],
+                            "opciones_barajadas": opciones_shuffled,
+                            "respuesta_correcta_texto": texto_correcto
+                        })
+                
+                # Mezclar el orden global de las preguntas
+                random.shuffle(preguntas_preparadas)
                 
                 # Configurar Estado inicial
-                st.session_state.examen_id = ex_obj["id"]
-                st.session_state.apartado_actual = ex_obj["apartado"]
+                st.session_state.examen_id = "MULTIPLE"
+                st.session_state.apartado_actual = ", ".join(nombres_apartados)
                 st.session_state.preguntas_seleccionadas = preguntas_preparadas
                 st.session_state.indice_pregunta = 0
                 st.session_state.respuestas_detalle = []
@@ -320,7 +327,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
                         reader = PdfReader(archivo_pdf)
                         texto = "".join([page.extract_text() or "" for page in reader.pages])
                         
-                        prompt = """Genera un examen con EXACTAMENTE 15 preguntas tipo test basadas en el texto.
+                        prompt = """Genera un examen con EXACTAMENTE 15 preguntas de cada apartado tipo test basadas en el texto.
 Responde ÚNICAMENTE con un array JSON estructurado así:
 [
   {
@@ -334,7 +341,6 @@ Responde ÚNICAMENTE con un array JSON estructurado así:
 Texto de estudio:
 """ + texto[:6000]
 
-                        # Lista de modelos a intentar en orden de preferencia si hay saturación (503)
                         modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                         res = None
                         
