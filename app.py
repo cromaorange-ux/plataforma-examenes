@@ -12,9 +12,9 @@ from supabase import create_client, Client
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="centered")
 
-SUPABASE_URL = st.secrets["https://vezkigrbksmsndasxldu.supabase.co"]
-SUPABASE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemtpZ3Jia3Ntc25kYXN4bGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTgyMjgsImV4cCI6MjEwMzgzNDIyOH0.0jkzfl0zceROHR0Xl00r-5TthJ7Z5neqY7b4h9PAyzw"]
-GEMINI_API_KEY = st.secrets["AQ.Ab8RN6L66WvdO0jOeDW15-EElhDz6lo8WtJX-rfnpwRwPtn8pA"]
+SUPABASE_URL = "https://vezkigrbksmsndasxldu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemtpZ3Jia3Ntc25kYXN4bGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTgyMjgsImV4cCI6MjEwMzgzNDIyOH0.0jkzfl0zceROHR0Xl00r-5TthJ7Z5neqY7b4h9PAyzw"
+GEMINI_API_KEY = "AQ.Ab8RN6L66WvdO0jOeDW15-EElhDz6lo8WtJX-rfnpwRwPtn8pA"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
