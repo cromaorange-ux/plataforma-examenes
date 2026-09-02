@@ -3,6 +3,7 @@ import datetime
 import json
 import time
 import random
+import os
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
@@ -13,12 +14,21 @@ from supabase import create_client, Client
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="centered")
 
-SUPABASE_URL = "https://vezkigrbksmsndasxldu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemtpZ3Jia3Ntc25kYXN4bGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTgyMjgsImV4cCI6MjEwMzgzNDIyOH0.0jkzfl0zceROHR0Xl00r-5TthJ7Z5neqY7b4h9PAyzw"
-GEMINI_API_KEY = "AQ.Ab8RN6L66WvdO0jOeDW15-EElhDz6lo8WtJX-rfnpwRwPtn8pA"
+# CORRECTO: Se queda con la etiqueta literal "SUPABASE_URL"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+
+# Configuración de variable de entorno para compatibilidad GCP/Vertex AI
+os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+# Inicialización adaptada para credenciales de proyecto GCP
+try:
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+except Exception as e:
+    st.error(f"Error al inicializar el cliente de Gemini: {e}")
 
 # Variables de Estado de Sesión
 if "autenticado" not in st.session_state:
@@ -30,7 +40,7 @@ if "user_nombre" not in st.session_state:
 if "es_croma" not in st.session_state:
     st.session_state.es_croma = False
 
-# Estado de la prueba
+# Estado del examen
 if "examen_activo" not in st.session_state:
     st.session_state.examen_activo = False
 if "preguntas_seleccionadas" not in st.session_state:
@@ -54,7 +64,7 @@ if "sobrepaso_tiempo_global" not in st.session_state:
 if "comodines_restantes" not in st.session_state:
     st.session_state.comodines_restantes = 3
 if "pistas_obtenidas" not in st.session_state:
-    st.session_state.pistas_obtenidas = {}  # Guarda la pista obtenida por cada pregunta
+    st.session_state.pistas_obtenidas = {}
 
 TIEMPO_LIMITE_PREGUNTA = 45  # Segundos por pregunta
 
@@ -123,7 +133,7 @@ else:
         if idx < total_p:
             p_actual = st.session_state.preguntas_seleccionadas[idx]
             
-            # Encabezado con estado de comodines de ayuda
+            # Encabezado con comodines de ayuda
             col_info, col_ayuda = st.columns([3, 2])
             with col_info:
                 st.subheader(f"Pregunta {idx + 1} de {total_p}")
@@ -155,7 +165,7 @@ else:
             
             eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], key=f"p_{idx}")
             
-            # BOTÓN DE PISTA DE AYUDA (IA)
+            # PISTA DE AYUDA DE IA
             if idx in st.session_state.pistas_obtenidas:
                 st.info(f"💡 **Pista:** {st.session_state.pistas_obtenidas[idx]}")
             else:
@@ -214,7 +224,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
             st.write(f"⏱️ Tiempo total empleado: **{duracion_total} segundos**")
             st.write(f"💡 Comodines de ayuda utilizados: **{3 - st.session_state.comodines_restantes} / 3**")
             
-            # Guardar en Supabase
+            # Guardar auditoría en Supabase
             try:
                 registro_intento = {
                     "empleado_id": st.session_state.user_id,
@@ -259,7 +269,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
                 ex_obj = dict_examenes[examen_seleccionado]
                 banco_completo = ex_obj["preguntas_json"]
                 
-                # Seleccionar 3 preguntas al azar de la BBDD
+                # Seleccionar 3 preguntas al azar
                 num_a_seleccionar = min(3, len(banco_completo))
                 preguntas_elegidas = random.sample(banco_completo, num_a_seleccionar)
                 
@@ -278,7 +288,7 @@ Proporciona una pista concisa (máximo 2 frases) que le ayude a razonar la respu
                         "respuesta_correcta_texto": texto_correcto
                     })
                 
-                # Configurar Estado inicial del examen
+                # Configurar Estado inicial
                 st.session_state.examen_id = ex_obj["id"]
                 st.session_state.apartado_actual = ex_obj["apartado"]
                 st.session_state.preguntas_seleccionadas = preguntas_preparadas
