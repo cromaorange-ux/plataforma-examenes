@@ -726,7 +726,7 @@ Texto del manual:
 """ + texto[:8000]
 
                         # Se utilizan nombres de modelos válidos en la API actual
-                        modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
+                        modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                         res = None
                         
                         with st.spinner("Generando banco de preguntas con IA..."):
