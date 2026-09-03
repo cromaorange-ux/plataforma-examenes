@@ -74,11 +74,15 @@ if "es_croma" not in st.session_state:
 if "usuario_modal_sel" not in st.session_state:
     st.session_state.usuario_modal_sel = None
 
-# Estado del examen
+# Estado del examen y tiempos
 if "examen_activo" not in st.session_state:
     st.session_state.examen_activo = False
 if "modo_revision" not in st.session_state:
     st.session_state.modo_revision = False
+if "modificando_desde_revision" not in st.session_state:
+    st.session_state.modificando_desde_revision = False
+if "tiempos_restantes_preguntas" not in st.session_state:
+    st.session_state.tiempos_restantes_preguntas = {}
 if "preguntas_seleccionadas" not in st.session_state:
     st.session_state.preguntas_seleccionadas = []
 if "indice_pregunta" not in st.session_state:
@@ -136,20 +140,17 @@ def generar_pdf_resultado(intento):
     styles = getSampleStyleSheet()
     story = []
 
-    # Estilos
     titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#1A365D"), spaceAfter=10)
     sub_style = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=11, leading=14, textColor=colors.HexColor("#4A5568"), spaceAfter=15)
     bold_style = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=10, leading=13, fontName="Helvetica-Bold")
     norm_style = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=10, leading=13)
     err_style = ParagraphStyle('Err', parent=styles['Normal'], fontSize=10, leading=13, textColor=colors.HexColor("#C53030"))
 
-    # Encabezado
     story.append(Paragraph("Informe de Evaluación de Examen", titulo_style))
     fecha_txt = intento.get("fecha_inicio", "")[:10] if intento.get("fecha_inicio") else "N/A"
     story.append(Paragraph(f"<b>Empleado:</b> {intento.get('nombre_empleado')} | <b>Fecha:</b> {fecha_txt} | <b>Apartado:</b> {intento.get('apartado')}", sub_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#CBD5E0"), spaceAfter=15))
 
-    # Resultados generales
     respuestas = intento.get("respuestas_usuario", [])
     total_p = len(respuestas) if respuestas else 1
     correctas = sum(1 for r in respuestas if r.get("es_correcta"))
@@ -171,7 +172,6 @@ def generar_pdf_resultado(intento):
     story.append(t)
     story.append(Spacer(1, 15))
 
-    # Preguntas Erróneas
     erroneas = [r for r in respuestas if not r.get("es_correcta")]
     if erroneas:
         story.append(Paragraph("<b>Desglose de Preguntas Erróneas o Sin Responder:</b>", bold_style))
@@ -276,6 +276,7 @@ else:
                 if st.button("Modificar", key=f"mod_rev_{i}"):
                     st.session_state.indice_pregunta = i
                     st.session_state.modo_revision = False
+                    st.session_state.modificando_desde_revision = True
                     st.session_state.tiempo_inicio_pregunta = time.time()
                     st.rerun()
             st.write("---")
@@ -333,34 +334,44 @@ else:
             with col_ayuda:
                 st.caption(f"💡 Ayudas disponibles: **{st.session_state.comodines_restantes} / 3**")
 
+            # Control de tiempo individual retenido
+            tiempo_base = st.session_state.tiempos_restantes_preguntas.get(idx, TIEMPO_LIMITE_PREGUNTA)
             tiempo_transcurrido = int(time.time() - st.session_state.tiempo_inicio_pregunta)
-            tiempo_restante = TIEMPO_LIMITE_PREGUNTA - tiempo_transcurrido
+            tiempo_restante = tiempo_base - tiempo_transcurrido
             
             st.progress(max(0.0, tiempo_restante / TIEMPO_LIMITE_PREGUNTA))
             
             if tiempo_restante > 0:
                 st.caption(f"⏱️ Tiempo restante: **{tiempo_restante} segundos**")
             else:
-                st.warning("⏰ ¡Tiempo agotado en esta pregunta! Marcada como en blanco.")
+                st.warning("⏰ ¡Tiempo agotado en esta pregunta!")
                 st.session_state.sobrepaso_tiempo_global = True
+                st.session_state.tiempos_restantes_preguntas[idx] = 0
                 
-                st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
-                st.session_state.respuestas_detalle.append({
-                    "idx_pregunta": idx,
-                    "pregunta": p_actual["pregunta"],
-                    "opcion_elegida": "En blanco (Agotado tiempo)",
-                    "es_correcta": False
-                })
-                st.session_state.indice_pregunta += 1
-                st.session_state.tiempo_inicio_pregunta = time.time()
-                st.rerun()
+                if not st.session_state.modificando_desde_revision:
+                    st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
+                    st.session_state.respuestas_detalle.append({
+                        "idx_pregunta": idx,
+                        "pregunta": p_actual["pregunta"],
+                        "opcion_elegida": "En blanco (Agotado tiempo)",
+                        "es_correcta": False
+                    })
+                    st.session_state.indice_pregunta += 1
+                    st.session_state.tiempo_inicio_pregunta = time.time()
+                    st.rerun()
 
             st.markdown(f"<p class='pregunta-titulo'>{p_actual['pregunta']}</p>", unsafe_allow_html=True)
             
             if p_actual.get("tipo") == "practica_imagen" and p_actual.get("imagen_url"):
                 st.image(p_actual["imagen_url"], caption="Imagen del Ejercicio Práctico", use_container_width=True)
 
-            eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=None, key=f"p_{idx}")
+            # Buscar respuesta previamente seleccionada si existe
+            resp_previa = next((r["opcion_elegida"] for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == idx), None)
+            idx_previa = None
+            if resp_previa and resp_previa in p_actual["opciones_barajadas"]:
+                idx_previa = p_actual["opciones_barajadas"].index(resp_previa)
+
+            eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=idx_previa, key=f"p_{idx}")
             
             if idx in st.session_state.pistas_activadas:
                 pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
@@ -378,6 +389,9 @@ else:
             col_b1, col_b2 = st.columns(2)
             with col_b1:
                 if st.button("Responder / Siguiente", key=f"btn_sig_{idx}"):
+                    st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
+                    st.session_state.modificando_desde_revision = False
+                    
                     if eleccion is None or eleccion == "":
                         es_correcta = False
                         opcion_guardada = "En blanco (Sin marcar)"
@@ -399,11 +413,14 @@ else:
 
             with col_b2:
                 if st.button("📋 Ir a Revisión", key=f"btn_rev_{idx}"):
+                    st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
+                    st.session_state.modificando_desde_revision = False
                     st.session_state.modo_revision = True
                     st.rerun()
 
-            time.sleep(1)
-            st.rerun()
+            if tiempo_restante > 0:
+                time.sleep(1)
+                st.rerun()
 
         else:
             st.session_state.modo_revision = True
@@ -488,6 +505,8 @@ else:
                             st.session_state.preguntas_seleccionadas = preguntas_preparadas
                             st.session_state.indice_pregunta = 0
                             st.session_state.respuestas_detalle = []
+                            st.session_state.tiempos_restantes_preguntas = {}
+                            st.session_state.modificando_desde_revision = False
                             st.session_state.tiempo_inicio_examen = time.time()
                             st.session_state.tiempo_inicio_pregunta = time.time()
                             st.session_state.comodines_restantes = 3
@@ -527,6 +546,8 @@ else:
                                     st.session_state.preguntas_seleccionadas = preguntas_preparadas
                                     st.session_state.indice_pregunta = 0
                                     st.session_state.respuestas_detalle = []
+                                    st.session_state.tiempos_restantes_preguntas = {}
+                                    st.session_state.modificando_desde_revision = False
                                     st.session_state.tiempo_inicio_examen = time.time()
                                     st.session_state.tiempo_inicio_pregunta = time.time()
                                     st.session_state.comodines_restantes = 3
@@ -689,110 +710,110 @@ else:
                                 mime="application/pdf"
                             )
 
-# ADMIN CROMA - GESTIÓN Y ELIMINACIÓN DE DOCUMENTOS
-if st.session_state.es_croma and tab_admin_gestion:
-    with tab_admin_gestion:
-        col_subir, col_del = st.columns([3, 2])
-        
-        with col_subir:
-            st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
-            archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
-            nombre_apartado = st.text_input("Nombre del Manual / Apartado")
-            
-            if st.button("Procesar y Generar Banco estructurado"):
-                if archivo_pdf and nombre_apartado:
-                    try:
-                        reader = PdfReader(archivo_pdf)
-                        texto = "".join([page.extract_text() or "" for page in reader.pages])
-                        
-                        if not texto.strip():
-                            st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
-                            st.stop()
+        # ADMIN CROMA - GESTIÓN Y ELIMINACIÓN DE DOCUMENTOS
+        if st.session_state.es_croma and tab_admin_gestion:
+            with tab_admin_gestion:
+                col_subir, col_del = st.columns([3, 2])
+                
+                with col_subir:
+                    st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
+                    archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
+                    nombre_apartado = st.text_input("Nombre del Manual / Apartado")
+                    
+                    if st.button("Procesar y Generar Banco estructurado"):
+                        if archivo_pdf and nombre_apartado:
+                            try:
+                                reader = PdfReader(archivo_pdf)
+                                texto = "".join([page.extract_text() or "" for page in reader.pages])
+                                
+                                if not texto.strip():
+                                    st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
+                                    st.stop()
 
-                        prompt = """Genera un banco de preguntas tipo test basándote en el documento estructurado por subíndices.
-Devuelve EXCLUSIVAMENTE un arreglo JSON con el siguiente formato exacto sin sintaxis Markdown ni texto adicional:
+                                prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
+
+Requisitos estrictos para el JSON:
+1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
+2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
+3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
+
+Responde ÚNICAMENTE con un array JSON estructurado así:
 [
   {
-    "subindice": "1. Seguridad Operativa",
-    "pregunta": "Texto de la pregunta",
+    "pregunta": "texto de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
     "pista": "Texto de la pista de ayuda",
-    "tipo": "teorica"
+    "tipo": "test"
   }
 ]
 
 Texto del manual:
 """ + texto[:8000]
 
-                        # Se utilizan nombres de modelos válidos en la API actual
-                        modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
-                        res = None
-                        
-                        with st.spinner("Generando banco de preguntas con IA..."):
-                            for model_name in modelos:
-                                try:
-                                    res = gemini_client.models.generate_content(
-                                        model=model_name,
-                                        contents=prompt,
-                                        config=types.GenerateContentConfig(
-                                            response_mime_type="application/json"
-                                        )
-                                    )
-                                    if res and res.text:
-                                        break
-                                except Exception as model_err:
-                                    st.warning(f"Reintentando con modelo alternativo... ({model_err})")
-                                    time.sleep(1)
+                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
+                                res = None
+                                
+                                with st.spinner("Generando banco de preguntas con IA..."):
+                                    for model_name in modelos:
+                                        try:
+                                            res = gemini_client.models.generate_content(
+                                                model=model_name,
+                                                contents=prompt,
+                                                config=types.GenerateContentConfig(
+                                                    response_mime_type="application/json"
+                                                )
+                                            )
+                                            if res and res.text:
+                                                break
+                                        except Exception as model_err:
+                                            st.warning(f"Reintentando con modelo alternativo... ({model_err})")
+                                            time.sleep(1)
 
-                        if res and res.text:
-                            # Limpieza de marcado markdown si la IA lo incluyera
-                            clean_text = res.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                            preguntas_json = json.loads(clean_text)
-                            
-                            supabase.table("examenes").insert({
-                                "apartado": nombre_apartado, 
-                                "preguntas_json": preguntas_json
-                            }).execute()
-                            
-                            st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
-                            st.rerun()
+                                if res and res.text:
+                                    clean_text = res.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                                    preguntas_json = json.loads(clean_text)
+                                    
+                                    supabase.table("examenes").insert({
+                                        "apartado": nombre_apartado, 
+                                        "preguntas_json": preguntas_json
+                                    }).execute()
+                                    
+                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ No se recibió respuesta válida del servicio de IA. Inténtalo de nuevo.")
+
+                            except Exception as e:
+                                st.error(f"❌ Error al generar el examen: {e}")
                         else:
-                            st.error("❌ No se recibió respuesta válida del servicio de IA. Inténtalo de nuevo.")
+                            st.error("Sube un PDF e introduce un nombre de apartado.")
 
-                    except Exception as e:
-                        st.error(f"❌ Error al generar el examen: {e}")
-                else:
-                    st.error("Sube un PDF e introduce un nombre de apartado.")
-
-        with col_del:
-            st.subheader("🗑️ Eliminar Documentos / Apartados")
-            res_ex_del = supabase.table("examenes").select("id, apartado").execute()
-            examenes_del = res_ex_del.data if res_ex_del.data else []
-            
-            if examenes_del:
-                dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_del}
-                doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
-                
-                if st.button("🔴 Eliminar Documento Seleccionado"):
-                    id_borrar = dict_borrado[doc_a_eliminar]
-                    try:
-                        # 1. Obtener los IDs de los intentos asociados a este examen
-                        intentos = supabase.table("intentos_examen").select("id").eq("examen_id", id_borrar).execute()
-                        intentos_ids = [i["id"] for i in (intentos.data or [])]
+                with col_del:
+                    st.subheader("🗑️ Eliminar Documentos / Apartados")
+                    res_ex_del = supabase.table("examenes").select("id, apartado").execute()
+                    examenes_del = res_ex_del.data if res_ex_del.data else []
+                    
+                    if examenes_del:
+                        dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_del}
+                        doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
                         
-                        # 2. Borrar auditorías vinculadas a estos intentos
-                        if intentos_ids:
-                            for i_id in intentos_ids:
-                                supabase.table("auditoria_modificaciones").delete().eq("intento_id", i_id).execute()
-                        
-                        # 3. Borrar los intentos y finalmente el examen
-                        supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
-                        supabase.table("examenes").delete().eq("id", id_borrar).execute()
-                        
-                        st.success(f"✅ Apartado '{doc_a_eliminar}' e historial borrados con éxito.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al eliminar apartado: {e}")
-            else:
-                st.info("No hay documentos guardados para eliminar.")
+                        if st.button("🔴 Eliminar Documento Seleccionado"):
+                            id_borrar = dict_borrado[doc_a_eliminar]
+                            try:
+                                intentos = supabase.table("intentos_examen").select("id").eq("examen_id", id_borrar).execute()
+                                intentos_ids = [i["id"] for i in (intentos.data or [])]
+                                
+                                if intentos_ids:
+                                    for i_id in intentos_ids:
+                                        supabase.table("auditoria_modificaciones").delete().eq("intento_id", i_id).execute()
+                                
+                                supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
+                                supabase.table("examenes").delete().eq("id", id_borrar).execute()
+                                
+                                st.success(f"✅ Apartado '{doc_a_eliminar}' e historial borrados con éxito.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al eliminar apartado: {e}")
+                    else:
+                        st.info("No hay documentos guardados para eliminar.")
