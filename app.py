@@ -126,8 +126,70 @@ def obtener_dias_restantes_mes():
     return ultimo_dia - ahora.day + 1
 
 
+def generar_pdf_resultado(intento):
+    """Genera un archivo PDF binario con el resumen del examen y sus fallos."""
+    if not REPORTLAB_DISPONIBLE:
+        return None
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Estilos
+    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#1A365D"), spaceAfter=10)
+    sub_style = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=11, leading=14, textColor=colors.HexColor("#4A5568"), spaceAfter=15)
+    bold_style = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=10, leading=13, fontName="Helvetica-Bold")
+    norm_style = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=10, leading=13)
+    err_style = ParagraphStyle('Err', parent=styles['Normal'], fontSize=10, leading=13, textColor=colors.HexColor("#C53030"))
+
+    # Encabezado
+    story.append(Paragraph("Informe de Evaluación de Examen", titulo_style))
+    fecha_txt = intento.get("fecha_inicio", "")[:10] if intento.get("fecha_inicio") else "N/A"
+    story.append(Paragraph(f"<b>Empleado:</b> {intento.get('nombre_empleado')} | <b>Fecha:</b> {fecha_txt} | <b>Apartado:</b> {intento.get('apartado')}", sub_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#CBD5E0"), spaceAfter=15))
+
+    # Resultados generales
+    respuestas = intento.get("respuestas_usuario", [])
+    total_p = len(respuestas) if respuestas else 1
+    correctas = sum(1 for r in respuestas if r.get("es_correcta"))
+    porcentaje = intento.get("porcentaje_obtenido", 0)
+    estado_txt = "APROBADO" if porcentaje >= UMBRAL_APROBADO_PORCENTAJE else "SUSPENSO"
+
+    data_res = [
+        [Paragraph("<b>Aciertos</b>", norm_style), Paragraph(f"{correctas} / {total_p}", norm_style)],
+        [Paragraph("<b>Porcentaje</b>", norm_style), Paragraph(f"{porcentaje}%", norm_style)],
+        [Paragraph("<b>Nota Final</b>", norm_style), Paragraph(f"{intento.get('nota', 0)} / 10", norm_style)],
+        [Paragraph("<b>Estado</b>", norm_style), Paragraph(f"<b>{estado_txt}</b>", bold_style)]
+    ]
+    t = Table(data_res, colWidths=[150, 350])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F7FAFC")),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 15))
+
+    # Preguntas Erróneas
+    erroneas = [r for r in respuestas if not r.get("es_correcta")]
+    if erroneas:
+        story.append(Paragraph("<b>Desglose de Preguntas Erróneas o Sin Responder:</b>", bold_style))
+        story.append(Spacer(1, 8))
+        for idx_e, err in enumerate(erroneas, 1):
+            story.append(Paragraph(f"<b>{idx_e}. {err.get('pregunta')}</b>", norm_style))
+            story.append(Paragraph(f"Respuesta registrada: <i>{err.get('opcion_elegida')}</i>", err_style))
+            story.append(Spacer(1, 6))
+    else:
+        story.append(Paragraph("<b>¡Examen perfecto! Sin errores registrados.</b>", bold_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 # ---------------------------------------------------------
-# DIÁLOGO DE AUTENTICACIÓN (AUTO-FOCUS Y TECLA ENTER)
+# DIÁLOGO DE AUTENTICACIÓN
 # ---------------------------------------------------------
 @st.dialog("🔒 Confirmar Contraseña")
 def login_modal():
@@ -197,9 +259,7 @@ else:
         
     st.markdown("---")
     
-    # -----------------------------------------------------
     # MODO REVISIÓN PREVIA A FINALIZAR
-    # -----------------------------------------------------
     if st.session_state.modo_revision:
         st.subheader("🔍 Revisión de Examen previa a la entrega final")
         st.info("Puedes pulsar en cualquier pregunta para volver a responderla o corregirla antes de guardar.")
@@ -231,7 +291,6 @@ else:
             tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc)
             
             try:
-                # Evita error de clave foránea 23503 enviando None si es Examen Global
                 id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) and st.session_state.examen_id > 0 else None
 
                 registro_intento = {
@@ -259,9 +318,7 @@ else:
             if st.button("Volver al Inicio"):
                 st.rerun()
 
-    # -----------------------------------------------------
-    # CUESTIONARIO ACTIVO (MANDOS UNIFICADOS Y REFRESCO)
-    # -----------------------------------------------------
+    # CUESTIONARIO ACTIVO
     elif st.session_state.examen_activo:
         idx = st.session_state.indice_pregunta
         total_p = len(st.session_state.preguntas_seleccionadas)
@@ -300,11 +357,9 @@ else:
 
             st.markdown(f"<p class='pregunta-titulo'>{p_actual['pregunta']}</p>", unsafe_allow_html=True)
             
-            # Imagen si aplica a la pregunta
             if p_actual.get("tipo") == "practica_imagen" and p_actual.get("imagen_url"):
                 st.image(p_actual["imagen_url"], caption="Imagen del Ejercicio Práctico", use_container_width=True)
 
-            # Selector unificado para todo tipo de preguntas (Teóricas y Prácticas)
             eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=None, key=f"p_{idx}")
             
             if idx in st.session_state.pistas_activadas:
@@ -347,7 +402,6 @@ else:
                     st.session_state.modo_revision = True
                     st.rerun()
 
-            # Forzar avance en tiempo real del reloj
             time.sleep(1)
             st.rerun()
 
@@ -355,9 +409,7 @@ else:
             st.session_state.modo_revision = True
             st.rerun()
 
-    # -----------------------------------------------------
     # MENÚ PRINCIPAL
-    # -----------------------------------------------------
     else:
         if st.session_state.es_croma:
             tab_examenes, tab_admin_resultados, tab_admin_export, tab_admin_gestion = st.tabs([
@@ -391,7 +443,6 @@ else:
                     st.subheader("📋 Seleccionar Modalidad")
                     tab_global, tab_manual = st.tabs(["🌐 Examen Global (2 por Subíndice + 5 Prácticas)", "📘 Examen por Manual"])
                     
-                    # EXAMEN GLOBAL
                     with tab_global:
                         st.info("El Examen Global incluirá **2 preguntas teóricas por cada subíndice** de todos los manuales y **5 ejercicios prácticos** tipo opción múltiple.")
                         if st.button("Comenzar Examen Global Combinado"):
@@ -417,7 +468,6 @@ else:
                                         "tipo": "teorica"
                                     })
                             
-                            # Ejercicios prácticos con opciones múltiples definidas
                             practicas_ejemplo = [
                                 {
                                     "subindice": "Práctica Operativa",
@@ -445,7 +495,6 @@ else:
                             st.session_state.examen_activo = True
                             st.rerun()
 
-                    # EXAMEN POR MANUAL
                     with tab_manual:
                         st.subheader("Selecciona el Manual para la Evaluación")
                         cols_m = st.columns(2)
@@ -487,7 +536,7 @@ else:
                 else:
                     st.warning("No hay manuales cargados en el sistema.")
 
-        # MIS RESULTADOS
+        # VISTA USUARIO: MIS RESULTADOS Y DESCARGA DE PDF
         if not st.session_state.es_croma:
             with tab_mis_resultados:
                 st.subheader("📌 Mis Calificaciones e Historial")
@@ -517,6 +566,16 @@ else:
                         with st.expander(f"Examen #{i['id']} - {i.get('apartado')} | {fecha_str} | Nota: {num_correctas}/{total_p} ({porc}%) - {estado}"):
                             st.write(f"**Resultado:** {num_correctas} / {total_p} aciertos ({porc}%)")
                             
+                            pdf_bytes = generar_pdf_resultado(i)
+                            if pdf_bytes:
+                                st.download_button(
+                                    label="📄 Descargar Informe PDF de Resultados",
+                                    data=pdf_bytes,
+                                    file_name=f"resultado_examen_{i['id']}.pdf",
+                                    mime="application/pdf",
+                                    key=f"pdf_usr_{i['id']}"
+                                )
+                            
                             erroneas = [r for r in respuestas if not r.get("es_correcta")]
                             if erroneas:
                                 st.write("### ❌ Preguntas Erróneas o En Blanco:")
@@ -528,7 +587,7 @@ else:
                 else:
                     st.write("Aún no has realizado ningún examen.")
 
-        # ADMIN CROMA - EDICIÓN AUDITADA
+        # ADMIN CROMA - RESULTADOS
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
@@ -585,7 +644,7 @@ else:
                                 st.success("✅ Cambio registrado y auditado con éxito.")
                                 st.rerun()
 
-        # EXPORTACIÓN
+        # EXPORTACIÓN (EXCEL Y PDF)
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
                 st.subheader("📥 Exportación e Informes")
@@ -605,33 +664,48 @@ else:
                     idx_sel = opciones_examenes.index(opcion_elegida)
                     examen_sel = todos_intentos[idx_sel]
 
-                    if st.button("📊 Generar Excel de este Examen"):
-                        df_export = pd.DataFrame([examen_sel])
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            df_export.to_excel(writer, index=False, sheet_name="Examen")
-                        
-                        st.download_button(
-                            label="📥 Descargar Excel",
-                            data=buffer.getvalue(),
-                            file_name=f"examen_{examen_sel['id']}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                    col_exp_a, col_exp_b = st.columns(2)
+                    with col_exp_a:
+                        if st.button("📊 Generar Excel de este Examen"):
+                            df_export = pd.DataFrame([examen_sel])
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                                df_export.to_excel(writer, index=False, sheet_name="Examen")
+                            
+                            st.download_button(
+                                label="📥 Descargar Excel",
+                                data=buffer.getvalue(),
+                                file_name=f"examen_{examen_sel['id']}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
 
-        # ADMIN CROMA - GESTIÓN DOCUMENTOS CON GEMINI 3
+                    with col_exp_b:
+                        pdf_bytes = generar_pdf_resultado(examen_sel)
+                        if pdf_bytes:
+                            st.download_button(
+                                label="📄 Descargar Informe PDF",
+                                data=pdf_bytes,
+                                file_name=f"informe_examen_{examen_sel['id']}.pdf",
+                                mime="application/pdf"
+                            )
+
+        # ADMIN CROMA - GESTIÓN Y ELIMINACIÓN DE DOCUMENTOS
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
-                st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
-                archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
-                nombre_apartado = st.text_input("Nombre del Manual / Apartado")
+                col_subir, col_del = st.columns([3, 2])
                 
-                if st.button("Procesar y Generar Banco estructurado por Subíndices"):
-                    if archivo_pdf and nombre_apartado:
-                        try:
-                            reader = PdfReader(archivo_pdf)
-                            texto = "".join([page.extract_text() or "" for page in reader.pages])
-                            
-                            prompt = """Genera un banco de preguntas tipo test basándote en el documento estructurado por subíndices.
+                with col_subir:
+                    st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
+                    archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
+                    nombre_apartado = st.text_input("Nombre del Manual / Apartado")
+                    
+                    if st.button("Procesar y Generar Banco estructurado"):
+                        if archivo_pdf and nombre_apartado:
+                            try:
+                                reader = PdfReader(archivo_pdf)
+                                texto = "".join([page.extract_text() or "" for page in reader.pages])
+                                
+                                prompt = """Genera un banco de preguntas tipo test basándote en el documento estructurado por subíndices.
 Requisitos del JSON:
 1. "subindice": Nombre exacto del capítulo o subíndice al que pertenece la pregunta.
 2. Genera al menos 15 preguntas por cada subíndice identificado.
@@ -651,11 +725,10 @@ Ejemplo JSON:
 Texto:
 """ + texto[:10000]
 
-
                                 modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                                 res = None
                                 
-                                with st.spinner("Generando banco de 50 preguntas con metadatos de dificultad y pistas..."):
+                                with st.spinner("Generando banco de preguntas con IA..."):
                                     for model_name in modelos:
                                         intencion = 0
                                         exito = False
@@ -678,7 +751,6 @@ Texto:
 
                                 if res and res.text:
                                     preguntas_json = json.loads(res.text)
-                                    
                                     supabase.table("examenes").insert({
                                         "apartado": nombre_apartado, 
                                         "preguntas_json": preguntas_json
@@ -695,7 +767,7 @@ Texto:
                             st.error("Sube un PDF e introduce un nombre de apartado.")
 
                 with col_del:
-                    st.write("### 🗑️ Eliminar Documentos / Apartados")
+                    st.subheader("🗑️ Eliminar Documentos / Apartados")
                     res_ex_del = supabase.table("examenes").select("id, apartado").execute()
                     examenes_del = res_ex_del.data if res_ex_del.data else []
                     
