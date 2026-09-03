@@ -129,23 +129,32 @@ def obtener_dias_restantes_mes():
 
 
 # ---------------------------------------------------------
-# DIÁLOGO DE AUTENTICACIÓN POR VENTANA MODAL
+# DIÁLOGO DE AUTENTICACIÓN (FORMULARIO CON AUTO-FOCUS Y ENTER)
 # ---------------------------------------------------------
 @st.dialog("🔒 Confirmar Contraseña")
 def login_modal():
     usuario = st.session_state.usuario_modal_sel
     st.write(f"Accediendo como: **{usuario['nombre']}**")
-    pwd_input = st.text_input("Introduce tu contraseña:", type="password", key="modal_pwd_input")
     
-    if st.button("Ingresar", key="btn_confirm_login"):
-        if usuario["password_hash"] == pwd_input:
-            st.session_state.user_id = usuario["id"]
-            st.session_state.user_nombre = usuario["nombre"]
-            st.session_state.es_croma = usuario.get("es_admin_croma", False)
-            st.session_state.autenticado = True
-            st.rerun()
-        else:
-            st.error("❌ Contraseña incorrecta.")
+    # st.form permite ingresar datos y procesar al pulsar ENTER
+    with st.form("form_login_modal"):
+        pwd_input = st.text_input(
+            "Introduce tu contraseña:", 
+            type="password", 
+            key="modal_pwd_input",
+            autocomplete="current-password"
+        )
+        submitted = st.form_submit_button("Ingresar")
+        
+        if submitted:
+            if usuario["password_hash"] == pwd_input:
+                st.session_state.user_id = usuario["id"]
+                st.session_state.user_nombre = usuario["nombre"]
+                st.session_state.es_croma = usuario.get("es_admin_croma", False)
+                st.session_state.autenticado = True
+                st.rerun()
+            else:
+                st.error("❌ Contraseña incorrecta.")
 
 
 # ---------------------------------------------------------
@@ -253,7 +262,7 @@ else:
                 st.rerun()
 
     # -----------------------------------------------------
-    # CUESTIONARIO ACTIVO
+    # CUESTIONARIO ACTIVO (CON TEMPORIZADOR EN TIEMPO REAL)
     # -----------------------------------------------------
     elif st.session_state.examen_activo:
         idx = st.session_state.indice_pregunta
@@ -280,7 +289,7 @@ else:
                 st.warning("⏰ ¡Tiempo agotado en esta pregunta! Marcada como en blanco.")
                 st.session_state.sobrepaso_tiempo_global = True
                 
-                # Eliminar respuesta previa si existía y guardar en blanco
+                # Guardar respuesta en blanco por tiempo agotado
                 st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
                 st.session_state.respuestas_detalle.append({
                     "idx_pregunta": idx,
@@ -294,14 +303,14 @@ else:
 
             st.markdown(f"<p class='pregunta-titulo'>{p_actual['pregunta']}</p>", unsafe_allow_html=True)
             
-            # Soporte para preguntas prácticas con imagen
+            # Renderizado seguro de imagen reemplazando el parámetro deprecated
             if p_actual.get("tipo") == "practica_imagen":
-                if p_actual.get("imagen_url"):
-                    st.image(p_actual["imagen_url"], caption="Ejercicio Práctico", use_column_width=True)
+                img_url = p_actual.get("imagen_url")
+                if img_url:
+                    st.image(img_url, caption="Ejercicio Práctico", use_container_width=True)
                 
                 eleccion = st.text_input("Escribe tu respuesta para el ejercicio práctico:", key=f"practica_{idx}")
             else:
-                # SIN OPCIÓN SELECCIONADA POR DEFECTO (index=None)
                 eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=None, key=f"p_{idx}")
             
             if idx in st.session_state.pistas_activadas:
@@ -347,6 +356,10 @@ else:
                 if st.button("📋 Ir a Revisión"):
                     st.session_state.modo_revision = True
                     st.rerun()
+
+            # Forzar actualización en tiempo real del reloj cada segundo
+            time.sleep(1)
+            st.rerun()
 
         else:
             st.session_state.modo_revision = True
@@ -395,7 +408,6 @@ else:
                         if st.button("Comenzar Examen Global Combinado"):
                             preguntas_preparadas = []
                             
-                            # Teóricas: 2 por cada subíndice
                             for ex_obj in examenes_disponibles:
                                 banco = ex_obj["preguntas_json"]
                                 elegidas_sub = seleccionar_preguntas_por_subindice(banco, num_por_subindice=2)
@@ -416,14 +428,14 @@ else:
                                         "tipo": "teorica"
                                     })
                             
-                            # 5 Ejercicios prácticos con imagen de muestra
+                            # Ejercicios prácticos de prueba
                             practicas_ejemplo = [
                                 {
                                     "subindice": "Práctica Operativa",
-                                    "pregunta": f"Ejercicio Práctico {i+1}: Identifica el parámetro indicado en la imagen.",
+                                    "pregunta": f"Ejercicio Práctico {i+1}: Identifica el valor o parámetro indicado.",
                                     "respuesta_correcta_texto": "100",
                                     "imagen_url": "https://via.placeholder.com/600x300.png?text=Ejercicio+Practico+Imagen",
-                                    "pista": "Observa con atención las especificaciones técnicas marcadas en rojo.",
+                                    "pista": "Observa con atención las especificaciones técnicas.",
                                     "tipo": "practica_imagen"
                                 } for i in range(5)
                             ]
@@ -443,7 +455,7 @@ else:
                             st.session_state.examen_activo = True
                             st.rerun()
 
-                    # 2. EXAMEN POR MANUAL (CAJONES DE SELECCIÓN)
+                    # 2. EXAMEN POR MANUAL (CAJONES)
                     with tab_manual:
                         st.subheader("Selecciona el Manual para la Evaluación")
                         st.caption("Se seleccionarán automáticamente 3 preguntas por cada subíndice del manual elegido.")
@@ -487,12 +499,11 @@ else:
                 else:
                     st.warning("No hay manuales cargados en el sistema.")
 
-        # --- SECCIÓN: VISTA USUARIO NORMAL (HISTORIAL Y DETALLE DE ERRORES) ---
+        # --- SECCIÓN: VISTA USUARIO NORMAL (HISTORIAL UNIFICADO) ---
         if not st.session_state.es_croma:
             with tab_mis_resultados:
                 st.subheader("📌 Mis Calificaciones e Historial")
                 
-                # Sin duplicados: Agrupamos registros por id
                 res_mis_intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", st.session_state.user_id).order("fecha_inicio", desc=True).execute()
                 
                 dict_unicos = {}
@@ -502,7 +513,6 @@ else:
                             dict_unicos[it["id"]] = it
                 
                 mis_intentos = list(dict_unicos.values())
-                
                 dias_restantes = obtener_dias_restantes_mes()
                 st.info(f"📅 **Habilitación de Examen:** Quedan **{dias_restantes} días** para finalizar el ciclo de evaluación.")
                 
@@ -530,7 +540,7 @@ else:
                 else:
                     st.write("Aún no has realizado ningún examen.")
 
-        # --- SECCIÓN: ADMIN CROMA (RESULTADOS Y AUDITORÍA COMPLETA) ---
+        # --- SECCIÓN: ADMIN CROMA ---
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
@@ -569,14 +579,12 @@ else:
                                 nuevo_porc = round((correctas_nuevas / total_preg) * 100, 2)
                                 nueva_nota = round((correctas_nuevas / total_preg) * 10, 2)
                                 
-                                # 1. Actualizar Intento
                                 supabase.table("intentos_examen").update({
                                     "respuestas_usuario": respuestas_lista,
                                     "nota": nueva_nota,
                                     "porcentaje_obtenido": nuevo_porc
                                 }).eq("id", intento_target_id).execute()
                                 
-                                # 2. Insertar en auditoría con usuario modificador y pregunta completa
                                 registro_audit = {
                                     "intento_id": intento_target_id,
                                     "usuario_modificador": st.session_state.user_nombre,
@@ -604,7 +612,6 @@ else:
                         for i in todos_intentos
                     ]
                     
-                    # ÚLTIMO EXAMEN SELECCIONADO POR DEFECTO
                     indice_ultimo = len(opciones_examenes) - 1
                     opcion_elegida = st.selectbox("Selecciona el examen a exportar:", opciones_examenes, index=indice_ultimo)
                     
@@ -628,7 +635,7 @@ else:
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
 
-        # --- SECCIÓN: ADMIN CROMA (GESTIÓN DE DOCUMENTOS CON SUBÍNDICES) ---
+        # --- SECCIÓN: ADMIN CROMA (GESTIÓN DE DOCUMENTOS) ---
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
