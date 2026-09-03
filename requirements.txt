@@ -2,3 +2,5 @@ streamlit
 supabase
 google-genai
 pypdf
+pandas
+openpyxl
