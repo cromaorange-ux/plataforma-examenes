@@ -687,11 +687,14 @@ else:
                                     }).eq("id", intento_target_id).execute()
                                     
                                     # 2. Insertar en auditoria_modificaciones
+                                    # Truncamos el texto a un máximo de 80 caracteres para garantizar no superar los 100 de la BBDD
+                                    pregunta_corta = p_objetivo['pregunta'][:80]
+
                                     registro_auditoria = {
                                         "intento_id": intento_target_id,
                                         "admin_id": st.session_state.user_id,
-                                        "fecha_modificacion": fecha_hora_utc,
-                                        "campo_modificada": f"Pregunta {p_idx + 1}: {p_objetivo['pregunta'][:100]}",
+                                        "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                                        "campo_modificada": f"P{p_idx + 1}: {pregunta_corta}",
                                         "valor_anterior": json.dumps(val_anterior, ensure_ascii=False),
                                         "valor_nuevo": json.dumps(val_nuevo, ensure_ascii=False),
                                         "motivo": motivo_edicion
