@@ -33,7 +33,6 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Aumento de tamaño para las respuestas/opciones */
     .stRadio label {
         font-size: 22px !important;
         font-weight: 500 !important;
@@ -265,7 +264,6 @@ else:
             resp_actual = next((r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == i), None)
             texto_resp = resp_actual["opcion_elegida"] if resp_actual else "En blanco (Sin responder)"
             
-            # Tiempo restante por pregunta guardado
             t_restante = st.session_state.tiempos_restantes_preguntas.get(i, TIEMPO_LIMITE_PREGUNTA)
             
             c1, c2 = st.columns([4, 1])
@@ -416,6 +414,7 @@ else:
                         "pregunta": p_actual["pregunta"],
                         "opcion_elegida": opcion_guardada,
                         "respuesta_correcta_texto": p_actual["respuesta_correcta_texto"],
+                        "opciones_posibles": p_actual["opciones_barajadas"],
                         "es_correcta": es_correcta
                     })
                     
@@ -628,7 +627,7 @@ else:
                 else:
                     st.write("Aún no has realizado ningún examen.")
 
-        # ADMIN CROMA - RESULTADOS Y EDICIÓN OBLIGATORIA
+        # ADMIN CROMA - RESULTADOS Y EDICIÓN
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
@@ -670,9 +669,20 @@ else:
                             p_idx = dict_preguntas[p_sel_key]
                             p_objetivo = respuestas_lista[p_idx]
                             
-                            st.info(f"Respuesta del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
+                            st.info(f"Respuesta registrada del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado actual: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
                             
-                            # FORMULARIO DE EDICIÓN AUDITADA OBLIGATORIA
+                            # Cargar las opciones desplegables para evitar texto libre
+                            opciones_disponibles = p_objetivo.get("opciones_posibles", [])
+                            resp_correcta_actual = p_objetivo.get("respuesta_correcta_texto", "")
+                            
+                            if not opciones_disponibles:
+                                opciones_disponibles = [resp_correcta_actual] if resp_correcta_actual else ["Opción por defecto"]
+
+                            idx_defecto_resp = 0
+                            if resp_correcta_actual in opciones_disponibles:
+                                idx_defecto_resp = opciones_disponibles.index(resp_correcta_actual)
+
+                            # FORMULARIO DE EDICIÓN AUDITADA
                             with st.form(key=f"form_edit_{intento_target_id}_{p_idx}"):
                                 st.markdown("### 📝 Formulario de Modificación de Respuesta")
                                 
@@ -681,9 +691,10 @@ else:
                                     value=st.session_state.user_nombre
                                 )
                                 
-                                resp_correcta_input = st.text_input(
-                                    "✅ Respuesta correcta requerida (Obligatorio):*",
-                                    value=p_objetivo.get("respuesta_correcta_texto", "")
+                                resp_correcta_input = st.selectbox(
+                                    "✅ Respuesta correcta del examen (Obligatorio):*",
+                                    options=opciones_disponibles,
+                                    index=idx_defecto_resp
                                 )
                                 
                                 nuevo_estado = st.checkbox("Marcar esta pregunta como Correcta para el empleado", value=p_objetivo.get("es_correcta", False))
@@ -695,14 +706,12 @@ else:
                                 if btn_guardar_edit:
                                     if not persona_modifica.strip():
                                         st.error("❌ El campo 'Persona que modifica' es obligatorio.")
-                                    elif not resp_correcta_input.strip():
-                                        st.error("❌ El campo 'Respuesta correcta' es obligatorio.")
                                     elif not motivo_edicion.strip():
                                         st.error("❌ El motivo de la corrección es obligatorio.")
                                     else:
-                                        # Actualizar objeto de respuesta
+                                        # Actualizar respuestas del examen
                                         respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
-                                        respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input.strip()
+                                        respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
                                         
                                         correctas_nuevas = sum(1 for r in respuestas_lista if r["es_correcta"])
                                         total_preg = len(respuestas_lista)
@@ -715,13 +724,13 @@ else:
                                             "porcentaje_obtenido": nuevo_porc
                                         }).eq("id", intento_target_id).execute()
                                         
+                                        # Insertar en tabla de auditoría con esquema seguro estándar
                                         registro_audit = {
                                             "intento_id": intento_target_id,
                                             "usuario_modificador": persona_modifica.strip(),
                                             "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                                            "campo_modificada": f"Pregunta {p_idx+1}: {p_objetivo['pregunta']}",
-                                            "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": p_objetivo.get("respuesta_correcta_texto")}),
-                                            "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input.strip()}),
+                                            "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": resp_correcta_actual}),
+                                            "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input}),
                                             "motivo": motivo_edicion.strip()
                                         }
                                         supabase.table("auditoria_modificaciones").insert(registro_audit).execute()
@@ -785,7 +794,7 @@ else:
                                     mime="application/pdf"
                                 )
 
-        # ADMIN CROMA - GESTIÓN Y ELIMINACIÓN PRESERVANDO HISTORIAL
+        # ADMIN CROMA - GESTIÓN Y ELIMINACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 col_subir, col_del = st.columns([3, 2])
