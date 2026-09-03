@@ -122,7 +122,7 @@ def seleccionar_15_preguntas(banco_completo):
 
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
-    _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
+    _, ultimo_dia = calendar.monthrange(ahora.year, me_month := ahora.month)
     return ultimo_dia - ahora.day + 1
 
 
@@ -627,7 +627,7 @@ else:
                 else:
                     st.write("Aún no has realizado ningún examen.")
 
-        # --- SECCIÓN: ADMIN CROMA (RESULTADOS Y EDICIÓN CON AUDITORÍA) ---
+        # ADMIN CROMA - RESULTADOS Y EDICIÓN
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
@@ -636,163 +636,127 @@ else:
                 todos_intentos = res_todos.data if res_todos.data else []
                 
                 if todos_intentos:
-                    tabla_admin = []
-                    for it in todos_intentos:
-                        tabla_admin.append({
-                            "ID Intento": it["id"],
-                            "Empleado": it.get("nombre_empleado", "N/A"),
-                            "Apartado": it.get("apartado", "General"),
-                            "Nota": it.get("nota", 0),
-                            "Porcentaje": f"{it.get('porcentaje_obtenido', 0)}%",
-                            "Estado": "🟢 APROBADO" if it.get('porcentaje_obtenido', 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO",
-                            "Fecha": it.get("fecha_inicio", "")[:10]
-                        })
+                    anios_disponibles = sorted(
+                        list(set(int(it["fecha_inicio"][:4]) for it in todos_intentos if it.get("fecha_inicio"))),
+                        reverse=True
+                    )
                     
-                    st.write("### Exámenes Realizados por Todos los Empleados")
-                    st.table(tabla_admin)
+                    anio_sel = st.selectbox("📅 Filtrar exámenes por año:", anios_disponibles)
                     
-                    st.markdown("---")
-                    st.subheader("✏️ Modificar Pregunta Respondida por un Empleado")
+                    intentos_filtrados = [
+                        it for it in todos_intentos 
+                        if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_sel
+                    ]
                     
-                    dict_intentos = {f"ID Intento #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')})": it for it in todos_intentos}
-                    intento_sel_key = st.selectbox("Selecciona el intento a editar:", list(dict_intentos.keys()), key="select_intento_admin")
+                    st.write(f"Se encontraron **{len(intentos_filtrados)}** exámenes realizados en el año **{anio_sel}**.")
                     
-                    intento_obj = dict_intentos[intento_sel_key]
-                    intento_target_id = intento_obj["id"]
-                    
-                    # Cargar el banco original únicamente como referencia de lectura
-                    banco_preguntas_original = []
-                    ex_id = intento_obj.get("examen_id")
-                    if ex_id and ex_id > 0:
-                        res_ex_orig = supabase.table("examenes").select("preguntas_json").eq("id", ex_id).execute()
-                        if res_ex_orig.data:
-                            banco_preguntas_original = res_ex_orig.data[0].get("preguntas_json", [])
+                    if intentos_filtrados:
+                        dict_intentos = {}
+                        for it in intentos_filtrados:
+                            est_it = "🟢 APROBADO" if it.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                            dict_intentos[f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')}) | Nota: {it.get('nota', 0)}/10 [{est_it}]"] = it
 
-                    # Clonación aislada para este intento
-                    respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
-                    
-                    if respuestas_lista:
-                        dict_preguntas = {f"P{idx+1}: {p['pregunta'][:50]}...": idx for idx, p in enumerate(respuestas_lista)}
+                        intento_sel_key = st.selectbox("Selecciona un examen para auditar/editar:", list(dict_intentos.keys()))
                         
-                        # KEY ÚNICA CON EL ID DEL INTENTO PARA EVITAR EL ERROR DE ELEMENTO DUPLICADO
-                        p_sel_key = st.selectbox(
-                            "Selecciona la pregunta a modificar:", 
-                            list(dict_preguntas.keys()), 
-                            key=f"select_pregunta_intento_{intento_target_id}"
-                        )
-                        p_idx = dict_preguntas[p_sel_key]
-                        p_objetivo = respuestas_lista[p_idx]
+                        intento_obj = dict_intentos[intento_sel_key]
+                        intento_target_id = intento_obj["id"]
+                        respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
                         
-                        respuesta_correcta_original = "No disponible"
-                        opciones_disponibles = [p_objetivo.get("opcion_elegida", "")]
-                        
-                        for p_orig in banco_preguntas_original:
-                            if p_orig["pregunta"] == p_objetivo["pregunta"]:
-                                idx_c = p_orig["respuesta_correcta"]
-                                respuesta_correcta_original = p_orig["opciones"][idx_c]
-                                opciones_disponibles = p_orig["opciones"]
-                                break
-
-                        st.write(f"**Pregunta completa:** {p_objetivo['pregunta']}")
-                        
-                        st.info(f"""
-                        📌 **Respuesta elegida por el alumno:** {p_objetivo.get('opcion_elegida')}  
-                        ✅ **Respuesta correcta teórica del examen:** {respuesta_correcta_original}  
-                        📊 **Estado actual:** {'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}
-                        """)
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            nuevo_estado_correcta = st.checkbox(
-                                "¿Marcar como correcta?", 
-                                value=p_objetivo.get("es_correcta", False),
-                                key=f"check_correcta_{intento_target_id}_{p_idx}"
-                            )
+                        if respuestas_lista:
+                            dict_preguntas = {f"P{idx+1}: {p['pregunta'][:60]}...": idx for idx, p in enumerate(respuestas_lista)}
+                            p_sel_key = st.selectbox("Selecciona la pregunta a corregir:", list(dict_preguntas.keys()), key=f"sel_p_{intento_target_id}")
                             
-                            idx_default = 0
-                            if respuesta_correcta_original in opciones_disponibles:
-                                idx_default = opciones_disponibles.index(respuesta_correcta_original)
-                                
-                            nueva_opcion_texto = st.selectbox(
-                                "Nueva opción asignada (Respuesta Correcta Sugerida):",
-                                opciones_disponibles,
-                                index=idx_default,
-                                key=f"select_opcion_{intento_target_id}_{p_idx}"
-                            )
-                        
-                        with col2:
-                            editor_nombre = st.text_input(
-                                "Nombre de la persona que edita:", 
-                                value=st.session_state.user_nombre,
-                                key=f"input_editor_{intento_target_id}_{p_idx}"
-                            )
-                            motivo_edicion = st.text_area(
-                                "Motivo de la edición (obligatorio):",
-                                key=f"area_motivo_{intento_target_id}_{p_idx}"
-                            )
-                        
-                        if st.button("Guardar Cambios Auditados", key=f"btn_guardar_{intento_target_id}_{p_idx}"):
-                            if not motivo_edicion.strip():
-                                st.error("❌ El motivo de la edición es obligatorio.")
-                            else:
-                                fecha_hora_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                                
-                                # Capturar valores anteriores para la tabla auditoria_modificaciones
-                                val_anterior = {
-                                    "es_correcta": p_objetivo.get("es_correcta"),
-                                    "opcion_elegida": p_objetivo.get("opcion_elegida")
-                                }
-                                val_nuevo = {
-                                    "es_correcta": nuevo_estado_correcta,
-                                    "opcion_elegida": nueva_opcion_texto
-                                }
-
-                                # Modificar en el JSON del intento
-                                respuestas_lista[p_idx]["es_correcta"] = nuevo_estado_correcta
-                                respuestas_lista[p_idx]["opcion_elegida"] = nueva_opcion_texto
-                                respuestas_lista[p_idx]["audit_edicion"] = {
-                                    "editado_por": editor_nombre,
-                                    "fecha_hora": fecha_hora_utc,
-                                    "motivo": motivo_edicion
-                                }
-                                
-                                total_preg = len(respuestas_lista)
-                                nuevas_correctas = sum(1 for r in respuestas_lista if r["es_correcta"])
-                                nuevo_porcentaje = round((nuevas_correctas / total_preg) * 100, 2)
-                                nueva_nota = round((nuevas_correctas / total_preg) * 10, 2)
-                                
+                            p_idx = dict_preguntas[p_sel_key]
+                            p_objetivo = respuestas_lista[p_idx]
+                            
+                            st.info(f"Respuesta registrada del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado actual: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
+                            
+                            # --- BÚSQUEDA ROBUSTA DE OPCIONES DE RESPUESTA ---
+                            opciones_disponibles = p_objetivo.get("opciones_posibles", [])
+                            resp_correcta_actual = p_objetivo.get("respuesta_correcta_texto", "")
+                            
+                            # Si no se guardaron opciones en el intento, las buscamos en la base de datos de exámenes
+                            if not opciones_disponibles and intento_obj.get("examen_id"):
                                 try:
-                                    # 1. Actualizar intentos_examen
-                                    supabase.table("intentos_examen").update({
-                                        "respuestas_usuario": respuestas_lista,
-                                        "nota": nueva_nota,
-                                        "porcentaje_obtenido": nuevo_porcentaje
-                                    }).eq("id", intento_target_id).execute()
-                                    
-                                    # 2. Insertar en auditoria_modificaciones
-                                    # Truncamos el texto a un máximo de 80 caracteres para garantizar no superar los 100 de la BBDD
-                                    pregunta_corta = p_objetivo['pregunta'][:80]
+                                    res_ex_orig = supabase.table("examenes").select("preguntas_json").eq("id", intento_obj["examen_id"]).execute()
+                                    if res_ex_orig.data:
+                                        p_banco = res_ex_orig.data[0].get("preguntas_json", [])
+                                        for p_b in p_banco:
+                                            if p_b.get("pregunta") == p_objetivo.get("pregunta"):
+                                                opciones_disponibles = p_b.get("opciones", [])
+                                                if not resp_correcta_actual and "respuesta_correcta" in p_b:
+                                                    resp_correcta_actual = p_b["opciones"][p_b["respuesta_correcta"]]
+                                                break
+                                except Exception:
+                                    pass
 
-                                    registro_auditoria = {
-                                        "intento_id": intento_target_id,
-                                        "admin_id": st.session_state.user_id,
-                                        "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                                        "campo_modificada": f"P{p_idx + 1}: {pregunta_corta}",
-                                        "valor_anterior": json.dumps(val_anterior, ensure_ascii=False),
-                                        "valor_nuevo": json.dumps(val_nuevo, ensure_ascii=False),
-                                        "motivo": motivo_edicion
-                                    }
-                                    supabase.table("auditoria_modificaciones").insert(registro_auditoria).execute()
-
-                                    st.success(f"✅ Intento #{intento_target_id} actualizado y auditoría registrada en 'auditoria_modificaciones'. Nueva nota: **{nueva_nota} / 10**.")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error al guardar cambios/auditoría: {e}")
-                    else:
-                        st.info("El intento seleccionado no contiene detalle de respuestas.")
-                else:
-                    st.info("No hay registro de exámenes realizados.")
-
+                            # FORMULARIO DE EDICIÓN AUDITADA
+                            with st.form(key=f"form_edit_{intento_target_id}_{p_idx}"):
+                                st.markdown("### 📝 Formulario de Modificación de Respuesta")
+                                
+                                persona_modifica = st.text_input(
+                                    "👤 Persona que modifica (Obligatorio):*", 
+                                    value=st.session_state.user_nombre
+                                )
+                                
+                                # Si encontramos opciones, mostramos un desplegable; si no, mostramos un campo de texto
+                                if opciones_disponibles:
+                                    idx_defecto_resp = 0
+                                    if resp_correcta_actual in opciones_disponibles:
+                                        idx_defecto_resp = opciones_disponibles.index(resp_correcta_actual)
+                                        
+                                    resp_correcta_input = st.selectbox(
+                                        "✅ Respuesta correcta del examen (Obligatorio):*",
+                                        options=opciones_disponibles,
+                                        index=idx_defecto_resp
+                                    )
+                                else:
+                                    resp_correcta_input = st.text_input(
+                                        "✅ Respuesta correcta del examen (Obligatorio):*",
+                                        value=resp_correcta_actual
+                                    )
+                                
+                                nuevo_estado = st.checkbox("Marcar esta pregunta como Correcta para el empleado", value=p_objetivo.get("es_correcta", False))
+                                
+                                motivo_edicion = st.text_area("📋 Motivo de la corrección (Obligatorio):*")
+                                
+                                btn_guardar_edit = st.form_submit_button("Guardar Corrección Auditada")
+                                
+                                if btn_guardar_edit:
+                                    if not persona_modifica.strip():
+                                        st.error("❌ El campo 'Persona que modifica' es obligatorio.")
+                                    elif not resp_correcta_input or not str(resp_correcta_input).strip():
+                                        st.error("❌ Debes indicar una respuesta correcta válida.")
+                                    elif not motivo_edicion.strip():
+                                        st.error("❌ El motivo de la corrección es obligatorio.")
+                                    else:
+                                        # Actualizar respuestas del examen
+                                        respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
+                                        respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
+                                        
+                                        correctas_nuevas = sum(1 for r in respuestas_lista if r["es_correcta"])
+                                        total_preg = len(respuestas_lista)
+                                        nuevo_porc = round((correctas_nuevas / total_preg) * 100, 2)
+                                        nueva_nota = round((correctas_nuevas / total_preg) * 10, 2)
+                                        
+                                        supabase.table("intentos_examen").update({
+                                            "respuestas_usuario": respuestas_lista,
+                                            "nota": nueva_nota,
+                                            "porcentaje_obtenido": nuevo_porc
+                                        }).eq("id", intento_target_id).execute()
+                                        
+                                        # Insertar en tabla de auditoría con esquema seguro estándar
+                                        registro_audit = {
+                                            "intento_id": intento_target_id,
+                                            "usuario_modificador": persona_modifica.strip(),
+                                            "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                            "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": resp_correcta_actual}),
+                                            "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input}),
+                                            "motivo": motivo_edicion.strip()
+                                        }
+                                        supabase.table("auditoria_modificaciones").insert(registro_audit).execute()
+                                        st.success("✅ Corrección guardada y auditada correctamente.")
+                                        st.rerun()
 
         # EXPORTACIÓN CON FILTRO DE AÑO
         if st.session_state.es_croma and tab_admin_export:
@@ -871,12 +835,17 @@ else:
                                     st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
                                     st.stop()
 
-                                prompt = """Genera un banco de 50 preguntas tipo test basándote en el documento estructurado por subíndices.
-Devuelve EXCLUSIVAMENTE un arreglo JSON con el siguiente formato exacto sin sintaxis Markdown ni texto adicional:
+                                prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
+
+Requisitos estrictos para el JSON:
+1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
+2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
+3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
+
+Responde ÚNICAMENTE con un array JSON estructurado así:
 [
   {
-    "subindice": "1.1 Seguridad Operativa",
-    "pregunta": "Texto de la pregunta",
+    "pregunta": "texto de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
     "pista": "Texto de la pista de ayuda",
@@ -887,7 +856,7 @@ Devuelve EXCLUSIVAMENTE un arreglo JSON con el siguiente formato exacto sin sint
 Texto del manual:
 """ + texto[:12000]
 
-                                modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
+                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                                 res = None
                                 
                                 with st.spinner("Generando banco de preguntas con IA..."):
