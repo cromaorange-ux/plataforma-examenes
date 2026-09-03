@@ -577,7 +577,6 @@ else:
                     intento_obj = dict_intentos[intento_sel_key]
                     intento_target_id = intento_obj["id"]
                     
-                    # Cargar el banco original únicamente como referencia de lectura
                     banco_preguntas_original = []
                     ex_id = intento_obj.get("examen_id")
                     if ex_id and ex_id > 0:
@@ -585,13 +584,11 @@ else:
                         if res_ex_orig.data:
                             banco_preguntas_original = res_ex_orig.data[0].get("preguntas_json", [])
 
-                    # Clonación aislada para este intento
                     respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
                     
                     if respuestas_lista:
                         dict_preguntas = {f"P{idx+1}: {p['pregunta'][:50]}...": idx for idx, p in enumerate(respuestas_lista)}
                         
-                        # KEY ÚNICA CON EL ID DEL INTENTO PARA EVITAR EL ERROR DE ELEMENTO DUPLICADO
                         p_sel_key = st.selectbox(
                             "Selecciona la pregunta a modificar:", 
                             list(dict_preguntas.keys()), 
@@ -654,7 +651,6 @@ else:
                             else:
                                 fecha_hora_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
                                 
-                                # Capturar valores anteriores para la tabla auditoria_modificaciones
                                 val_anterior = {
                                     "es_correcta": p_objetivo.get("es_correcta"),
                                     "opcion_elegida": p_objetivo.get("opcion_elegida")
@@ -664,7 +660,6 @@ else:
                                     "opcion_elegida": nueva_opcion_texto
                                 }
 
-                                # Modificar en el JSON del intento
                                 respuestas_lista[p_idx]["es_correcta"] = nuevo_estado_correcta
                                 respuestas_lista[p_idx]["opcion_elegida"] = nueva_opcion_texto
                                 respuestas_lista[p_idx]["audit_edicion"] = {
@@ -686,22 +681,19 @@ else:
                                         "porcentaje_obtenido": nuevo_porcentaje
                                     }).eq("id", intento_target_id).execute()
                                     
-                                    # 2. Insertar en auditoria_modificaciones
-                                    # Truncamos el texto a un máximo de 80 caracteres para garantizar no superar los 100 de la BBDD
-                                    pregunta_corta = p_objetivo['pregunta'][:80]
-
+                                    # 2. Insertar registro completo en auditoria_modificaciones
                                     registro_auditoria = {
                                         "intento_id": intento_target_id,
-                                        "admin_id": st.session_state.user_id,
-                                        "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                                        "campo_modificada": f"P{p_idx + 1}: {pregunta_corta}",
+                                        "usuario_modificador": editor_nombre,
+                                        "fecha_modificacion": fecha_hora_utc,
+                                        "campo_modificada": f"Pregunta {p_idx + 1}: {p_objetivo['pregunta']}",
                                         "valor_anterior": json.dumps(val_anterior, ensure_ascii=False),
                                         "valor_nuevo": json.dumps(val_nuevo, ensure_ascii=False),
                                         "motivo": motivo_edicion
                                     }
                                     supabase.table("auditoria_modificaciones").insert(registro_auditoria).execute()
 
-                                    st.success(f"✅ Intento #{intento_target_id} actualizado y auditoría registrada en 'auditoria_modificaciones'. Nueva nota: **{nueva_nota} / 10**.")
+                                    st.success(f"✅ Intento #{intento_target_id} actualizado y registrado por {editor_nombre}. Nueva nota: **{nueva_nota} / 10**.")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error al guardar cambios/auditoría: {e}")
@@ -714,81 +706,90 @@ else:
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
                 st.subheader("📥 Exportación e Informes de Evaluaciones")
-                st.write("Selecciona los filtros para generar informes en formato Excel o PDF.")
-
-                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=True).execute()
+                
+                # Obtención de exámenes del alumno / general ordenados cronológicamente
+                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=False).execute()
                 todos_intentos = res_todos.data if res_todos.data else []
 
                 if todos_intentos:
-                    empleados_unicos = sorted(list(set(i.get("nombre_empleado", "Desconocido") for i in todos_intentos)))
-                    examenes_unicos = sorted(list(set(i.get("apartado", "General") for i in todos_intentos)))
+                    # PREGUNTA / SELECTOR DE EXAMEN CON EL ÚLTIMO SELECCIONADO POR DEFECTO
+                    st.write("### 📌 Selección de Examen a Imprimir/Exportar")
+                    
+                    if len(todos_intentos) > 1:
+                        st.info(f"Se encontraron **{len(todos_intentos)} exámenes** registrados.")
+                        
+                        opciones_examenes = [
+                            f"Examen #{i['id']} - Empleado: {i.get('nombre_empleado')} | Apartado: {i.get('apartado')} (Fecha: {i.get('fecha_inicio', '')[:10]})"
+                            for i in todos_intentos
+                        ]
+                        
+                        # Último examen por defecto (index = len - 1)
+                        indice_ultimo_examen = len(opciones_examenes) - 1
+                        
+                        opcion_elegida = st.selectbox(
+                            "¿Qué examen deseas imprimir / exportar?:",
+                            options=opciones_examenes,
+                            index=indice_ultimo_examen
+                        )
+                        
+                        idx_seleccionado = opciones_examenes.index(opcion_elegida)
+                        intentos_filtrados = [todos_intentos[idx_seleccionado]]
+                    else:
+                        intentos_filtrados = todos_intentos
 
-                    col_f1, col_f2 = st.columns(2)
-                    with col_f1:
-                        sel_empleados = st.multiselect("Filtrar por Empleado(s):", empleados_unicos, default=empleados_unicos)
-                    with col_f2:
-                        sel_examenes = st.multiselect("Filtrar por Examen(es):", examenes_unicos, default=examenes_unicos)
+                    st.markdown("---")
+                    st.write(f"**Examen seleccionado:** ID #{intentos_filtrados[0]['id']} - {intentos_filtrados[0].get('nombre_empleado')} ({intentos_filtrados[0].get('apartado')})")
 
-                    # Filtrar datos según selección
-                    intentos_filtrados = [
-                        i for i in todos_intentos 
-                        if i.get("nombre_empleado") in sel_empleados and i.get("apartado") in sel_examenes
-                    ]
+                    # Preparar DataFrame para exportar
+                    filas_excel = []
+                    for it in intentos_filtrados:
+                        respuestas = it.get("respuestas_usuario", [])
+                        falladas = [r.get("pregunta") for r in respuestas if not r.get("es_correcta", False)]
+                        string_falladas = " | ".join(falladas) if falladas else "Ninguna (Aprobó todo)"
 
-                    st.info(f"Se han encontrado **{len(intentos_filtrados)}** registros que coinciden con los filtros.")
+                        porc = it.get('porcentaje_obtenido', 0)
+                        filas_excel.append({
+                            "ID Intento": it.get("id"),
+                            "Empleado": it.get("nombre_empleado"),
+                            "Examen / Apartado": it.get("apartado"),
+                            "Puntuación (Nota 0-10)": it.get("nota"),
+                            "Porcentaje": f"{porc}%",
+                            "Estado": "APROBADO" if porc >= UMBRAL_APROBADO_PORCENTAJE else "SUSPENSO",
+                            "Fecha": it.get("fecha_inicio", "")[:10],
+                            "Preguntas Falladas": string_falladas
+                        })
 
-                    if intentos_filtrados:
-                        # Preparar DataFrame para exportar
-                        filas_excel = []
-                        for it in intentos_filtrados:
-                            respuestas = it.get("respuestas_usuario", [])
-                            falladas = [r.get("pregunta") for r in respuestas if not r.get("es_correcta", False)]
-                            string_falladas = " | ".join(falladas) if falladas else "Ninguna (Aprobó todo)"
+                    df_export = pd.DataFrame(filas_excel)
+                    st.dataframe(df_export, use_container_width=True)
 
-                            porc = it.get('porcentaje_obtenido', 0)
-                            filas_excel.append({
-                                "ID Intento": it.get("id"),
-                                "Empleado": it.get("nombre_empleado"),
-                                "Examen / Apartado": it.get("apartado"),
-                                "Puntuación (Nota 0-10)": it.get("nota"),
-                                "Porcentaje": f"{porc}%",
-                                "Estado": "APROBADO" if porc >= UMBRAL_APROBADO_PORCENTAJE else "SUSPENSO",
-                                "Fecha": it.get("fecha_inicio", "")[:10],
-                                "Preguntas Falladas": string_falladas
-                            })
+                    col_exp1, col_exp2 = st.columns(2)
 
-                        df_export = pd.DataFrame(filas_excel)
+                    # 1. Exportar Excel
+                    with col_exp1:
+                        output_excel = io.BytesIO()
+                        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                            df_export.to_excel(writer, index=False, sheet_name='Resultados')
+                        excel_data = output_excel.getvalue()
 
-                        st.dataframe(df_export, use_container_width=True)
+                        st.download_button(
+                            label="🟢 Descargar Excel (.xlsx)",
+                            data=excel_data,
+                            file_name=f"Examen_{intentos_filtrados[0]['id']}_{datetime.date.today()}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
 
-                        col_exp1, col_exp2 = st.columns(2)
-
-                        # 1. Exportar Excel
-                        with col_exp1:
-                            output_excel = io.BytesIO()
-                            with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-                                df_export.to_excel(writer, index=False, sheet_name='Resultados')
-                            excel_data = output_excel.getvalue()
-
+                    # 2. Exportar PDF
+                    with col_exp2:
+                        if REPORTLAB_DISPONIBLE:
+                            pdf_bytes = generar_pdf_resultados(intentos_filtrados)
                             st.download_button(
-                                label="🟢 Descargar Excel (.xlsx)",
-                                data=excel_data,
-                                file_name=f"Resultados_Evaluaciones_{datetime.date.today()}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                label="🔴 Descargar Informe PDF",
+                                data=pdf_bytes,
+                                file_name=f"Informe_Examen_{intentos_filtrados[0]['id']}_{datetime.date.today()}.pdf",
+                                mime="application/pdf"
                             )
-
-                        # 2. Exportar PDF
-                        with col_exp2:
-                            if REPORTLAB_DISPONIBLE:
-                                pdf_bytes = generar_pdf_resultados(intentos_filtrados)
-                                st.download_button(
-                                    label="🔴 Descargar Informe PDF",
-                                    data=pdf_bytes,
-                                    file_name=f"Informe_Resultados_{datetime.date.today()}.pdf",
-                                    mime="application/pdf"
-                                )
-                            else:
-                                st.warning("Instala 'reportlab' (`pip install reportlab`) para habilitar la descarga directa de informes PDF.")
+                        else:
+                            st.warning("Instala 'reportlab' (`pip install reportlab`) para habilitar la descarga directa de informes PDF.")
 
                 else:
                     st.info("No existen intentos para exportar.")
