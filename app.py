@@ -161,7 +161,7 @@ def generar_pdf_resultado(intento):
         [Paragraph("<b>Aciertos</b>", norm_style), Paragraph(f"{correctas} / {total_p}", norm_style)],
         [Paragraph("<b>Porcentaje</b>", norm_style), Paragraph(f"{porcentaje}%", norm_style)],
         [Paragraph("<b>Nota Final</b>", norm_style), Paragraph(f"{intento.get('nota', 0)} / 10", norm_style)],
-        [Paragraph("<b>Estado</b>", norm_style), Paragraph(f"<b>{estado_txt}</b>", bold_style)]
+        [Paragraph("<b>Resultado</b>", norm_style), Paragraph(f"<b>{estado_txt}</b>", bold_style)]
     ]
     t = Table(data_res, colWidths=[150, 350])
     t.setStyle(TableStyle([
@@ -286,6 +286,7 @@ else:
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
             porcentaje = round((correctas / total_p) * 100, 2)
             nota_final = round((correctas / total_p) * 10, 2)
+            estado_evaluacion = "🟢 APROBADO" if porcentaje >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
             
             duracion_total = int(time.time() - st.session_state.tiempo_inicio_examen)
             tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
@@ -310,7 +311,12 @@ else:
                 }
                 
                 supabase.table("intentos_examen").insert(registro_intento).execute()
-                st.success(f"🎉 Examen completado: **{correctas} / {total_p} acertadas ({porcentaje}%)**")
+                
+                if porcentaje >= UMBRAL_APROBADO_PORCENTAJE:
+                    st.success(f"🎉 Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
+                else:
+                    st.error(f"❌ Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
+
             except Exception as e:
                 st.error(f"Error guardando intento: {e}")
                 
@@ -321,6 +327,12 @@ else:
 
     # CUESTIONARIO ACTIVO
     elif st.session_state.examen_activo:
+        st.markdown("<div id='pregunta_activa'></div>", unsafe_allow_html=True)
+        st.components.v1.html(
+            "<script>window.parent.document.getElementById('pregunta_activa').scrollIntoView({behavior: 'smooth'});</script>",
+            height=0
+        )
+
         idx = st.session_state.indice_pregunta
         total_p = len(st.session_state.preguntas_seleccionadas)
         
@@ -340,57 +352,55 @@ else:
             
             st.progress(max(0.0, tiempo_restante / TIEMPO_LIMITE_PREGUNTA))
             
+            deshabilitar_opciones = False
             if tiempo_restante > 0:
                 st.caption(f"⏱️ Tiempo restante: **{tiempo_restante} segundos**")
             else:
-                st.warning("⏰ ¡Tiempo agotado en esta pregunta!")
+                st.error("⏰ ¡Tiempo agotado en esta pregunta! La selección ha sido bloqueada.")
+                deshabilitar_opciones = True
                 st.session_state.sobrepaso_tiempo_global = True
                 st.session_state.tiempos_restantes_preguntas[idx] = 0
-                
-                if not st.session_state.modificando_desde_revision:
-                    st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
-                    st.session_state.respuestas_detalle.append({
-                        "idx_pregunta": idx,
-                        "pregunta": p_actual["pregunta"],
-                        "opcion_elegida": "En blanco (Agotado tiempo)",
-                        "es_correcta": False
-                    })
-                    st.session_state.indice_pregunta += 1
-                    st.session_state.tiempo_inicio_pregunta = time.time()
-                    st.rerun()
 
             st.markdown(f"<p class='pregunta-titulo'>{p_actual['pregunta']}</p>", unsafe_allow_html=True)
-            
-            if p_actual.get("tipo") == "practica_imagen" and p_actual.get("imagen_url"):
-                st.image(p_actual["imagen_url"], caption="Imagen del Ejercicio Práctico", use_container_width=True)
 
             resp_previa = next((r["opcion_elegida"] for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == idx), None)
             idx_previa = None
             if resp_previa and resp_previa in p_actual["opciones_barajadas"]:
                 idx_previa = p_actual["opciones_barajadas"].index(resp_previa)
 
-            eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=idx_previa, key=f"p_{idx}")
+            eleccion = st.radio(
+                "Selecciona una opción:", 
+                p_actual["opciones_barajadas"], 
+                index=idx_previa, 
+                key=f"p_{idx}",
+                disabled=deshabilitar_opciones
+            )
             
             if idx in st.session_state.pistas_activadas:
                 pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
                 st.info(f"💡 **Pista:** {pista_texto}")
             else:
-                if st.session_state.comodines_restantes > 0:
+                if st.session_state.comodines_restantes > 0 and not deshabilitar_opciones:
                     if st.button("💡 Pedir Ayuda (Gasta 1 comodín)", key=f"btn_pista_{idx}"):
                         st.session_state.comodines_restantes -= 1
                         st.session_state.pistas_activadas.add(idx)
                         st.rerun()
+                elif deshabilitar_opciones:
+                    st.caption("🚫 Tiempo agotado. No se pueden pedir comodines.")
                 else:
                     st.caption("🚫 Has agotado tus 3 comodines de ayuda.")
 
             st.write("")
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                if st.button("Responder / Siguiente", key=f"btn_sig_{idx}"):
+                lbl_btn = "Ir a Revisión" if (st.session_state.modificando_desde_revision or deshabilitar_opciones) else "Responder / Siguiente"
+                if st.button(lbl_btn, key=f"btn_sig_{idx}"):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
-                    st.session_state.modificando_desde_revision = False
                     
-                    if eleccion is None or eleccion == "":
+                    if deshabilitar_opciones and not resp_previa:
+                        es_correcta = False
+                        opcion_guardada = "En blanco (Agotado tiempo)"
+                    elif eleccion is None or eleccion == "":
                         es_correcta = False
                         opcion_guardada = "En blanco (Sin marcar)"
                     else:
@@ -405,12 +415,17 @@ else:
                         "es_correcta": es_correcta
                     })
                     
-                    st.session_state.indice_pregunta += 1
-                    st.session_state.tiempo_inicio_pregunta = time.time()
+                    if st.session_state.modificando_desde_revision or deshabilitar_opciones:
+                        st.session_state.modificando_desde_revision = False
+                        st.session_state.modo_revision = True
+                    else:
+                        st.session_state.indice_pregunta += 1
+                        st.session_state.tiempo_inicio_pregunta = time.time()
+                    
                     st.rerun()
 
             with col_b2:
-                if st.button("📋 Ir a Revisión", key=f"btn_rev_{idx}"):
+                if st.button("📋 Ir a Revisión Directa", key=f"btn_rev_{idx}"):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
                     st.session_state.modificando_desde_revision = False
                     st.session_state.modo_revision = True
@@ -426,6 +441,9 @@ else:
 
     # MENÚ PRINCIPAL
     else:
+        # AVISO EN PANTALLA PRINCIPAL CON LA NOTA MÍNIMA DE APROBACIÓN
+        st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos).")
+
         if st.session_state.es_croma:
             tab_examenes, tab_admin_resultados, tab_admin_export, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen", 
@@ -440,14 +458,12 @@ else:
             ])
 
         with tab_examenes:
-            # Obtener exámenes realizados por el usuario en el año actual
             anio_actual = datetime.datetime.now().year
             inicio_anio = f"{anio_actual}-01-01T00:00:00"
             
             res_user_intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", st.session_state.user_id).gte("fecha_inicio", inicio_anio).execute()
             user_intentos = res_user_intentos.data if res_user_intentos.data else []
 
-            # Mapeo de apartados realizados y su nota
             dict_realizados = {}
             for it in user_intentos:
                 apt = it.get("apartado")
@@ -466,21 +482,22 @@ else:
 
             if examenes_disponibles:
                 st.subheader("📋 Seleccionar Modalidad")
-                tab_global, tab_manual = st.tabs(["🌐 Examen Global (2 por Subíndice + 5 Prácticas)", "📘 Examen por Manual"])
+                tab_global, tab_manual = st.tabs(["🌐 Examen Global (3 por Subíndice)", "📘 Examen por Manual"])
                 
                 with tab_global:
-                    st.info("El Examen Global incluirá **2 preguntas teóricas por cada subíndice** de todos los manuales y **5 ejercicios prácticos**.")
+                    st.info("El Examen Global incluirá **3 preguntas teóricas por cada subíndice** de todos los manuales registrados.")
                     
                     if "GLOBAL COMPLETO" in dict_realizados:
                         info_g = dict_realizados["GLOBAL COMPLETO"]
-                        st.success(f"✅ **REALIZADO ({anio_actual})** — Nota obtenida: **{info_g['nota']} / 10** ({info_g['porcentaje']}%)")
+                        est_txt = "🟢 APROBADO" if info_g["porcentaje"] >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                        st.success(f"✅ **REALIZADO ({anio_actual})** — Nota obtenida: **{info_g['nota']} / 10** ({info_g['porcentaje']}%) | **{est_txt}**")
                     
                     if st.button("Comenzar Examen Global Combinado"):
                         preguntas_preparadas = []
                         
                         for ex_obj in examenes_disponibles:
                             banco = ex_obj["preguntas_json"]
-                            elegidas_sub = seleccionar_preguntas_por_subindice(banco, num_por_subindice=2)
+                            elegidas_sub = seleccionar_preguntas_por_subindice(banco, num_por_subindice=3)
                             
                             for p in elegidas_sub:
                                 idx_c = p["respuesta_correcta"]
@@ -498,19 +515,6 @@ else:
                                     "tipo": "teorica"
                                 })
                         
-                        practicas_ejemplo = [
-                            {
-                                "subindice": "Práctica Operativa",
-                                "pregunta": f"Ejercicio Práctico {i+1}: Identifica el parámetro o valor correcto reflejado en la imagen.",
-                                "opciones_barajadas": ["Parámetro Normal (100)", "Exceso de Límite (150)", "Valor Crítico (200)", "Sin Lectura"],
-                                "respuesta_correcta_texto": "Parámetro Normal (100)",
-                                "imagen_url": "https://via.placeholder.com/600x300.png?text=Ejercicio+Practico+Imagen",
-                                "pista": "Observa las especificaciones del panel técnico.",
-                                "tipo": "practica_imagen"
-                            } for i in range(5)
-                        ]
-                        
-                        preguntas_preparadas.extend(practicas_ejemplo)
                         random.shuffle(preguntas_preparadas)
                         
                         st.session_state.examen_id = None
@@ -535,10 +539,10 @@ else:
                         with cols_m[idx_m % 2]:
                             st.markdown(f"### 📘 {nombre_apt}")
                             
-                            # Indicador visual de realizado para no administradores
                             if nombre_apt in dict_realizados:
                                 info_m = dict_realizados[nombre_apt]
-                                st.success(f"✅ **REALIZADO ({anio_actual})** — Nota: **{info_m['nota']} / 10**")
+                                est_txt = "🟢 APROBADO" if info_m["porcentaje"] >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                                st.success(f"✅ **REALIZADO ({anio_actual})** — Nota: **{info_m['nota']} / 10** | **{est_txt}**")
                             
                             if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}"):
                                 banco = ex_obj["preguntas_json"]
@@ -598,8 +602,8 @@ else:
                         
                         estado = "🟢 APROBADO" if porc >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
                         
-                        with st.expander(f"Examen #{i['id']} - {i.get('apartado')} | {fecha_str} | Nota: {i.get('nota', 0)}/10 ({porc}%) - {estado}"):
-                            st.write(f"**Resultado:** {num_correctas} / {total_p} aciertos ({porc}%)")
+                        with st.expander(f"Examen #{i['id']} - {i.get('apartado')} | {fecha_str} | Nota: {i.get('nota', 0)}/10 | Estado: {estado}"):
+                            st.write(f"**Resultado:** {num_correctas} / {total_p} aciertos ({porc}%) - **{estado}**")
                             
                             pdf_bytes = generar_pdf_resultado(i)
                             if pdf_bytes:
@@ -627,12 +631,10 @@ else:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
                 
-                # Cargar todos los intentos para extrae los años disponibles
                 res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=True).execute()
                 todos_intentos = res_todos.data if res_todos.data else []
                 
                 if todos_intentos:
-                    # Extraer lista de años únicos
                     anios_disponibles = sorted(
                         list(set(int(it["fecha_inicio"][:4]) for it in todos_intentos if it.get("fecha_inicio"))),
                         reverse=True
@@ -640,7 +642,6 @@ else:
                     
                     anio_sel = st.selectbox("📅 Filtrar exámenes por año:", anios_disponibles)
                     
-                    # Filtrar intentos por el año seleccionado
                     intentos_filtrados = [
                         it for it in todos_intentos 
                         if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_sel
@@ -649,7 +650,11 @@ else:
                     st.write(f"Se encontraron **{len(intentos_filtrados)}** exámenes realizados en el año **{anio_sel}**.")
                     
                     if intentos_filtrados:
-                        dict_intentos = {f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')}) [{it.get('fecha_inicio', '')[:10]}]": it for it in intentos_filtrados}
+                        dict_intentos = {}
+                        for it in intentos_filtrados:
+                            est_it = "🟢 APROBADO" if it.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                            dict_intentos[f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')}) | Nota: {it.get('nota', 0)}/10 [{est_it}]"] = it
+
                         intento_sel_key = st.selectbox("Selecciona un examen para auditar/editar:", list(dict_intentos.keys()))
                         
                         intento_obj = dict_intentos[intento_sel_key]
@@ -718,10 +723,12 @@ else:
                     ]
 
                     if intentos_exp_filtrados:
-                        opciones_examenes = [
-                            f"Examen #{i['id']} - Empleado: {i.get('nombre_empleado')} | {i.get('apartado')} ({i.get('fecha_inicio', '')[:10]})"
-                            for i in intentos_exp_filtrados
-                        ]
+                        opciones_examenes = []
+                        for i in intentos_exp_filtrados:
+                            est_exp = "🟢 APROBADO" if i.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                            opciones_examenes.append(
+                                f"Examen #{i['id']} - {i.get('nombre_empleado')} | {i.get('apartado')} | Nota: {i.get('nota', 0)}/10 [{est_exp}]"
+                            )
                         
                         opcion_elegida = st.selectbox("Selecciona el examen a exportar:", opciones_examenes)
                         idx_sel = opciones_examenes.index(opcion_elegida)
@@ -772,17 +779,12 @@ else:
                                     st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
                                     st.stop()
 
-                                prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
-
-Requisitos estrictos para el JSON:
-1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
-2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
-3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
-
-Responde ÚNICAMENTE con un array JSON estructurado así:
+                                prompt = """Genera un banco de preguntas tipo test basándote en el documento estructurado por subíndices.
+Devuelve EXCLUSIVAMENTE un arreglo JSON con el siguiente formato exacto sin sintaxis Markdown ni texto adicional:
 [
   {
-    "pregunta": "texto de la pregunta",
+    "subindice": "1.1 Seguridad Operativa",
+    "pregunta": "Texto de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
     "pista": "Texto de la pista de ayuda",
@@ -793,7 +795,7 @@ Responde ÚNICAMENTE con un array JSON estructurado así:
 Texto del manual:
 """ + texto[:8000]
 
-                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
+                                modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
                                 res = None
                                 
                                 with st.spinner("Generando banco de preguntas con IA..."):
@@ -843,10 +845,7 @@ Texto del manual:
                         if st.button("🔴 Eliminar Documento Seleccionado"):
                             id_borrar = dict_borrado[doc_a_eliminar]
                             try:
-                                # 1. Mantener el historial: Desvincular los intentos sin borrarlos
                                 supabase.table("intentos_examen").update({"examen_id": None}).eq("examen_id", id_borrar).execute()
-                                
-                                # 2. Eliminar el documento de la tabla examenes
                                 supabase.table("examenes").delete().eq("id", id_borrar).execute()
                                 
                                 st.success(f"✅ Apartado '{doc_a_eliminar}' eliminado. Se conserva el historial de exámenes realizados.")
