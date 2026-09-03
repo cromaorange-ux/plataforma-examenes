@@ -653,7 +653,7 @@ Texto:
 
                             with st.spinner("Procesando documento con Gemini 3..."):
                                 res = gemini_client.models.generate_content(
-                                    model='gemini-3-flash',
+                                    model='gemini-3.6-flash',
                                     contents=prompt,
                                     config=types.GenerateContentConfig(response_mime_type="application/json")
                                 )
