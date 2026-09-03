@@ -27,7 +27,6 @@ except ImportError:
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="wide")
 
-# CSS para ocultar el menú de Streamlit, footer y ajustar tamaños de fuente
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -107,7 +106,6 @@ UMBRAL_APROBADO_PORCENTAJE = 70.0
 
 
 def seleccionar_preguntas_por_subindice(banco_completo, num_por_subindice=3):
-    """Agrupa por subíndice y selecciona N preguntas por cada subíndice."""
     subindices = {}
     for p in banco_completo:
         sub = p.get("subindice", "General")
@@ -129,14 +127,13 @@ def obtener_dias_restantes_mes():
 
 
 # ---------------------------------------------------------
-# DIÁLOGO DE AUTENTICACIÓN (FORMULARIO CON AUTO-FOCUS Y ENTER)
+# DIÁLOGO DE AUTENTICACIÓN (AUTO-FOCUS Y TECLA ENTER)
 # ---------------------------------------------------------
 @st.dialog("🔒 Confirmar Contraseña")
 def login_modal():
     usuario = st.session_state.usuario_modal_sel
     st.write(f"Accediendo como: **{usuario['nombre']}**")
     
-    # st.form permite ingresar datos y procesar al pulsar ENTER
     with st.form("form_login_modal"):
         pwd_input = st.text_input(
             "Introduce tu contraseña:", 
@@ -158,7 +155,7 @@ def login_modal():
 
 
 # ---------------------------------------------------------
-# MÓDULO 1: AUTENTICACIÓN POR CAJONES (GRID DE USUARIOS)
+# MÓDULO 1: AUTENTICACIÓN
 # ---------------------------------------------------------
 st.title("📝 Sistema de Evaluación Mensual")
 
@@ -234,7 +231,8 @@ else:
             tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc)
             
             try:
-                id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) else 0
+                # Evita error de clave foránea 23503 enviando None si es Examen Global
+                id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) and st.session_state.examen_id > 0 else None
 
                 registro_intento = {
                     "empleado_id": st.session_state.user_id,
@@ -262,7 +260,7 @@ else:
                 st.rerun()
 
     # -----------------------------------------------------
-    # CUESTIONARIO ACTIVO (CON TEMPORIZADOR EN TIEMPO REAL)
+    # CUESTIONARIO ACTIVO (MANDOS UNIFICADOS Y REFRESCO)
     # -----------------------------------------------------
     elif st.session_state.examen_activo:
         idx = st.session_state.indice_pregunta
@@ -289,7 +287,6 @@ else:
                 st.warning("⏰ ¡Tiempo agotado en esta pregunta! Marcada como en blanco.")
                 st.session_state.sobrepaso_tiempo_global = True
                 
-                # Guardar respuesta en blanco por tiempo agotado
                 st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
                 st.session_state.respuestas_detalle.append({
                     "idx_pregunta": idx,
@@ -303,22 +300,19 @@ else:
 
             st.markdown(f"<p class='pregunta-titulo'>{p_actual['pregunta']}</p>", unsafe_allow_html=True)
             
-            # Renderizado seguro de imagen reemplazando el parámetro deprecated
-            if p_actual.get("tipo") == "practica_imagen":
-                img_url = p_actual.get("imagen_url")
-                if img_url:
-                    st.image(img_url, caption="Ejercicio Práctico", use_container_width=True)
-                
-                eleccion = st.text_input("Escribe tu respuesta para el ejercicio práctico:", key=f"practica_{idx}")
-            else:
-                eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=None, key=f"p_{idx}")
+            # Imagen si aplica a la pregunta
+            if p_actual.get("tipo") == "practica_imagen" and p_actual.get("imagen_url"):
+                st.image(p_actual["imagen_url"], caption="Imagen del Ejercicio Práctico", use_container_width=True)
+
+            # Selector unificado para todo tipo de preguntas (Teóricas y Prácticas)
+            eleccion = st.radio("Selecciona una opción:", p_actual["opciones_barajadas"], index=None, key=f"p_{idx}")
             
             if idx in st.session_state.pistas_activadas:
                 pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
                 st.info(f"💡 **Pista:** {pista_texto}")
             else:
                 if st.session_state.comodines_restantes > 0:
-                    if st.button("💡 Pedir Ayuda (Gasta 1 comodín)"):
+                    if st.button("💡 Pedir Ayuda (Gasta 1 comodín)", key=f"btn_pista_{idx}"):
                         st.session_state.comodines_restantes -= 1
                         st.session_state.pistas_activadas.add(idx)
                         st.rerun()
@@ -328,17 +322,13 @@ else:
             st.write("")
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                if st.button("Responder / Siguiente"):
+                if st.button("Responder / Siguiente", key=f"btn_sig_{idx}"):
                     if eleccion is None or eleccion == "":
                         es_correcta = False
                         opcion_guardada = "En blanco (Sin marcar)"
                     else:
-                        if p_actual.get("tipo") == "practica_imagen":
-                            es_correcta = (str(eleccion).strip().lower() == str(p_actual["respuesta_correcta_texto"]).strip().lower())
-                            opcion_guardada = str(eleccion).strip()
-                        else:
-                            es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
-                            opcion_guardada = eleccion
+                        es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
+                        opcion_guardada = eleccion
                     
                     st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
                     st.session_state.respuestas_detalle.append({
@@ -353,11 +343,11 @@ else:
                     st.rerun()
 
             with col_b2:
-                if st.button("📋 Ir a Revisión"):
+                if st.button("📋 Ir a Revisión", key=f"btn_rev_{idx}"):
                     st.session_state.modo_revision = True
                     st.rerun()
 
-            # Forzar actualización en tiempo real del reloj cada segundo
+            # Forzar avance en tiempo real del reloj
             time.sleep(1)
             st.rerun()
 
@@ -366,7 +356,7 @@ else:
             st.rerun()
 
     # -----------------------------------------------------
-    # MENÚ PRINCIPAL DE NAVEGACIÓN
+    # MENÚ PRINCIPAL
     # -----------------------------------------------------
     else:
         if st.session_state.es_croma:
@@ -382,7 +372,6 @@ else:
                 "📊 Mis Resultados y Estado"
             ])
 
-        # --- SECCIÓN: REALIZAR EXAMEN ---
         with tab_examenes:
             inicio_mes = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0).isoformat()
             intentos_mes = supabase.table("intentos_examen").select("*").eq("empleado_id", st.session_state.user_id).gte("fecha_inicio", inicio_mes).execute()
@@ -402,9 +391,9 @@ else:
                     st.subheader("📋 Seleccionar Modalidad")
                     tab_global, tab_manual = st.tabs(["🌐 Examen Global (2 por Subíndice + 5 Prácticas)", "📘 Examen por Manual"])
                     
-                    # 1. EXAMEN GLOBAL
+                    # EXAMEN GLOBAL
                     with tab_global:
-                        st.info("El Examen Global incluirá **2 preguntas teóricas por cada subíndice** de todos los manuales y **5 ejercicios prácticos** tipo imagen.")
+                        st.info("El Examen Global incluirá **2 preguntas teóricas por cada subíndice** de todos los manuales y **5 ejercicios prácticos** tipo opción múltiple.")
                         if st.button("Comenzar Examen Global Combinado"):
                             preguntas_preparadas = []
                             
@@ -428,14 +417,15 @@ else:
                                         "tipo": "teorica"
                                     })
                             
-                            # Ejercicios prácticos de prueba
+                            # Ejercicios prácticos con opciones múltiples definidas
                             practicas_ejemplo = [
                                 {
                                     "subindice": "Práctica Operativa",
-                                    "pregunta": f"Ejercicio Práctico {i+1}: Identifica el valor o parámetro indicado.",
-                                    "respuesta_correcta_texto": "100",
+                                    "pregunta": f"Ejercicio Práctico {i+1}: Identifica el parámetro o valor correcto reflejado en la imagen.",
+                                    "opciones_barajadas": ["Parámetro Normal (100)", "Exceso de Límite (150)", "Valor Crítico (200)", "Sin Lectura"],
+                                    "respuesta_correcta_texto": "Parámetro Normal (100)",
                                     "imagen_url": "https://via.placeholder.com/600x300.png?text=Ejercicio+Practico+Imagen",
-                                    "pista": "Observa con atención las especificaciones técnicas.",
+                                    "pista": "Observa las especificaciones del panel técnico.",
                                     "tipo": "practica_imagen"
                                 } for i in range(5)
                             ]
@@ -443,7 +433,7 @@ else:
                             preguntas_preparadas.extend(practicas_ejemplo)
                             random.shuffle(preguntas_preparadas)
                             
-                            st.session_state.examen_id = 0
+                            st.session_state.examen_id = None
                             st.session_state.apartado_actual = "GLOBAL COMPLETO"
                             st.session_state.preguntas_seleccionadas = preguntas_preparadas
                             st.session_state.indice_pregunta = 0
@@ -455,11 +445,9 @@ else:
                             st.session_state.examen_activo = True
                             st.rerun()
 
-                    # 2. EXAMEN POR MANUAL (CAJONES)
+                    # EXAMEN POR MANUAL
                     with tab_manual:
                         st.subheader("Selecciona el Manual para la Evaluación")
-                        st.caption("Se seleccionarán automáticamente 3 preguntas por cada subíndice del manual elegido.")
-                        
                         cols_m = st.columns(2)
                         for idx_m, ex_obj in enumerate(examenes_disponibles):
                             with cols_m[idx_m % 2]:
@@ -499,7 +487,7 @@ else:
                 else:
                     st.warning("No hay manuales cargados en el sistema.")
 
-        # --- SECCIÓN: VISTA USUARIO NORMAL (HISTORIAL UNIFICADO) ---
+        # MIS RESULTADOS
         if not st.session_state.es_croma:
             with tab_mis_resultados:
                 st.subheader("📌 Mis Calificaciones e Historial")
@@ -540,7 +528,7 @@ else:
                 else:
                     st.write("Aún no has realizado ningún examen.")
 
-        # --- SECCIÓN: ADMIN CROMA ---
+        # ADMIN CROMA - EDICIÓN AUDITADA
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
@@ -549,7 +537,6 @@ else:
                 todos_intentos = res_todos.data if res_todos.data else []
                 
                 if todos_intentos:
-                    st.write("### Exámenes Realizados")
                     dict_intentos = {f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')})": it for it in todos_intentos}
                     intento_sel_key = st.selectbox("Selecciona un examen para auditar/editar:", list(dict_intentos.keys()))
                     
@@ -598,7 +585,7 @@ else:
                                 st.success("✅ Cambio registrado y auditado con éxito.")
                                 st.rerun()
 
-        # --- SECCIÓN: EXPORTACIÓN E INFORMES ---
+        # EXPORTACIÓN
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
                 st.subheader("📥 Exportación e Informes")
@@ -617,10 +604,6 @@ else:
                     
                     idx_sel = opciones_examenes.index(opcion_elegida)
                     examen_sel = todos_intentos[idx_sel]
-                    
-                    respuestas_sel = examen_sel.get("respuestas_usuario", [])
-                    num_correctas = sum(1 for r in respuestas_sel if r.get("es_correcta"))
-                    st.write(f"**Nota final:** {num_correctas} / {len(respuestas_sel)} acertadas ({examen_sel.get('porcentaje_obtenido')}%)")
 
                     if st.button("📊 Generar Excel de este Examen"):
                         df_export = pd.DataFrame([examen_sel])
@@ -635,7 +618,7 @@ else:
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
 
-        # --- SECCIÓN: ADMIN CROMA (GESTIÓN DE DOCUMENTOS) ---
+        # ADMIN CROMA - GESTIÓN DOCUMENTOS CON GEMINI 3
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
@@ -668,9 +651,9 @@ Ejemplo JSON:
 Texto:
 """ + texto[:10000]
 
-                            with st.spinner("Procesando documento e identificando subíndices..."):
+                            with st.spinner("Procesando documento con Gemini 3..."):
                                 res = gemini_client.models.generate_content(
-                                    model='gemini-2.5-flash',
+                                    model='gemini-3-flash',
                                     contents=prompt,
                                     config=types.GenerateContentConfig(response_mime_type="application/json")
                                 )
