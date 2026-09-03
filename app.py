@@ -689,101 +689,110 @@ else:
                                 mime="application/pdf"
                             )
 
-        # ADMIN CROMA - GESTIÓN Y ELIMINACIÓN DE DOCUMENTOS
-        if st.session_state.es_croma and tab_admin_gestion:
-            with tab_admin_gestion:
-                col_subir, col_del = st.columns([3, 2])
-                
-                with col_subir:
-                    st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
-                    archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
-                    nombre_apartado = st.text_input("Nombre del Manual / Apartado")
-                    
-                    if st.button("Procesar y Generar Banco estructurado"):
-                        if archivo_pdf and nombre_apartado:
-                            try:
-                                reader = PdfReader(archivo_pdf)
-                                texto = "".join([page.extract_text() or "" for page in reader.pages])
-                                
-                                prompt = """Genera un banco de preguntas tipo test basándote en el documento estructurado por subíndices.
-Requisitos del JSON:
-1. "subindice": Nombre exacto del capítulo o subíndice al que pertenece la pregunta.
-2. Genera al menos 15 preguntas por cada subíndice identificado.
-3. "pista": Incluye una pista explicativa de ayuda sin revelar la respuesta directa.
+# ADMIN CROMA - GESTIÓN Y ELIMINACIÓN DE DOCUMENTOS
+if st.session_state.es_croma and tab_admin_gestion:
+    with tab_admin_gestion:
+        col_subir, col_del = st.columns([3, 2])
+        
+        with col_subir:
+            st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
+            archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
+            nombre_apartado = st.text_input("Nombre del Manual / Apartado")
+            
+            if st.button("Procesar y Generar Banco estructurado"):
+                if archivo_pdf and nombre_apartado:
+                    try:
+                        reader = PdfReader(archivo_pdf)
+                        texto = "".join([page.extract_text() or "" for page in reader.pages])
+                        
+                        if not texto.strip():
+                            st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
+                            st.stop()
 
-Ejemplo JSON:
+                        prompt = """Genera un banco de preguntas tipo test basándote en el documento estructurado por subíndices.
+Devuelve EXCLUSIVAMENTE un arreglo JSON con el siguiente formato exacto sin sintaxis Markdown ni texto adicional:
 [
   {
-    "subindice": "1.1 Seguridad Operativa",
-    "pregunta": "texto de la pregunta",
-    "opciones": ["A", "B", "C"],
+    "subindice": "1. Seguridad Operativa",
+    "pregunta": "Texto de la pregunta",
+    "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
-    "pista": "revisa la sección de protocolos",
+    "pista": "Texto de la pista de ayuda",
     "tipo": "teorica"
   }
 ]
-Texto:
-""" + texto[:10000]
 
-                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
-                                res = None
-                                
-                                with st.spinner("Generando banco de preguntas con IA..."):
-                                    for model_name in modelos:
-                                        intencion = 0
-                                        exito = False
-                                        while intencion < 3 and not exito:
-                                            try:
-                                                res = gemini_client.models.generate_content(
-                                                    model=model_name,
-                                                    contents=prompt,
-                                                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                                                )
-                                                exito = True
-                                            except Exception as err:
-                                                if "503" in str(err) or "UNAVAILABLE" in str(err):
-                                                    intencion += 1
-                                                    time.sleep(2)
-                                                else:
-                                                    raise err
-                                        if exito:
-                                            break
+Texto del manual:
+""" + texto[:8000]
 
-                                if res and res.text:
-                                    preguntas_json = json.loads(res.text)
-                                    supabase.table("examenes").insert({
-                                        "apartado": nombre_apartado, 
-                                        "preguntas_json": preguntas_json
-                                    }).execute()
-                                    
-                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ El servicio de IA está saturado. Inténtalo en un minuto.")
-
-                            except Exception as e:
-                                st.error(f"❌ Error al generar el examen: {e}")
-                        else:
-                            st.error("Sube un PDF e introduce un nombre de apartado.")
-
-                with col_del:
-                    st.subheader("🗑️ Eliminar Documentos / Apartados")
-                    res_ex_del = supabase.table("examenes").select("id, apartado").execute()
-                    examenes_del = res_ex_del.data if res_ex_del.data else []
-                    
-                    if examenes_del:
-                        dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_del}
-                        doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
+                        # Se utilizan nombres de modelos válidos en la API actual
+                        modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
+                        res = None
                         
-                        if st.button("🔴 Eliminar Documento Seleccionado"):
-                            id_borrar = dict_borrado[doc_a_eliminar]
-                            try:
-                                supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
-                                supabase.table("examenes").delete().eq("id", id_borrar).execute()
-                                
-                                st.success(f"✅ Apartado '{doc_a_eliminar}' e historial borrados con éxito.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error al eliminar apartado: {e}")
-                    else:
-                        st.info("No hay documentos guardados para eliminar.")
+                        with st.spinner("Generando banco de preguntas con IA..."):
+                            for model_name in modelos:
+                                try:
+                                    res = gemini_client.models.generate_content(
+                                        model=model_name,
+                                        contents=prompt,
+                                        config=types.GenerateContentConfig(
+                                            response_mime_type="application/json"
+                                        )
+                                    )
+                                    if res and res.text:
+                                        break
+                                except Exception as model_err:
+                                    st.warning(f"Reintentando con modelo alternativo... ({model_err})")
+                                    time.sleep(1)
+
+                        if res and res.text:
+                            # Limpieza de marcado markdown si la IA lo incluyera
+                            clean_text = res.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                            preguntas_json = json.loads(clean_text)
+                            
+                            supabase.table("examenes").insert({
+                                "apartado": nombre_apartado, 
+                                "preguntas_json": preguntas_json
+                            }).execute()
+                            
+                            st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
+                            st.rerun()
+                        else:
+                            st.error("❌ No se recibió respuesta válida del servicio de IA. Inténtalo de nuevo.")
+
+                    except Exception as e:
+                        st.error(f"❌ Error al generar el examen: {e}")
+                else:
+                    st.error("Sube un PDF e introduce un nombre de apartado.")
+
+        with col_del:
+            st.subheader("🗑️ Eliminar Documentos / Apartados")
+            res_ex_del = supabase.table("examenes").select("id, apartado").execute()
+            examenes_del = res_ex_del.data if res_ex_del.data else []
+            
+            if examenes_del:
+                dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_del}
+                doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
+                
+                if st.button("🔴 Eliminar Documento Seleccionado"):
+                    id_borrar = dict_borrado[doc_a_eliminar]
+                    try:
+                        # 1. Obtener los IDs de los intentos asociados a este examen
+                        intentos = supabase.table("intentos_examen").select("id").eq("examen_id", id_borrar).execute()
+                        intentos_ids = [i["id"] for i in (intentos.data or [])]
+                        
+                        # 2. Borrar auditorías vinculadas a estos intentos
+                        if intentos_ids:
+                            for i_id in intentos_ids:
+                                supabase.table("auditoria_modificaciones").delete().eq("intento_id", i_id).execute()
+                        
+                        # 3. Borrar los intentos y finalmente el examen
+                        supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
+                        supabase.table("examenes").delete().eq("id", id_borrar).execute()
+                        
+                        st.success(f"✅ Apartado '{doc_a_eliminar}' e historial borrados con éxito.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al eliminar apartado: {e}")
+            else:
+                st.info("No hay documentos guardados para eliminar.")
