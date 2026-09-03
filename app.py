@@ -651,20 +651,67 @@ Ejemplo JSON:
 Texto:
 """ + texto[:10000]
 
-                            with st.spinner("Procesando documento con Gemini 3..."):
-                                res = gemini_client.models.generate_content(
-                                    model='gemini-3.6-flash',
-                                    contents=prompt,
-                                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                                )
+
+                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
+                                res = None
                                 
+                                with st.spinner("Generando banco de 50 preguntas con metadatos de dificultad y pistas..."):
+                                    for model_name in modelos:
+                                        intencion = 0
+                                        exito = False
+                                        while intencion < 3 and not exito:
+                                            try:
+                                                res = gemini_client.models.generate_content(
+                                                    model=model_name,
+                                                    contents=prompt,
+                                                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                                                )
+                                                exito = True
+                                            except Exception as err:
+                                                if "503" in str(err) or "UNAVAILABLE" in str(err):
+                                                    intencion += 1
+                                                    time.sleep(2)
+                                                else:
+                                                    raise err
+                                        if exito:
+                                            break
+
                                 if res and res.text:
                                     preguntas_json = json.loads(res.text)
+                                    
                                     supabase.table("examenes").insert({
                                         "apartado": nombre_apartado, 
                                         "preguntas_json": preguntas_json
                                     }).execute()
-                                    st.success(f"✅ Manual '{nombre_apartado}' guardado correctamente con {len(preguntas_json)} preguntas.")
+                                    
+                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
                                     st.rerun()
-                        except Exception as e:
-                            st.error(f"Error procesando el documento: {e}")
+                                else:
+                                    st.error("❌ El servicio de IA está saturado. Inténtalo en un minuto.")
+
+                            except Exception as e:
+                                st.error(f"❌ Error al generar el examen: {e}")
+                        else:
+                            st.error("Sube un PDF e introduce un nombre de apartado.")
+
+                with col_del:
+                    st.write("### 🗑️ Eliminar Documentos / Apartados")
+                    res_ex_del = supabase.table("examenes").select("id, apartado").execute()
+                    examenes_del = res_ex_del.data if res_ex_del.data else []
+                    
+                    if examenes_del:
+                        dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_del}
+                        doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
+                        
+                        if st.button("🔴 Eliminar Documento Seleccionado"):
+                            id_borrar = dict_borrado[doc_a_eliminar]
+                            try:
+                                supabase.table("intentos_examen").delete().eq("examen_id", id_borrar).execute()
+                                supabase.table("examenes").delete().eq("id", id_borrar).execute()
+                                
+                                st.success(f"✅ Apartado '{doc_a_eliminar}' e historial borrados con éxito.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al eliminar apartado: {e}")
+                    else:
+                        st.info("No hay documentos guardados para eliminar.")
