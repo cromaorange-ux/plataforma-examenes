@@ -323,7 +323,6 @@ else:
                 
                 supabase.table("intentos_examen").insert(registro_intento).execute()
 
-                # Consumir / revocar la autorización explícita si existía tras realizar el examen
                 try:
                     supabase.table("autorizaciones_examen").delete()\
                         .eq("empleado_id", st.session_state.user_id)\
@@ -478,11 +477,9 @@ else:
             ])
 
         with tab_examenes:
-            # Rango mensual actual
             ahora = datetime.datetime.now()
             primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0).isoformat()
             
-            # 1. Obtener los intentos realizados por este usuario durante el mes actual
             res_user_intentos = supabase.table("intentos_examen").select("*")\
                 .eq("empleado_id", st.session_state.user_id)\
                 .gte("fecha_inicio", primer_dia_mes).execute()
@@ -497,7 +494,6 @@ else:
                         "porcentaje": it.get("porcentaje_obtenido", 0)
                     }
 
-            # 2. Consultar si existen autorizaciones especiales del administrador
             try:
                 res_aut = supabase.table("autorizaciones_examen").select("apartado")\
                     .eq("empleado_id", st.session_state.user_id).execute()
@@ -897,7 +893,6 @@ else:
                     if st.button("Habilitar Repetición de Examen"):
                         emp_id_target = dict_emp[emp_aut_sel]
                         try:
-                            # Insertar autorizacion (evitando duplicados mediante upsert si la tabla tiene unique constraint, o simple insert)
                             data_aut = {
                                 "empleado_id": emp_id_target,
                                 "apartado": apt_aut_sel,
@@ -910,7 +905,7 @@ else:
                         except Exception as e_aut:
                             st.info("El usuario ya cuenta con un permiso activo para realizar este examen.")
 
-                # SECCIÓN DE AUTORIZACIONES ACTIVAS (Revocación rápida)
+                # SECCIÓN DE AUTORIZACIONES ACTIVAS
                 try:
                     res_aut_activas = supabase.table("autorizaciones_examen").select("id, empleado_id, apartado, fecha_autorizacion, autorizado_por").execute()
                     list_aut_activas = res_aut_activas.data if res_aut_activas.data else []
@@ -935,7 +930,86 @@ else:
 
                 st.markdown("---")
 
-                # SECCIÓN 2: CARGA Y BORRADO DE MANUALES
+                # SECCIÓN 2: IMPORTAR INTENTOS DESDE CSV (NUEVA FUNCIONALIDAD)
+                st.subheader("📥 Importar Registro de Exámenes (CSV)")
+                st.caption("Carga un archivo CSV para insertar masivamente intentos de examen en la base de datos SQL (`intentos_examen`).")
+                
+                archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
+                
+                if archivo_csv_import is not None:
+                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos"):
+                        try:
+                            # Lectura intentando delimitador punto y coma ';'
+                            try:
+                                df_csv = pd.read_csv(archivo_csv_import, sep=';')
+                                if len(df_csv.columns) <= 1:
+                                    archivo_csv_import.seek(0)
+                                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
+                            except Exception:
+                                archivo_csv_import.seek(0)
+                                df_csv = pd.read_csv(archivo_csv_import, sep=',')
+
+                            # Mapear empleados existentes
+                            res_emp_all = supabase.table("empleados").select("id, nombre").execute()
+                            map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
+
+                            registros_insertados = 0
+                            errores_import = 0
+
+                            for idx_row, row in df_csv.iterrows():
+                                nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
+                                emp_id = map_empleados.get(nombre_emp.lower(), None)
+                                
+                                # Normalización de JSON de respuestas
+                                resp_raw = row.get("respuestas_usuario", "[]")
+                                if isinstance(resp_raw, str):
+                                    try:
+                                        resp_json = json.loads(resp_raw)
+                                    except Exception:
+                                        resp_json = []
+                                elif isinstance(resp_raw, list):
+                                    resp_json = resp_raw
+                                else:
+                                    resp_json = []
+
+                                # Obtención de límite de tiempo
+                                t_limite = row.get("tiempo_limite")
+                                if pd.isna(t_limite) or t_limite is None:
+                                    t_limite = row.get("tiempo_limite_segundos", 0)
+
+                                registro_nuevo = {
+                                    "empleado_id": emp_id,
+                                    "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
+                                    "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
+                                    "fecha_inicio": str(row.get("fecha_inicio", "")),
+                                    "fecha_fin": str(row.get("fecha_fin", "")),
+                                    "tiempo_total_segundos": int(row.get("tiempo_total_segundos", 0)) if not pd.isna(row.get("tiempo_total_segundos")) else 0,
+                                    "tiempo_limite": int(t_limite) if not pd.isna(t_limite) else 0,
+                                    "porcentaje_obtenido": float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0,
+                                    "nota": float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0,
+                                    "respuestas_usuario": resp_json,
+                                }
+
+                                try:
+                                    supabase.table("intentos_examen").insert(registro_nuevo).execute()
+                                    registros_insertados += 1
+                                except Exception as err_ins:
+                                    st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
+                                    errores_import += 1
+
+                            if registros_insertados > 0:
+                                st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
+                                if errores_import > 0:
+                                    st.warning(f"⚠️ Ocurrieron {errores_import} errores durante la carga.")
+                                time.sleep(1.5)
+                                st.rerun()
+
+                        except Exception as e_csv:
+                            st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
+
+                st.markdown("---")
+
+                # SECCIÓN 3: CARGA Y BORRADO DE MANUALES
                 col_subir, col_del = st.columns([3, 2])
                 
                 with col_subir:
@@ -955,7 +1029,7 @@ else:
 
                                 prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
 
-Requisitos estrictos para el JSON:
+Requisitos strictly para el JSON:
 1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
 2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
 3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
