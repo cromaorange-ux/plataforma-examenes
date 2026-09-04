@@ -894,90 +894,6 @@ else:
                                         except Exception as err:
                                             st.error(f"⚠️ Error al guardar en la base de datos: {err}")
 
-# carga de archivos JSON de examenes
-st.subheader("📄 Cargar Banco de Preguntas desde JSON")
-nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
-archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
-
-if st.button("🚀 Subir Preguntas a Supabase"):
-    if archivo_json and nombre_apartado_json:
-        try:
-            contenido_json = json.load(archivo_json)
-            
-            # Guardar directamente en la tabla 'examenes'
-            supabase.table("examenes").insert({
-                "apartado": nombre_apartado_json,
-                "preguntas_json": contenido_json
-            }).execute()
-            
-            st.success(f"✅ ¡Se cargaron {len(contenido_json)} preguntas correctamente!")
-            time.sleep(1.5)
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error al procesar el archivo JSON: {e}")
-    else:
-        st.warning("⚠️ Debes proporcionar un nombre para el apartado y subir un archivo JSON.")
-
-        
-        # EXPORTACIÓN CON FILTRO DE AÑO
-        if st.session_state.es_croma and tab_admin_export:
-            with tab_admin_export:
-                st.subheader("📥 Exportación e Informes")
-                
-                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=False).execute()
-                todos_intentos = res_todos.data if res_todos.data else []
-
-                if todos_intentos:
-                    anios_exp = sorted(
-                        list(set(int(it["fecha_inicio"][:4]) for it in todos_intentos if it.get("fecha_inicio"))),
-                        reverse=True
-                    )
-                    anio_exp_sel = st.selectbox("📅 Seleccionar año para exportación:", anios_exp, key="exp_anio")
-                    
-                    intentos_exp_filtrados = [
-                        it for it in todos_intentos 
-                        if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_exp_sel
-                    ]
-
-                    if intentos_exp_filtrados:
-                        opciones_examenes = []
-                        for i in intentos_exp_filtrados:
-                            est_exp = "🟢 APROBADO" if i.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
-                            opciones_examenes.append(
-                                f"Examen #{i['id']} - {i.get('nombre_empleado')} | {i.get('apartado')} | Nota: {i.get('nota', 0)}/10 [{est_exp}]"
-                            )
-                        
-                        opcion_elegida = st.selectbox("Selecciona el examen a exportar:", opciones_examenes)
-                        idx_sel = opciones_examenes.index(opcion_elegida)
-                        examen_sel = intentos_exp_filtrados[idx_sel]
-
-                        col_exp_a, col_exp_b = st.columns(2)
-                        with col_exp_a:
-                            if st.button("📊 Generar Excel de este Examen", use_container_width=True):
-                                df_export = pd.DataFrame([examen_sel])
-                                buffer = io.BytesIO()
-                                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                                    df_export.to_excel(writer, index=False, sheet_name="Examen")
-                                
-                                st.download_button(
-                                    label="📥 Descargar Excel",
-                                    data=buffer.getvalue(),
-                                    file_name=f"examen_{examen_sel['id']}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    use_container_width=True
-                                )
-
-                        with col_exp_b:
-                            pdf_bytes = generar_pdf_resultado(examen_sel)
-                            if pdf_bytes:
-                                st.download_button(
-                                    label="📄 Descargar Informe PDF",
-                                    data=pdf_bytes,
-                                    file_name=f"informe_examen_{examen_sel['id']}.pdf",
-                                    mime="application/pdf",
-                                    use_container_width=True
-                                )
-
         # ADMIN CROMA - GESTIÓN Y AUTORIZACIONES
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
@@ -1271,3 +1187,87 @@ if st.button("🚀 Subir Preguntas a Supabase"):
                                 st.error(f"Error al eliminar apartado: {e}")
                     else:
                         st.info("No hay documentos guardados para eliminar.")
+
+# carga de archivos JSON de examenes
+st.subheader("📄 Cargar Banco de Preguntas desde JSON")
+nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
+archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
+
+if st.button("🚀 Subir Preguntas a Supabase"):
+    if archivo_json and nombre_apartado_json:
+        try:
+            contenido_json = json.load(archivo_json)
+            
+            # Guardar directamente en la tabla 'examenes'
+            supabase.table("examenes").insert({
+                "apartado": nombre_apartado_json,
+                "preguntas_json": contenido_json
+            }).execute()
+            
+            st.success(f"✅ ¡Se cargaron {len(contenido_json)} preguntas correctamente!")
+            time.sleep(1.5)
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al procesar el archivo JSON: {e}")
+    else:
+        st.warning("⚠️ Debes proporcionar un nombre para el apartado y subir un archivo JSON.")
+
+        
+        # EXPORTACIÓN CON FILTRO DE AÑO
+        if st.session_state.es_croma and tab_admin_export:
+            with tab_admin_export:
+                st.subheader("📥 Exportación e Informes")
+                
+                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=False).execute()
+                todos_intentos = res_todos.data if res_todos.data else []
+
+                if todos_intentos:
+                    anios_exp = sorted(
+                        list(set(int(it["fecha_inicio"][:4]) for it in todos_intentos if it.get("fecha_inicio"))),
+                        reverse=True
+                    )
+                    anio_exp_sel = st.selectbox("📅 Seleccionar año para exportación:", anios_exp, key="exp_anio")
+                    
+                    intentos_exp_filtrados = [
+                        it for it in todos_intentos 
+                        if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_exp_sel
+                    ]
+
+                    if intentos_exp_filtrados:
+                        opciones_examenes = []
+                        for i in intentos_exp_filtrados:
+                            est_exp = "🟢 APROBADO" if i.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                            opciones_examenes.append(
+                                f"Examen #{i['id']} - {i.get('nombre_empleado')} | {i.get('apartado')} | Nota: {i.get('nota', 0)}/10 [{est_exp}]"
+                            )
+                        
+                        opcion_elegida = st.selectbox("Selecciona el examen a exportar:", opciones_examenes)
+                        idx_sel = opciones_examenes.index(opcion_elegida)
+                        examen_sel = intentos_exp_filtrados[idx_sel]
+
+                        col_exp_a, col_exp_b = st.columns(2)
+                        with col_exp_a:
+                            if st.button("📊 Generar Excel de este Examen", use_container_width=True):
+                                df_export = pd.DataFrame([examen_sel])
+                                buffer = io.BytesIO()
+                                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                                    df_export.to_excel(writer, index=False, sheet_name="Examen")
+                                
+                                st.download_button(
+                                    label="📥 Descargar Excel",
+                                    data=buffer.getvalue(),
+                                    file_name=f"examen_{examen_sel['id']}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True
+                                )
+
+                        with col_exp_b:
+                            pdf_bytes = generar_pdf_resultado(examen_sel)
+                            if pdf_bytes:
+                                st.download_button(
+                                    label="📄 Descargar Informe PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"informe_examen_{examen_sel['id']}.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
