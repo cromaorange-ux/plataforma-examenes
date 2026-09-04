@@ -1193,6 +1193,22 @@ st.subheader("📄 Cargar Banco de Preguntas desde JSON")
 nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
 archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
 
+# 1. Asegurarte de que el JSON sea una lista
+if isinstance(contenido_json, list):
+    
+    # 2. Filtrar solo los elementos que sean diccionarios válidos
+    preguntas_validas = [p for p in contenido_json if isinstance(p, dict)]
+    
+    for p_b in preguntas_validas:
+        # 3. Obtener el texto de la pregunta de forma segura
+        pregunta_texto = p_b.get("pregunta")
+        
+        # Verificar que 'pregunta' existe y es una cadena de texto antes de usar .strip()
+        if isinstance(pregunta_texto, str) and pregunta_texto.strip() == pregunta_texto_limpio:
+            # Aquí va el resto de tu lógica actual
+            pass
+
+
 if st.button("🚀 Subir Preguntas a Supabase"):
     if archivo_json and nombre_apartado_json:
         try:
