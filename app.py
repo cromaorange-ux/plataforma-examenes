@@ -621,22 +621,26 @@ else:
                         banco_global = []
                         
                         for ex_obj in examenes_disponibles:
-                            banco = ex_obj["preguntas_json"]
-                            for p in banco:
-                                idx_c = p["respuesta_correcta"]
-                                texto_c = p["opciones"][idx_c]
-                                opciones_shuffled = p["opciones"].copy()
-                                random.shuffle(opciones_shuffled)
-                                
-                                banco_global.append({
-                                    "apartado": ex_obj["apartado"],
-                                    "subindice": p.get("subindice", "General"),
-                                    "pregunta": p["pregunta"],
-                                    "opciones_barajadas": opciones_shuffled,
-                                    "respuesta_correcta_texto": texto_c,
-                                    "pista": p.get("pista", "Revisa los conceptos clave."),
-                                    "tipo": "teorica"
-                                })
+                            banco = ex_obj.get("preguntas_json", [])
+                            if isinstance(banco, list):
+                                for p in banco:
+                                    if isinstance(p, dict):
+                                        idx_c = p.get("respuesta_correcta", 0)
+                                        opciones = p.get("opciones", [])
+                                        if isinstance(idx_c, int) and 0 <= idx_c < len(opciones):
+                                            texto_c = opciones[idx_c]
+                                            opciones_shuffled = opciones.copy()
+                                            random.shuffle(opciones_shuffled)
+                                            
+                                            banco_global.append({
+                                                "apartado": ex_obj.get("apartado", ""),
+                                                "subindice": p.get("subindice", "General"),
+                                                "pregunta": p.get("pregunta", ""),
+                                                "opciones_barajadas": opciones_shuffled,
+                                                "respuesta_correcta_texto": texto_c,
+                                                "pista": p.get("pista", "Revisa los conceptos clave."),
+                                                "tipo": "teorica"
+                                            })
                         
                         preguntas_preparadas = seleccionar_15_preguntas(banco_global)
                         
@@ -676,24 +680,28 @@ else:
                                     st.error("🔒 Requiere autorización del administrador para repetirlo este mes.")
                             
                             if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}", disabled=bloqueado_manual, use_container_width=True):
-                                banco = ex_obj["preguntas_json"]
+                                banco = ex_obj.get("preguntas_json", [])
                                 banco_manual = []
                                 
-                                for p in banco:
-                                    idx_c = p["respuesta_correcta"]
-                                    texto_c = p["opciones"][idx_c]
-                                    opciones_shuffled = p["opciones"].copy()
-                                    random.shuffle(opciones_shuffled)
-                                    
-                                    banco_manual.append({
-                                        "apartado": nombre_apt,
-                                        "subindice": p.get("subindice", "General"),
-                                        "pregunta": p["pregunta"],
-                                        "opciones_barajadas": opciones_shuffled,
-                                        "respuesta_correcta_texto": texto_c,
-                                        "pista": p.get("pista", "Revisa la documentación técnica."),
-                                        "tipo": "teorica"
-                                    })
+                                if isinstance(banco, list):
+                                    for p in banco:
+                                        if isinstance(p, dict):
+                                            idx_c = p.get("respuesta_correcta", 0)
+                                            opciones = p.get("opciones", [])
+                                            if isinstance(idx_c, int) and 0 <= idx_c < len(opciones):
+                                                texto_c = opciones[idx_c]
+                                                opciones_shuffled = opciones.copy()
+                                                random.shuffle(opciones_shuffled)
+                                                
+                                                banco_manual.append({
+                                                    "apartado": nombre_apt,
+                                                    "subindice": p.get("subindice", "General"),
+                                                    "pregunta": p.get("pregunta", ""),
+                                                    "opciones_barajadas": opciones_shuffled,
+                                                    "respuesta_correcta_texto": texto_c,
+                                                    "pista": p.get("pista", "Revisa la documentación técnica."),
+                                                    "tipo": "teorica"
+                                                })
                                 
                                 preguntas_preparadas = seleccionar_15_preguntas(banco_manual)
                                 
@@ -813,13 +821,16 @@ else:
                             
                             for ex_item in banco_todos:
                                 preguntas_banco = ex_item.get("preguntas_json", [])
-                                for p_b in preguntas_banco:
-                                    if p_b.get("pregunta", "").strip() == pregunta_texto_limpio:
-                                        opciones_disponibles = p_b.get("opciones", [])
-                                        num_correcta = p_b.get("respuesta_correcta")
-                                        if isinstance(num_correcta, int) and 0 <= num_correcta < len(opciones_disponibles):
-                                            texto_respuesta_correcta = opciones_disponibles[num_correcta]
-                                        break
+                                if isinstance(preguntas_banco, list):
+                                    preguntas_validas = [p for p in preguntas_banco if isinstance(p, dict)]
+                                    for p_b in preguntas_validas:
+                                        p_texto = p_b.get("pregunta")
+                                        if isinstance(p_texto, str) and p_texto.strip() == pregunta_texto_limpio:
+                                            opciones_disponibles = p_b.get("opciones", [])
+                                            num_correcta = p_b.get("respuesta_correcta")
+                                            if isinstance(num_correcta, int) and 0 <= num_correcta < len(opciones_disponibles):
+                                                texto_respuesta_correcta = opciones_disponibles[num_correcta]
+                                            break
 
                             if texto_respuesta_correcta:
                                 st.success(f"🎯 **Respuesta correcta según el Banco de Preguntas:**\n\n{texto_respuesta_correcta}")
@@ -893,6 +904,65 @@ else:
 
                                         except Exception as err:
                                             st.error(f"⚠️ Error al guardar en la base de datos: {err}")
+
+        # ADMIN CROMA - EXPORTACIÓN E INFORMES
+        if st.session_state.es_croma and tab_admin_export:
+            with tab_admin_export:
+                st.subheader("📥 Exportación e Informes")
+                
+                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=False).execute()
+                todos_intentos = res_todos.data if res_todos.data else []
+
+                if todos_intentos:
+                    anios_exp = sorted(
+                        list(set(int(it["fecha_inicio"][:4]) for it in todos_intentos if it.get("fecha_inicio"))),
+                        reverse=True
+                    )
+                    anio_exp_sel = st.selectbox("📅 Seleccionar año para exportación:", anios_exp, key="exp_anio")
+                    
+                    intentos_exp_filtrados = [
+                        it for it in todos_intentos 
+                        if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_exp_sel
+                    ]
+
+                    if intentos_exp_filtrados:
+                        opciones_examenes = []
+                        for i in intentos_exp_filtrados:
+                            est_exp = "🟢 APROBADO" if i.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                            opciones_examenes.append(
+                                f"Examen #{i['id']} - {i.get('nombre_empleado')} | {i.get('apartado')} | Nota: {i.get('nota', 0)}/10 [{est_exp}]"
+                            )
+                        
+                        opcion_elegida = st.selectbox("Selecciona el examen a exportar:", opciones_examenes)
+                        idx_sel = opciones_examenes.index(opcion_elegida)
+                        examen_sel = intentos_exp_filtrados[idx_sel]
+
+                        col_exp_a, col_exp_b = st.columns(2)
+                        with col_exp_a:
+                            if st.button("📊 Generar Excel de este Examen", use_container_width=True):
+                                df_export = pd.DataFrame([examen_sel])
+                                buffer = io.BytesIO()
+                                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                                    df_export.to_excel(writer, index=False, sheet_name="Examen")
+                                
+                                st.download_button(
+                                    label="📥 Descargar Excel",
+                                    data=buffer.getvalue(),
+                                    file_name=f"examen_{examen_sel['id']}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True
+                                )
+
+                        with col_exp_b:
+                            pdf_bytes = generar_pdf_resultado(examen_sel)
+                            if pdf_bytes:
+                                st.download_button(
+                                    label="📄 Descargar Informe PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"informe_examen_{examen_sel['id']}.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
 
         # ADMIN CROMA - GESTIÓN Y AUTORIZACIONES
         if st.session_state.es_croma and tab_admin_gestion:
@@ -1040,13 +1110,47 @@ else:
 
                 st.markdown("---")
 
-                # SECCIÓN 3: CARGA Y BORRADO DE MANUALES CON GESTOR DE PROMPTS Y MODELOS
+                # SECCIÓN 3: CARGA DIRECTA DE JSON
+                st.subheader("📄 Cargar Banco de Preguntas desde JSON")
+                nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
+                archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
+
+                if st.button("🚀 Subir Preguntas a Supabase"):
+                    if archivo_json and nombre_apartado_json:
+                        try:
+                            contenido_json = json.load(archivo_json)
+                            
+                            # Filtrar únicamente elementos tipo diccionario
+                            if isinstance(contenido_json, list):
+                                contenido_validado = [p for p in contenido_json if isinstance(p, dict)]
+                            else:
+                                contenido_validado = []
+
+                            if contenido_validado:
+                                supabase.table("examenes").insert({
+                                    "apartado": nombre_apartado_json,
+                                    "preguntas_json": contenido_validado
+                                }).execute()
+                                
+                                st.success(f"✅ ¡Se cargaron {len(contenido_validado)} preguntas correctamente!")
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.error("❌ El archivo JSON no contiene una lista válida de preguntas.")
+                        except Exception as e:
+                            st.error(f"❌ Error al procesar el archivo JSON: {e}")
+                    else:
+                        st.warning("⚠️ Debes proporcionar un nombre para el apartado y subir un archivo JSON.")
+
+                st.markdown("---")
+
+                # SECCIÓN 4: CARGA Y BORRADO DE MANUALES CON GESTOR DE PROMPTS Y MODELOS
                 col_subir, col_del = st.columns([3, 2])
                 
                 with col_subir:
                     st.subheader("⚙️ Cargar Manual con Configuración de IA")
                     archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
-                    nombre_apartado = st.text_input("Nombre del Manual / Apartado")
+                    nombre_apartado = st.text_input("Nombre del Manual / Apartado (PDF)")
 
                     configs_prompts_db = []
                     try:
@@ -1187,103 +1291,3 @@ else:
                                 st.error(f"Error al eliminar apartado: {e}")
                     else:
                         st.info("No hay documentos guardados para eliminar.")
-
-# carga de archivos JSON de examenes
-st.subheader("📄 Cargar Banco de Preguntas desde JSON")
-nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
-archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
-
-# 1. Asegurarte de que el JSON sea una lista
-if isinstance(contenido_json, list):
-    
-    # 2. Filtrar solo los elementos que sean diccionarios válidos
-    preguntas_validas = [p for p in contenido_json if isinstance(p, dict)]
-    
-    for p_b in preguntas_validas:
-        # 3. Obtener el texto de la pregunta de forma segura
-        pregunta_texto = p_b.get("pregunta")
-        
-        # Verificar que 'pregunta' existe y es una cadena de texto antes de usar .strip()
-        if isinstance(pregunta_texto, str) and pregunta_texto.strip() == pregunta_texto_limpio:
-            # Aquí va el resto de tu lógica actual
-            pass
-
-
-if st.button("🚀 Subir Preguntas a Supabase"):
-    if archivo_json and nombre_apartado_json:
-        try:
-            contenido_json = json.load(archivo_json)
-            
-            # Guardar directamente en la tabla 'examenes'
-            supabase.table("examenes").insert({
-                "apartado": nombre_apartado_json,
-                "preguntas_json": contenido_json
-            }).execute()
-            
-            st.success(f"✅ ¡Se cargaron {len(contenido_json)} preguntas correctamente!")
-            time.sleep(1.5)
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error al procesar el archivo JSON: {e}")
-    else:
-        st.warning("⚠️ Debes proporcionar un nombre para el apartado y subir un archivo JSON.")
-
-        
-        # EXPORTACIÓN CON FILTRO DE AÑO
-        if st.session_state.es_croma and tab_admin_export:
-            with tab_admin_export:
-                st.subheader("📥 Exportación e Informes")
-                
-                res_todos = supabase.table("intentos_examen").select("*").order("fecha_inicio", desc=False).execute()
-                todos_intentos = res_todos.data if res_todos.data else []
-
-                if todos_intentos:
-                    anios_exp = sorted(
-                        list(set(int(it["fecha_inicio"][:4]) for it in todos_intentos if it.get("fecha_inicio"))),
-                        reverse=True
-                    )
-                    anio_exp_sel = st.selectbox("📅 Seleccionar año para exportación:", anios_exp, key="exp_anio")
-                    
-                    intentos_exp_filtrados = [
-                        it for it in todos_intentos 
-                        if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_exp_sel
-                    ]
-
-                    if intentos_exp_filtrados:
-                        opciones_examenes = []
-                        for i in intentos_exp_filtrados:
-                            est_exp = "🟢 APROBADO" if i.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
-                            opciones_examenes.append(
-                                f"Examen #{i['id']} - {i.get('nombre_empleado')} | {i.get('apartado')} | Nota: {i.get('nota', 0)}/10 [{est_exp}]"
-                            )
-                        
-                        opcion_elegida = st.selectbox("Selecciona el examen a exportar:", opciones_examenes)
-                        idx_sel = opciones_examenes.index(opcion_elegida)
-                        examen_sel = intentos_exp_filtrados[idx_sel]
-
-                        col_exp_a, col_exp_b = st.columns(2)
-                        with col_exp_a:
-                            if st.button("📊 Generar Excel de este Examen", use_container_width=True):
-                                df_export = pd.DataFrame([examen_sel])
-                                buffer = io.BytesIO()
-                                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                                    df_export.to_excel(writer, index=False, sheet_name="Examen")
-                                
-                                st.download_button(
-                                    label="📥 Descargar Excel",
-                                    data=buffer.getvalue(),
-                                    file_name=f"examen_{examen_sel['id']}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    use_container_width=True
-                                )
-
-                        with col_exp_b:
-                            pdf_bytes = generar_pdf_resultado(examen_sel)
-                            if pdf_bytes:
-                                st.download_button(
-                                    label="📄 Descargar Informe PDF",
-                                    data=pdf_bytes,
-                                    file_name=f"informe_examen_{examen_sel['id']}.pdf",
-                                    mime="application/pdf",
-                                    use_container_width=True
-                                )
