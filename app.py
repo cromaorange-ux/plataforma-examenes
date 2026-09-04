@@ -23,44 +23,103 @@ except ImportError:
     REPORTLAB_DISPONIBLE = False
 
 # ---------------------------------------------------------
-# CONFIGURACIÓN PÁGINA Y ESTILOS
+# CONFIGURACIÓN PÁGINA Y ESTILOS HTML / CSS
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="wide")
 
+# Integración del diseño HTML/CSS Responsive
 st.markdown("""
     <style>
+    /* Ocultar elementos predeterminados de Streamlit */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
-    
+
+    /* Variables de estilo globales */
+    :root {
+        --primary-color: #1A365D;
+        --secondary-color: #2B6CB0;
+        --background-color: #F7FAFC;
+        --card-bg: #FFFFFF;
+        --text-color: #2D3748;
+        --border-radius: 12px;
+    }
+
+    /* Contenedor principal */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+
+    /* Estilos para Radio Buttons / Opciones */
     .stRadio label {
-        font-size: 22px !important;
+        font-size: 18px !important;
         font-weight: 500 !important;
-        line-height: 1.5 !important;
+        line-height: 1.4 !important;
+        color: var(--text-color) !important;
     }
+    
+    .stRadio div[role='radiogroup'] {
+        gap: 10px;
+    }
+
     .stRadio div[role='radiogroup'] > label {
-        font-size: 20px !important;
-        margin-bottom: 12px !important;
+        background-color: #EDF2F7;
+        padding: 12px 18px !important;
+        border-radius: 8px !important;
+        border: 1px solid #CBD5E0 !important;
+        transition: all 0.2s ease-in-out;
+        width: 100%;
+        margin-bottom: 8px !important;
     }
+
+    .stRadio div[role='radiogroup'] > label:hover {
+        background-color: #E2E8F0;
+        border-color: #A0AEC0 !important;
+    }
+
+    /* Encabezados y títulos */
     .pregunta-titulo {
-        font-size: 26px !important;
-        font-weight: bold !important;
+        font-size: 24px !important;
+        font-weight: 700 !important;
         color: #1A365D;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
+        line-height: 1.3;
+        padding: 15px;
+        background-color: #F7FAFC;
+        border-left: 5px solid #2B6CB0;
+        border-radius: 4px;
     }
+
+    /* Adaptación de selectbox/popover */
     div[data-baseweb="select"] span {
         white-space: normal !important;
         max-width: none !important;
         overflow: visible !important;
         text-overflow: clip !important;
     }
+    
     div[data-baseweb="popover"] li {
         white-space: normal !important;
         word-break: break-word !important;
     }
+
+    /* Tarjetas de usuarios y exámenes */
+    .user-card {
+        background-color: var(--card-bg);
+        border: 1px solid #E2E8F0;
+        border-radius: var(--border-radius);
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        margin-bottom: 15px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# CREDENCIALES Y CLIENTES
+# ---------------------------------------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -74,7 +133,9 @@ try:
 except Exception as e:
     st.error(f"Error al inicializar el cliente de Gemini: {e}")
 
-# Estado de Sesión
+# ---------------------------------------------------------
+# ESTADO DE LA SESIÓN
+# ---------------------------------------------------------
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "user_id" not in st.session_state:
@@ -123,7 +184,7 @@ NUM_PREGUNTAS_EXAMEN = 15
 
 PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
 
-Requisitos estrictos para el JSON:
+Requisitos strictly para el JSON:
 1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
 2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
 3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
@@ -149,6 +210,9 @@ MODELOS_GEMINI_DISPONIBLES = [
     "gemini-1.5-pro"
 ]
 
+# ---------------------------------------------------------
+# FUNCIONES AUXILIARES
+# ---------------------------------------------------------
 def limpiar_timestamp_sql(ts_val):
     if pd.isna(ts_val) or ts_val is None:
         return None
@@ -224,7 +288,6 @@ def generar_pdf_resultado(intento):
     buffer.seek(0)
     return buffer.getvalue()
 
-
 # ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN
 # ---------------------------------------------------------
@@ -252,11 +315,10 @@ def login_modal():
             else:
                 st.error("❌ Contraseña incorrecta.")
 
-
 # ---------------------------------------------------------
 # MÓDULO 1: AUTENTICACIÓN
 # ---------------------------------------------------------
-st.title("📝 Sistema de Evaluación Mensual")
+st.title("📝 Plataforma de Evaluación y Exámenes")
 
 if not st.session_state.autenticado:
     st.subheader("Selecciona tu perfil para ingresar")
@@ -272,9 +334,13 @@ if not st.session_state.autenticado:
         cols = st.columns(3)
         for idx, u in enumerate(lista_usuarios):
             with cols[idx % 3]:
-                st.markdown(f"### 👤 {u['nombre']}")
-                st.caption("Administrador" if u.get("es_admin_croma") else "Empleado")
-                if st.button("Acceder", key=f"usr_btn_{u['id']}"):
+                st.markdown(f"""
+                <div class="user-card">
+                    <h3>👤 {u['nombre']}</h3>
+                    <p style="color: #718096; font-size: 14px;">{"Administrador" if u.get("es_admin_croma") else "Empleado"}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("Acceder", key=f"usr_btn_{u['id']}", use_container_width=True):
                     st.session_state.usuario_modal_sel = u
                     login_modal()
     else:
@@ -288,7 +354,7 @@ else:
     with col_usr:
         st.write(f"Bienvenido/a, **{st.session_state.user_nombre}** ({'Administrador CROMA' if st.session_state.es_croma else 'Empleado'})")
     with col_logout:
-        if st.button("Cerrar Sesión"):
+        if st.button("Cerrar Sesión", use_container_width=True):
             st.session_state.autenticado = False
             st.session_state.examen_activo = False
             st.session_state.modo_revision = False
@@ -313,7 +379,7 @@ else:
                 st.caption(f"Respuesta actual: **{texto_resp}** | ⏱️ Tiempo restante: **{t_restante} s**")
             with c2:
                 btn_bloqueado = (t_restante <= 0)
-                if st.button("Modificar", key=f"mod_rev_{i}", disabled=btn_bloqueado):
+                if st.button("Modificar", key=f"mod_rev_{i}", disabled=btn_bloqueado, use_container_width=True):
                     st.session_state.indice_pregunta = i
                     st.session_state.modo_revision = False
                     st.session_state.modificando_desde_revision = True
@@ -323,7 +389,7 @@ else:
                     st.caption("🔒 Tiempo agotado")
             st.write("---")
 
-        if st.button("✅ Confirmar y Entregar Examen Definitivamente"):
+        if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
             total_p = len(st.session_state.preguntas_seleccionadas)
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
             porcentaje = round((correctas / total_p) * 100, 2)
@@ -371,7 +437,7 @@ else:
                 
             st.session_state.examen_activo = False
             st.session_state.modo_revision = False
-            if st.button("Volver al Inicio"):
+            if st.button("Volver al Inicio", use_container_width=True):
                 st.rerun()
 
     # CUESTIONARIO ACTIVO
@@ -410,7 +476,7 @@ else:
                 st.session_state.sobrepaso_tiempo_global = True
                 st.session_state.tiempos_restantes_preguntas[idx] = 0
 
-            st.markdown(f"<p class='pregunta-titulo'>{p_actual['pregunta']}</p>", unsafe_allow_html=True)
+            st.markdown(f"<div class='pregunta-titulo'>{p_actual['pregunta']}</div>", unsafe_allow_html=True)
 
             resp_previa = next((r["opcion_elegida"] for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == idx), None)
             idx_previa = None
@@ -443,7 +509,7 @@ else:
             col_b1, col_b2 = st.columns(2)
             with col_b1:
                 lbl_btn = "Ir a Revisión" if (st.session_state.modificando_desde_revision or deshabilitar_opciones) else "Responder / Siguiente"
-                if st.button(lbl_btn, key=f"btn_sig_{idx}"):
+                if st.button(lbl_btn, key=f"btn_sig_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
                     
                     if deshabilitar_opciones and not resp_previa:
@@ -476,7 +542,7 @@ else:
                     st.rerun()
 
             with col_b2:
-                if st.button("📋 Ir a Revisión Directa", key=f"btn_rev_{idx}"):
+                if st.button("📋 Ir a Revisión Directa", key=f"btn_rev_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
                     st.session_state.modificando_desde_revision = False
                     st.session_state.modo_revision = True
@@ -559,7 +625,7 @@ else:
                         elif not st.session_state.es_croma:
                             st.error("🔒 Debes esperar al próximo mes o solicitar una autorización al administrador para volver a realizarlo.")
 
-                    if st.button("Comenzar Examen Global Combinado", disabled=bloqueado_global):
+                    if st.button("Comenzar Examen Global Combinado", disabled=bloqueado_global, use_container_width=True):
                         banco_global = []
                         
                         for ex_obj in examenes_disponibles:
@@ -617,7 +683,7 @@ else:
                                 elif not st.session_state.es_croma:
                                     st.error("🔒 Requiere autorización del administrador para repetirlo este mes.")
                             
-                            if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}", disabled=bloqueado_manual):
+                            if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}", disabled=bloqueado_manual, use_container_width=True):
                                 banco = ex_obj["preguntas_json"]
                                 banco_manual = []
                                 
@@ -870,7 +936,7 @@ else:
 
                         col_exp_a, col_exp_b = st.columns(2)
                         with col_exp_a:
-                            if st.button("📊 Generar Excel de este Examen"):
+                            if st.button("📊 Generar Excel de este Examen", use_container_width=True):
                                 df_export = pd.DataFrame([examen_sel])
                                 buffer = io.BytesIO()
                                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -880,7 +946,8 @@ else:
                                     label="📥 Descargar Excel",
                                     data=buffer.getvalue(),
                                     file_name=f"examen_{examen_sel['id']}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True
                                 )
 
                         with col_exp_b:
@@ -890,7 +957,8 @@ else:
                                     label="📄 Descargar Informe PDF",
                                     data=pdf_bytes,
                                     file_name=f"informe_examen_{examen_sel['id']}.pdf",
-                                    mime="application/pdf"
+                                    mime="application/pdf",
+                                    use_container_width=True
                                 )
 
         # ADMIN CROMA - GESTIÓN Y AUTORIZACIONES
@@ -921,7 +989,7 @@ else:
                     with col_aut2:
                         apt_aut_sel = st.selectbox("Seleccionar Examen/Manual:", apartados_unicos, key="aut_apt_sel")
                         
-                    if st.button("Habilitar Repetición de Examen"):
+                    if st.button("Habilitar Repetición de Examen", use_container_width=True):
                         emp_id_target = dict_emp[emp_aut_sel]
                         try:
                             data_aut = {
@@ -953,7 +1021,7 @@ else:
                         with c_info:
                             st.write(f"• **{e_nombre}** → `{aut['apartado']}` *(Autorizado por: {aut.get('autorizado_por', 'Admin')})*")
                         with c_btn:
-                            if st.button("Revocar", key=f"rev_aut_{aut['id']}"):
+                            if st.button("Revocar", key=f"rev_aut_{aut['id']}", use_container_width=True):
                                 supabase.table("autorizaciones_examen").delete().eq("id", aut["id"]).execute()
                                 st.warning("Autorización revocada.")
                                 time.sleep(1)
@@ -968,7 +1036,7 @@ else:
                 archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
                 
                 if archivo_csv_import is not None:
-                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos"):
+                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos", use_container_width=True):
                         try:
                             try:
                                 df_csv = pd.read_csv(archivo_csv_import, sep=';')
@@ -1023,7 +1091,7 @@ else:
                                 try:
                                     supabase.table("intentos_examen").insert(registro_nuevo).execute()
                                     registros_insertados += 1
-                                except Exception as err_ins:
+                                me:
                                     st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
                                     errores_import += 1
 
@@ -1047,7 +1115,6 @@ else:
                     archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
                     nombre_apartado = st.text_input("Nombre del Manual / Apartado")
 
-                    # Cargar configuraciones guardadas de SQL
                     configs_prompts_db = []
                     try:
                         res_p = supabase.table("config_prompts").select("*").order("id", desc=True).execute()
@@ -1106,7 +1173,7 @@ else:
                     with c_btn_b:
                         st.write("")
                         st.write("")
-                        btn_procesar_manual = st.button("🚀 Procesar y Generar Banco con esta Configuración")
+                        btn_procesar_manual = st.button("🚀 Procesar y Generar Banco", use_container_width=True)
 
                     if btn_procesar_manual:
                         if archivo_pdf and nombre_apartado:
@@ -1175,7 +1242,7 @@ else:
                         dict_borrado = {f"{ex['apartado']} (ID: {ex['id']})": ex['id'] for ex in examenes_del}
                         doc_a_eliminar = st.selectbox("Selecciona apartado a borrar:", list(dict_borrado.keys()))
                         
-                        if st.button("🔴 Eliminar Documento Seleccionado"):
+                        if st.button("🔴 Eliminar Documento Seleccionado", use_container_width=True):
                             id_borrar = dict_borrado[doc_a_eliminar]
                             try:
                                 supabase.table("intentos_examen").update({"examen_id": None}).eq("examen_id", id_borrar).execute()
