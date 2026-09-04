@@ -675,7 +675,7 @@ else:
                         respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
                         
                         if respuestas_lista:
-                            # MOSTRAR EL TEXTO COMPLETO EN LA SELECCIÓN SIN RECORTAR CON [:60]
+                            # MOSTRAR EL TEXTO COMPLETO EN LA SELECCIÓN SIN RECORTAR
                             dict_preguntas = {f"P{idx+1}: {p['pregunta']}": idx for idx, p in enumerate(respuestas_lista)}
                             p_sel_key = st.selectbox("Selecciona la pregunta a corregir:", list(dict_preguntas.keys()), key=f"sel_p_{intento_target_id}")
                             
@@ -685,7 +685,7 @@ else:
                             st.write(f"### ❓ Pregunta seleccionada:\n**{p_objetivo.get('pregunta')}**")
                             st.info(f"Respuesta registrada del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado actual: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
                             
-                            # Cargar banco original de exámenes para extraer por "respuesta_correcta": numero
+                            # Cargar banco original de exámenes para extraer la respuesta correcta
                             opciones_disponibles = p_objetivo.get("opciones_posibles", [])
                             texto_respuesta_correcta = p_objetivo.get("respuesta_correcta_texto", "")
                             
@@ -708,7 +708,7 @@ else:
                             if texto_respuesta_correcta:
                                 st.success(f"🎯 **Respuesta correcta según el Banco de Preguntas:**\n\n{texto_respuesta_correcta}")
 
-                            # FORMULARIO DE EDICIÓN AUDITADA
+                            # FORMULARIO DE EDICIÓN AUDITADA (MODIFICADO CON EVALUACIÓN INTERNA Y TRY/EXCEPT)
                             with st.form(key=f"form_edit_{intento_target_id}_{p_idx}"):
                                 st.markdown("### 📝 Formulario de Modificación de Respuesta")
                                 
@@ -734,53 +734,53 @@ else:
                                     )
                                 
                                 nuevo_estado = st.checkbox("Marcar esta pregunta como Correcta para el empleado", value=p_objetivo.get("es_correcta", False))
-                                
                                 motivo_edicion = st.text_area("📋 Motivo de la corrección (Obligatorio):*")
                                 
                                 btn_guardar_edit = st.form_submit_button("Guardar Corrección Auditada")
                                 
-if btn_guardar_edit:
-    if not persona_modifica.strip():
-        st.error("❌ El campo 'Persona que modifica' es obligatorio.")
-    elif not resp_correcta_input or not str(resp_correcta_input).strip():
-        st.error("❌ Debes indicar una respuesta correcta válida.")
-    elif not motivo_edicion.strip():
-        st.error("❌ El motivo de la corrección es obligatorio.")
-    else:
-        try:
-            # 1. Actualizar respuestas del examen
-            respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
-            respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
-            respuestas_lista[p_idx]["opciones_posibles"] = opciones_disponibles
-            
-            correctas_nuevas = sum(1 for r in respuestas_lista if r["es_correcta"])
-            total_preg = len(respuestas_lista)
-            nuevo_porc = round((correctas_nuevas / total_preg) * 100, 2)
-            nueva_nota = round((correctas_nuevas / total_preg) * 10, 2)
-            
-            supabase.table("intentos_examen").update({
-                "respuestas_usuario": respuestas_lista,
-                "nota": nueva_nota,
-                "porcentaje_obtenido": nuevo_porc
-            }).eq("id", intento_target_id).execute()
-            
-            # 2. Registrar auditoría
-            registro_audit = {
-                "intento_id": int(intento_target_id),
-                "usuario_modificador": persona_modifica.strip(),
-                "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": texto_respuesta_correcta}),
-                "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input}),
-                "motivo": motivo_edicion.strip()
-            }
-            
-            supabase.table("auditoria_modificaciones").insert(registro_audit).execute()
-            st.success("✅ Corrección guardada y auditada correctamente.")
-            time.sleep(1.5)
-            st.rerun()
+                                if btn_guardar_edit:
+                                    if not persona_modifica.strip():
+                                        st.error("❌ El campo 'Persona que modifica' es obligatorio.")
+                                    elif not resp_correcta_input or not str(resp_correcta_input).strip():
+                                        st.error("❌ Debes indicar una respuesta correcta válida.")
+                                    elif not motivo_edicion.strip():
+                                        st.error("❌ El motivo de la corrección es obligatorio.")
+                                    else:
+                                        try:
+                                            # 1. Actualizar respuestas del examen
+                                            respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
+                                            respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
+                                            respuestas_lista[p_idx]["opciones_posibles"] = opciones_disponibles
+                                            
+                                            correctas_nuevas = sum(1 for r in respuestas_lista if r["es_correcta"])
+                                            total_preg = len(respuestas_lista)
+                                            nuevo_porc = round((correctas_nuevas / total_preg) * 100, 2)
+                                            nueva_nota = round((correctas_nuevas / total_preg) * 10, 2)
+                                            
+                                            supabase.table("intentos_examen").update({
+                                                "respuestas_usuario": respuestas_lista,
+                                                "nota": nueva_nota,
+                                                "porcentaje_obtenido": nuevo_porc
+                                            }).eq("id", intento_target_id).execute()
+                                            
+                                            # 2. Registrar auditoría
+                                            registro_audit = {
+                                                "intento_id": int(intento_target_id),
+                                                "usuario_modificador": persona_modifica.strip(),
+                                                "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                                "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": texto_respuesta_correcta}),
+                                                "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input}),
+                                                "motivo": motivo_edicion.strip()
+                                            }
+                                            
+                                            supabase.table("auditoria_modificaciones").insert(registro_audit).execute()
+                                            st.success("✅ Corrección guardada y auditada correctamente.")
+                                            time.sleep(1.5)
+                                            st.rerun()
 
-        except Exception as err:
-            st.error(f"⚠️ Error al guardar en la base de datos: {err}")
+                                        except Exception as err:
+                                            st.error(f"⚠️ Error al guardar en la base de datos: {err}")
+
         # EXPORTACIÓN CON FILTRO DE AÑO
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
