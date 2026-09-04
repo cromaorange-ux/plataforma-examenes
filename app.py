@@ -671,24 +671,25 @@ else:
                             
                             st.info(f"Respuesta registrada del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado actual: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
                             
-                            # --- BÚSQUEDA ROBUSTA DE OPCIONES DE RESPUESTA ---
+                            # --- BÚSQUEDA EXPLICITA DE "respuesta_correcta" (ÍNDICE NUMÉRICO) EN LA BASE DE DATOS ---
                             opciones_disponibles = p_objetivo.get("opciones_posibles", [])
-                            resp_correcta_actual = p_objetivo.get("respuesta_correcta_texto", "")
+                            texto_respuesta_correcta = p_objetivo.get("respuesta_correcta_texto", "")
                             
-                            # Si no se guardaron opciones en el intento, las buscamos en la base de datos de exámenes
-                            if not opciones_disponibles and intento_obj.get("examen_id"):
-                                try:
-                                    res_ex_orig = supabase.table("examenes").select("preguntas_json").eq("id", intento_obj["examen_id"]).execute()
-                                    if res_ex_orig.data:
-                                        p_banco = res_ex_orig.data[0].get("preguntas_json", [])
-                                        for p_b in p_banco:
-                                            if p_b.get("pregunta") == p_objetivo.get("pregunta"):
-                                                opciones_disponibles = p_b.get("opciones", [])
-                                                if not resp_correcta_actual and "respuesta_correcta" in p_b:
-                                                    resp_correcta_actual = p_b["opciones"][p_b["respuesta_correcta"]]
-                                                break
-                                except Exception:
-                                    pass
+                            # Cargar banco original de exámenes para extraer por "respuesta_correcta": numero
+                            res_examenes_db = supabase.table("examenes").select("id, preguntas_json").execute()
+                            banco_todos = res_examenes_db.data if res_examenes_db.data else []
+                            
+                            pregunta_texto_limpio = p_objetivo.get("pregunta", "").strip()
+                            
+                            for ex_item in banco_todos:
+                                preguntas_banco = ex_item.get("preguntas_json", [])
+                                for p_b in preguntas_banco:
+                                    if p_b.get("pregunta", "").strip() == pregunta_texto_limpio:
+                                        opciones_disponibles = p_b.get("opciones", [])
+                                        num_correcta = p_b.get("respuesta_correcta")
+                                        if isinstance(num_correcta, int) and 0 <= num_correcta < len(opciones_disponibles):
+                                            texto_respuesta_correcta = opciones_disponibles[num_correcta]
+                                        break
 
                             # FORMULARIO DE EDICIÓN AUDITADA
                             with st.form(key=f"form_edit_{intento_target_id}_{p_idx}"):
@@ -699,11 +700,11 @@ else:
                                     value=st.session_state.user_nombre
                                 )
                                 
-                                # Si encontramos opciones, mostramos un desplegable; si no, mostramos un campo de texto
+                                # Si hay opciones disponibles, mostramos desplegable
                                 if opciones_disponibles:
                                     idx_defecto_resp = 0
-                                    if resp_correcta_actual in opciones_disponibles:
-                                        idx_defecto_resp = opciones_disponibles.index(resp_correcta_actual)
+                                    if texto_respuesta_correcta in opciones_disponibles:
+                                        idx_defecto_resp = opciones_disponibles.index(texto_respuesta_correcta)
                                         
                                     resp_correcta_input = st.selectbox(
                                         "✅ Respuesta correcta del examen (Obligatorio):*",
@@ -713,7 +714,7 @@ else:
                                 else:
                                     resp_correcta_input = st.text_input(
                                         "✅ Respuesta correcta del examen (Obligatorio):*",
-                                        value=resp_correcta_actual
+                                        value=texto_respuesta_correcta
                                     )
                                 
                                 nuevo_estado = st.checkbox("Marcar esta pregunta como Correcta para el empleado", value=p_objetivo.get("es_correcta", False))
@@ -733,6 +734,7 @@ else:
                                         # Actualizar respuestas del examen
                                         respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
                                         respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
+                                        respuestas_lista[p_idx]["opciones_posibles"] = opciones_disponibles
                                         
                                         correctas_nuevas = sum(1 for r in respuestas_lista if r["es_correcta"])
                                         total_preg = len(respuestas_lista)
@@ -750,7 +752,7 @@ else:
                                             "intento_id": intento_target_id,
                                             "usuario_modificador": persona_modifica.strip(),
                                             "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                                            "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": resp_correcta_actual}),
+                                            "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": texto_respuesta_correcta}),
                                             "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input}),
                                             "motivo": motivo_edicion.strip()
                                         }
@@ -835,17 +837,12 @@ else:
                                     st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
                                     st.stop()
 
-                                prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
-
-Requisitos estrictos para el JSON:
-1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
-2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
-3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
-
-Responde ÚNICAMENTE con un array JSON estructurado así:
+                                prompt = """Genera un banco de 50 preguntas tipo test basándote en el documento estructurado por subíndices.
+Devuelve EXCLUSIVAMENTE un arreglo JSON con el siguiente formato exacto sin sintaxis Markdown ni texto adicional:
 [
   {
-    "pregunta": "texto de la pregunta",
+    "subindice": "1.1 Seguridad Operativa",
+    "pregunta": "Texto de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
     "pista": "Texto de la pista de ayuda",
@@ -856,7 +853,7 @@ Responde ÚNICAMENTE con un array JSON estructurado así:
 Texto del manual:
 """ + texto[:12000]
 
-                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
+                                modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
                                 res = None
                                 
                                 with st.spinner("Generando banco de preguntas con IA..."):
