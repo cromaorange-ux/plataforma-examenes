@@ -27,7 +27,6 @@ except ImportError:
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="wide")
 
-# CSS para evitar que Streamlit recorte textos largos en selectbox/multiselect
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -49,7 +48,6 @@ st.markdown("""
         color: #1A365D;
         margin-bottom: 15px;
     }
-    /* Evitar que Streamlit corte el texto de las opciones en selectbox */
     div[data-baseweb="select"] span {
         white-space: normal !important;
         max-width: none !important;
@@ -324,6 +322,14 @@ else:
                 }
                 
                 supabase.table("intentos_examen").insert(registro_intento).execute()
+
+                # Consumir / revocar la autorización explícita si existía tras realizar el examen
+                try:
+                    supabase.table("autorizaciones_examen").delete()\
+                        .eq("empleado_id", st.session_state.user_id)\
+                        .eq("apartado", st.session_state.apartado_actual).execute()
+                except Exception:
+                    pass
                 
                 if porcentaje >= UMBRAL_APROBADO_PORCENTAJE:
                     st.success(f"🎉 Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
@@ -463,7 +469,7 @@ else:
                 "📝 Realizar Examen", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación e Informes",
-                "⚙️ Gestión de Documentos"
+                "⚙️ Gestión y Autorizaciones"
             ])
         else:
             tab_examenes, tab_mis_resultados = st.tabs([
@@ -472,10 +478,14 @@ else:
             ])
 
         with tab_examenes:
-            anio_actual = datetime.datetime.now().year
-            inicio_anio = f"{anio_actual}-01-01T00:00:00"
+            # Rango mensual actual
+            ahora = datetime.datetime.now()
+            primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0).isoformat()
             
-            res_user_intentos = supabase.table("intentos_examen").select("*").eq("empleado_id", st.session_state.user_id).gte("fecha_inicio", inicio_anio).execute()
+            # 1. Obtener los intentos realizados por este usuario durante el mes actual
+            res_user_intentos = supabase.table("intentos_examen").select("*")\
+                .eq("empleado_id", st.session_state.user_id)\
+                .gte("fecha_inicio", primer_dia_mes).execute()
             user_intentos = res_user_intentos.data if res_user_intentos.data else []
 
             dict_realizados = {}
@@ -486,6 +496,14 @@ else:
                         "nota": it.get("nota", 0),
                         "porcentaje": it.get("porcentaje_obtenido", 0)
                     }
+
+            # 2. Consultar si existen autorizaciones especiales del administrador
+            try:
+                res_aut = supabase.table("autorizaciones_examen").select("apartado")\
+                    .eq("empleado_id", st.session_state.user_id).execute()
+                autorizaciones_set = set(item["apartado"] for item in (res_aut.data or []))
+            except Exception:
+                autorizaciones_set = set()
 
             try:
                 res_examenes = supabase.table("examenes").select("id, apartado, preguntas_json").execute()
@@ -501,12 +519,20 @@ else:
                 with tab_global:
                     st.info("El Examen Global seleccionará **15 preguntas aleatorias** de entre todos los manuales.")
                     
-                    if "GLOBAL COMPLETO" in dict_realizados:
+                    ya_hecho_global = "GLOBAL COMPLETO" in dict_realizados
+                    permitido_global = autorizaciones_set.__contains__("GLOBAL COMPLETO")
+                    bloqueado_global = ya_hecho_global and not permitido_global and not st.session_state.es_croma
+
+                    if ya_hecho_global:
                         info_g = dict_realizados["GLOBAL COMPLETO"]
                         est_txt = "🟢 APROBADO" if info_g["porcentaje"] >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
-                        st.success(f"✅ **REALIZADO ({anio_actual})** — Nota obtenida: **{info_g['nota']} / 10** ({info_g['porcentaje']}%) | **{est_txt}**")
-                    
-                    if st.button("Comenzar Examen Global Combinado"):
+                        st.warning(f"⚠️ **REALIZADO ESTE MES** — Nota previa: **{info_g['nota']} / 10** ({info_g['porcentaje']}%) | **{est_txt}**")
+                        if permitido_global:
+                            st.success("🔓 **El administrador te ha habilitado un nuevo intento para este examen.**")
+                        elif not st.session_state.es_croma:
+                            st.error("🔒 Debes esperar al próximo mes o solicitar una autorización al administrador para volver a realizarlo.")
+
+                    if st.button("Comenzar Examen Global Combinado", disabled=bloqueado_global):
                         banco_global = []
                         
                         for ex_obj in examenes_disponibles:
@@ -551,12 +577,20 @@ else:
                         with cols_m[idx_m % 2]:
                             st.markdown(f"### 📘 {nombre_apt}")
                             
-                            if nombre_apt in dict_realizados:
+                            ya_hecho_manual = nombre_apt in dict_realizados
+                            permitido_manual = autorizaciones_set.__contains__(nombre_apt)
+                            bloqueado_manual = ya_hecho_manual and not permitido_manual and not st.session_state.es_croma
+
+                            if ya_hecho_manual:
                                 info_m = dict_realizados[nombre_apt]
                                 est_txt = "🟢 APROBADO" if info_m["porcentaje"] >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
-                                st.success(f"✅ **REALIZADO ({anio_actual})** — Nota: **{info_m['nota']} / 10** | **{est_txt}**")
+                                st.warning(f"⚠️ **REALIZADO ESTE MES** — Nota previa: **{info_m['nota']} / 10** | **{est_txt}**")
+                                if permitido_manual:
+                                    st.success("🔓 **El administrador te ha habilitado un nuevo intento para este examen.**")
+                                elif not st.session_state.es_croma:
+                                    st.error("🔒 Requiere autorización del administrador para repetirlo este mes.")
                             
-                            if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}"):
+                            if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}", disabled=bloqueado_manual):
                                 banco = ex_obj["preguntas_json"]
                                 banco_manual = []
                                 
@@ -603,7 +637,7 @@ else:
                 mis_intentos = res_mis_intentos.data if res_mis_intentos.data else []
                 
                 dias_restantes = obtener_dias_restantes_mes()
-                st.info(f"📅 **Habilitación de Examen:** Quedan **{dias_restantes} días** para finalizar el ciclo de evaluación.")
+                st.info(f"📅 **Habilitación de Examen:** Quedan **{dias_restantes} días** para finalizar el ciclo de evaluación actual.")
                 
                 if mis_intentos:
                     for i in mis_intentos:
@@ -675,7 +709,6 @@ else:
                         respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
                         
                         if respuestas_lista:
-                            # MOSTRAR EL TEXTO COMPLETO EN LA SELECCIÓN SIN RECORTAR
                             dict_preguntas = {f"P{idx+1}: {p['pregunta']}": idx for idx, p in enumerate(respuestas_lista)}
                             p_sel_key = st.selectbox("Selecciona la pregunta a corregir:", list(dict_preguntas.keys()), key=f"sel_p_{intento_target_id}")
                             
@@ -685,7 +718,6 @@ else:
                             st.write(f"### ❓ Pregunta seleccionada:\n**{p_objetivo.get('pregunta')}**")
                             st.info(f"Respuesta registrada del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado actual: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
                             
-                            # Cargar banco original de exámenes para extraer la respuesta correcta
                             opciones_disponibles = p_objetivo.get("opciones_posibles", [])
                             texto_respuesta_correcta = p_objetivo.get("respuesta_correcta_texto", "")
                             
@@ -704,11 +736,9 @@ else:
                                             texto_respuesta_correcta = opciones_disponibles[num_correcta]
                                         break
 
-                            # MOSTRAR EN PANTALLA EL TEXTO COMPLETO DE LA RESPUESTA CORRECTA
                             if texto_respuesta_correcta:
                                 st.success(f"🎯 **Respuesta correcta según el Banco de Preguntas:**\n\n{texto_respuesta_correcta}")
 
-                            # FORMULARIO DE EDICIÓN AUDITADA (MODIFICADO CON EVALUACIÓN INTERNA Y TRY/EXCEPT)
                             with st.form(key=f"form_edit_{intento_target_id}_{p_idx}"):
                                 st.markdown("### 📝 Formulario de Modificación de Respuesta")
                                 
@@ -747,7 +777,6 @@ else:
                                         st.error("❌ El motivo de la corrección es obligatorio.")
                                     else:
                                         try:
-                                            # 1. Actualizar respuestas del examen
                                             respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
                                             respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
                                             respuestas_lista[p_idx]["opciones_posibles"] = opciones_disponibles
@@ -763,7 +792,6 @@ else:
                                                 "porcentaje_obtenido": nuevo_porc
                                             }).eq("id", intento_target_id).execute()
                                             
-                                            # 2. Registrar auditoría
                                             registro_audit = {
                                                 "intento_id": int(intento_target_id),
                                                 "usuario_modificador": persona_modifica.strip(),
@@ -838,9 +866,76 @@ else:
                                     mime="application/pdf"
                                 )
 
-        # ADMIN CROMA - GESTIÓN Y ELIMINACIÓN
+        # ADMIN CROMA - GESTIÓN Y AUTORIZACIONES
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
+                # SECCIÓN 1: REHABILITAR EXÁMENES A EMPLEADOS
+                st.subheader("🔓 Autorizar Repetición de Examen a un Empleado")
+                st.caption("Concede permiso especial a un empleado para volver a realizar un examen antes de finalizar el mes.")
+                
+                try:
+                    res_emp = supabase.table("empleados").select("id, nombre").execute()
+                    empleados_list = res_emp.data if res_emp.data else []
+                    
+                    res_ex_todos = supabase.table("examenes").select("apartado").execute()
+                    apartados_unicos = sorted(list(set([e["apartado"] for e in (res_ex_todos.data or [])])))
+                    apartados_unicos.insert(0, "GLOBAL COMPLETO")
+                except Exception as ex_db:
+                    empleados_list = []
+                    apartados_unicos = []
+                    st.error(f"Error cargando listados para autorizaciones: {ex_db}")
+
+                if empleados_list and apartados_unicos:
+                    dict_emp = {emp["nombre"]: emp["id"] for emp in empleados_list}
+                    
+                    col_aut1, col_aut2 = st.columns(2)
+                    with col_aut1:
+                        emp_aut_sel = st.selectbox("Seleccionar Empleado:", list(dict_emp.keys()), key="aut_emp_sel")
+                    with col_aut2:
+                        apt_aut_sel = st.selectbox("Seleccionar Examen/Manual:", apartados_unicos, key="aut_apt_sel")
+                        
+                    if st.button("Habilitar Repetición de Examen"):
+                        emp_id_target = dict_emp[emp_aut_sel]
+                        try:
+                            # Insertar autorizacion (evitando duplicados mediante upsert si la tabla tiene unique constraint, o simple insert)
+                            data_aut = {
+                                "empleado_id": emp_id_target,
+                                "apartado": apt_aut_sel,
+                                "autorizado_por": st.session_state.user_nombre
+                            }
+                            supabase.table("autorizaciones_examen").insert(data_aut).execute()
+                            st.success(f"✅ Se ha autorizado a **{emp_aut_sel}** para repetir el examen **{apt_aut_sel}**.")
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e_aut:
+                            st.info("El usuario ya cuenta con un permiso activo para realizar este examen.")
+
+                # SECCIÓN DE AUTORIZACIONES ACTIVAS (Revocación rápida)
+                try:
+                    res_aut_activas = supabase.table("autorizaciones_examen").select("id, empleado_id, apartado, fecha_autorizacion, autorizado_por").execute()
+                    list_aut_activas = res_aut_activas.data if res_aut_activas.data else []
+                except Exception:
+                    list_aut_activas = []
+
+                if list_aut_activas:
+                    st.markdown("#### 📋 Autorizaciones Activas Pendientes")
+                    dict_emp_inverse = {emp["id"]: emp["nombre"] for emp in empleados_list}
+                    
+                    for aut in list_aut_activas:
+                        e_nombre = dict_emp_inverse.get(aut["empleado_id"], f"Empleado ID {aut['empleado_id']}")
+                        c_info, c_btn = st.columns([4, 1])
+                        with c_info:
+                            st.write(f"• **{e_nombre}** → `{aut['apartado']}` *(Autorizado por: {aut.get('autorizado_por', 'Admin')})*")
+                        with c_btn:
+                            if st.button("Revocar", key=f"rev_aut_{aut['id']}"):
+                                supabase.table("autorizaciones_examen").delete().eq("id", aut["id"]).execute()
+                                st.warning("Autorización revocada.")
+                                time.sleep(1)
+                                st.rerun()
+
+                st.markdown("---")
+
+                # SECCIÓN 2: CARGA Y BORRADO DE MANUALES
                 col_subir, col_del = st.columns([3, 2])
                 
                 with col_subir:
