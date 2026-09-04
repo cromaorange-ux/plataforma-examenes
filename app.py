@@ -9,7 +9,7 @@ import io
 import pandas as pd
 from google import genai
 from google.genai import types
-from pypdf import PdfReader
+from PyPDF2 import PdfReader
 from supabase import create_client, Client
 
 # Dependencias para generar PDF
@@ -27,15 +27,12 @@ except ImportError:
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="wide")
 
-# Integración del diseño HTML/CSS Responsive
 st.markdown("""
     <style>
-    /* Ocultar elementos predeterminados de Streamlit */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* Variables de estilo globales */
     :root {
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
@@ -45,13 +42,11 @@ st.markdown("""
         --border-radius: 12px;
     }
 
-    /* Contenedor principal */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
     }
 
-    /* Estilos para Radio Buttons / Opciones */
     .stRadio label {
         font-size: 18px !important;
         font-weight: 500 !important;
@@ -78,7 +73,6 @@ st.markdown("""
         border-color: #A0AEC0 !important;
     }
 
-    /* Encabezados y títulos */
     .pregunta-titulo {
         font-size: 24px !important;
         font-weight: 700 !important;
@@ -91,7 +85,6 @@ st.markdown("""
         border-radius: 4px;
     }
 
-    /* Adaptación de selectbox/popover */
     div[data-baseweb="select"] span {
         white-space: normal !important;
         max-width: none !important;
@@ -104,7 +97,6 @@ st.markdown("""
         word-break: break-word !important;
     }
 
-    /* Tarjetas de usuarios y exámenes */
     .user-card {
         background-color: var(--card-bg);
         border: 1px solid #E2E8F0;
@@ -1091,7 +1083,7 @@ else:
                                 try:
                                     supabase.table("intentos_examen").insert(registro_nuevo).execute()
                                     registros_insertados += 1
-                                me:
+                                except Exception as err_ins:
                                     st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
                                     errores_import += 1
 
