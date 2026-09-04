@@ -121,23 +121,54 @@ TIEMPO_LIMITE_PREGUNTA = 45
 UMBRAL_APROBADO_PORCENTAJE = 70.0
 NUM_PREGUNTAS_EXAMEN = 15
 
+PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
+
+Requisitos estrictos para el JSON:
+1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
+2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
+3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
+
+Responde ÚNICAMENTE con un array JSON estructurado así:
+[
+  {
+    "pregunta": "texto de la pregunta",
+    "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
+    "respuesta_correcta": 0,
+    "pista": "Texto de la pista de ayuda",
+    "tipo": "teorica"
+  }
+]
+
+Texto del manual:
+"""
+
+MODELOS_GEMINI_DISPONIBLES = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
+]
+
+def limpiar_timestamp_sql(ts_val):
+    if pd.isna(ts_val) or ts_val is None:
+        return None
+    ts_str = str(ts_val).strip()
+    if " " in ts_str and "T" in ts_str:
+        ts_str = ts_str.split(" ")[0]
+    return ts_str
 
 def seleccionar_15_preguntas(banco_completo):
-    """Selecciona exactamente 15 preguntas del banco disponible."""
     sample_size = min(len(banco_completo), NUM_PREGUNTAS_EXAMEN)
     seleccionadas = random.sample(banco_completo, sample_size)
     random.shuffle(seleccionadas)
     return seleccionadas
-
 
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
     _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
     return ultimo_dia - ahora.day + 1
 
-
 def generar_pdf_resultado(intento):
-    """Genera un archivo PDF binario con el resumen del examen."""
     if not REPORTLAB_DISPONIBLE:
         return None
     
@@ -930,7 +961,7 @@ else:
 
                 st.markdown("---")
 
-                # SECCIÓN 2: IMPORTAR INTENTOS DESDE CSV (NUEVA FUNCIONALIDAD)
+                # SECCIÓN 2: IMPORTAR INTENTOS DESDE CSV
                 st.subheader("📥 Importar Registro de Exámenes (CSV)")
                 st.caption("Carga un archivo CSV para insertar masivamente intentos de examen en la base de datos SQL (`intentos_examen`).")
                 
@@ -939,7 +970,6 @@ else:
                 if archivo_csv_import is not None:
                     if st.button("🚀 Procesar e Importar CSV a la Base de Datos"):
                         try:
-                            # Lectura intentando delimitador punto y coma ';'
                             try:
                                 df_csv = pd.read_csv(archivo_csv_import, sep=';')
                                 if len(df_csv.columns) <= 1:
@@ -949,7 +979,6 @@ else:
                                 archivo_csv_import.seek(0)
                                 df_csv = pd.read_csv(archivo_csv_import, sep=',')
 
-                            # Mapear empleados existentes
                             res_emp_all = supabase.table("empleados").select("id, nombre").execute()
                             map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
 
@@ -960,7 +989,6 @@ else:
                                 nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
                                 emp_id = map_empleados.get(nombre_emp.lower(), None)
                                 
-                                # Normalización de JSON de respuestas
                                 resp_raw = row.get("respuestas_usuario", "[]")
                                 if isinstance(resp_raw, str):
                                     try:
@@ -972,17 +1000,19 @@ else:
                                 else:
                                     resp_json = []
 
-                                # Obtención de límite de tiempo
                                 t_limite = row.get("tiempo_limite")
                                 if pd.isna(t_limite) or t_limite is None:
                                     t_limite = row.get("tiempo_limite_segundos", 0)
+
+                                fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
+                                fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
 
                                 registro_nuevo = {
                                     "empleado_id": emp_id,
                                     "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
                                     "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
-                                    "fecha_inicio": str(row.get("fecha_inicio", "")),
-                                    "fecha_fin": str(row.get("fecha_fin", "")),
+                                    "fecha_inicio": fecha_inicio_clean,
+                                    "fecha_fin": fecha_fin_clean,
                                     "tiempo_total_segundos": int(row.get("tiempo_total_segundos", 0)) if not pd.isna(row.get("tiempo_total_segundos")) else 0,
                                     "tiempo_limite": int(t_limite) if not pd.isna(t_limite) else 0,
                                     "porcentaje_obtenido": float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0,
@@ -1009,17 +1039,90 @@ else:
 
                 st.markdown("---")
 
-                # SECCIÓN 3: CARGA Y BORRADO DE MANUALES
+                # SECCIÓN 3: CARGA Y BORRADO DE MANUALES CON GESTOR DE PROMPTS Y MODELOS
                 col_subir, col_del = st.columns([3, 2])
                 
                 with col_subir:
-                    st.subheader("⚙️ Cargar Manual con Subíndices Técnicos")
+                    st.subheader("⚙️ Cargar Manual con Configuración de IA")
                     archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
                     nombre_apartado = st.text_input("Nombre del Manual / Apartado")
-                    
-                    if st.button("Procesar y Generar Banco estructurado"):
+
+                    # Cargar configuraciones guardadas de SQL
+                    configs_prompts_db = []
+                    try:
+                        res_p = supabase.table("config_prompts").select("*").order("id", desc=True).execute()
+                        configs_prompts_db = res_p.data if res_p.data else []
+                    except Exception:
+                        configs_prompts_db = []
+
+                    opciones_dropdown_prompts = ["+ Nueva configuración personalizada"]
+                    for cfg in configs_prompts_db:
+                        opciones_dropdown_prompts.append(f"#{cfg['id']} - {cfg['nombre']} ({cfg['modelo']})")
+
+                    prompt_seleccionado_obj = None
+                    index_defecto_dropdown = 1 if len(configs_prompts_db) > 0 else 0
+
+                    prompt_desplegable = st.selectbox(
+                        "📋 Plantillas de Prompt guardadas en SQL (Por defecto la última usada):",
+                        options=opciones_dropdown_prompts,
+                        index=index_defecto_dropdown
+                    )
+
+                    if prompt_desplegable != "+ Nueva configuración personalizada" and len(configs_prompts_db) > 0:
+                        idx_sel = opciones_dropdown_prompts.index(prompt_desplegable) - 1
+                        prompt_seleccionado_obj = configs_prompts_db[idx_sel]
+                        
+                        prompt_val_inicial = prompt_seleccionado_obj["prompt_texto"]
+                        
+                        modelo_db = prompt_seleccionado_obj["modelo"]
+                        if modelo_db in MODELOS_GEMINI_DISPONIBLES:
+                            modelo_val_inicial = MODELOS_GEMINI_DISPONIBLES.index(modelo_db)
+                        else:
+                            modelo_val_inicial = 0
+                    else:
+                        prompt_val_inicial = PROMPT_DEFECTO
+                        modelo_val_inicial = 0
+
+                    st.markdown("### ✏️ Configuración editable")
+                    modelo_gemini_sel = st.selectbox(
+                        "🤖 Versión del Modelo Gemini:",
+                        options=MODELOS_GEMINI_DISPONIBLES,
+                        index=modelo_val_inicial
+                    )
+
+                    prompt_editable = st.text_area(
+                        "💬 Prompt de Generación (Editable):",
+                        value=prompt_val_inicial,
+                        height=250
+                    )
+
+                    c_btn_a, c_btn_b = st.columns(2)
+                    with c_btn_a:
+                        guardar_nuevo_prompt = st.checkbox("💾 Guardar esta configuración en SQL")
+                        nombre_nueva_config = ""
+                        if guardar_nuevo_prompt:
+                            nombre_nueva_config = st.text_input("Nombre identificativo para la versión:")
+
+                    with c_btn_b:
+                        st.write("")
+                        st.write("")
+                        btn_procesar_manual = st.button("🚀 Procesar y Generar Banco con esta Configuración")
+
+                    if btn_procesar_manual:
                         if archivo_pdf and nombre_apartado:
                             try:
+                                if guardar_nuevo_prompt:
+                                    if not nombre_nueva_config.strip():
+                                        st.error("❌ Por favor indica un nombre para guardar la versión del prompt.")
+                                        st.stop()
+                                    else:
+                                        supabase.table("config_prompts").insert({
+                                            "nombre": nombre_nueva_config.strip(),
+                                            "prompt_texto": prompt_editable,
+                                            "modelo": modelo_gemini_sel
+                                        }).execute()
+                                        st.toast("✅ Configuración guardada en SQL")
+
                                 reader = PdfReader(archivo_pdf)
                                 texto = "".join([page.extract_text() or "" for page in reader.pages])
                                 
@@ -1027,45 +1130,21 @@ else:
                                     st.error("❌ No se pudo extraer texto del PDF. Verifica que no sea una imagen escaneada.")
                                     st.stop()
 
-                                prompt = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento.
+                                prompt_final = prompt_editable + "\n\nTexto del manual:\n" + texto[:12000]
 
-Requisitos strictly para el JSON:
-1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
-2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
-3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
-
-Responde ÚNICAMENTE con un array JSON estructurado así:
-[
-  {
-    "pregunta": "texto de la pregunta",
-    "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
-    "respuesta_correcta": 0,
-    "pista": "Texto de la pista de ayuda",
-    "tipo": "teorica"
-  }
-]
-
-Texto del manual:
-""" + texto[:12000]
-
-                                modelos = ['gemini-3.6-flash', 'gemini-3.1-flash', 'gemini-3.5-flash-lite']
                                 res = None
-                                
-                                with st.spinner("Generando banco de preguntas con IA..."):
-                                    for model_name in modelos:
-                                        try:
-                                            res = gemini_client.models.generate_content(
-                                                model=model_name,
-                                                contents=prompt,
-                                                config=types.GenerateContentConfig(
-                                                    response_mime_type="application/json"
-                                                )
+                                with st.spinner(f"Generando banco de preguntas usando {modelo_gemini_sel}..."):
+                                    try:
+                                        res = gemini_client.models.generate_content(
+                                            model=modelo_gemini_sel,
+                                            contents=prompt_final,
+                                            config=types.GenerateContentConfig(
+                                                response_mime_type="application/json"
                                             )
-                                            if res and res.text:
-                                                break
-                                        except Exception as model_err:
-                                            st.warning(f"Reintentando con modelo alternativo... ({model_err})")
-                                            time.sleep(1)
+                                        )
+                                    except Exception as model_err:
+                                        st.error(f"❌ Error al procesar con {modelo_gemini_sel}: {model_err}")
+                                        st.stop()
 
                                 if res and res.text:
                                     clean_text = res.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
@@ -1077,6 +1156,7 @@ Texto del manual:
                                     }).execute()
                                     
                                     st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco de '{nombre_apartado}'.")
+                                    time.sleep(1.5)
                                     st.rerun()
                                 else:
                                     st.error("❌ No se recibió respuesta válida del servicio de IA. Inténtalo de nuevo.")
