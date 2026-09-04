@@ -27,6 +27,7 @@ except ImportError:
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="wide")
 
+# CSS para evitar que Streamlit recorte textos largos en selectbox/multiselect
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -47,6 +48,17 @@ st.markdown("""
         font-weight: bold !important;
         color: #1A365D;
         margin-bottom: 15px;
+    }
+    /* Evitar que Streamlit corte el texto de las opciones en selectbox */
+    div[data-baseweb="select"] span {
+        white-space: normal !important;
+        max-width: none !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }
+    div[data-baseweb="popover"] li {
+        white-space: normal !important;
+        word-break: break-word !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -122,7 +134,7 @@ def seleccionar_15_preguntas(banco_completo):
 
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
-    _, ultimo_dia = calendar.monthrange(ahora.year, me_month := ahora.month)
+    _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
     return ultimo_dia - ahora.day + 1
 
 
@@ -663,19 +675,20 @@ else:
                         respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
                         
                         if respuestas_lista:
-                            dict_preguntas = {f"P{idx+1}: {p['pregunta'][:60]}...": idx for idx, p in enumerate(respuestas_lista)}
+                            # MOSTRAR EL TEXTO COMPLETO EN LA SELECCIÓN SIN RECORTAR CON [:60]
+                            dict_preguntas = {f"P{idx+1}: {p['pregunta']}": idx for idx, p in enumerate(respuestas_lista)}
                             p_sel_key = st.selectbox("Selecciona la pregunta a corregir:", list(dict_preguntas.keys()), key=f"sel_p_{intento_target_id}")
                             
                             p_idx = dict_preguntas[p_sel_key]
                             p_objetivo = respuestas_lista[p_idx]
                             
+                            st.write(f"### ❓ Pregunta seleccionada:\n**{p_objetivo.get('pregunta')}**")
                             st.info(f"Respuesta registrada del empleado: **{p_objetivo.get('opcion_elegida')}** | Estado actual: **{'Correcta' if p_objetivo.get('es_correcta') else 'Incorrecta'}**")
                             
-                            # --- BÚSQUEDA EXPLICITA DE "respuesta_correcta" (ÍNDICE NUMÉRICO) EN LA BASE DE DATOS ---
+                            # Cargar banco original de exámenes para extraer por "respuesta_correcta": numero
                             opciones_disponibles = p_objetivo.get("opciones_posibles", [])
                             texto_respuesta_correcta = p_objetivo.get("respuesta_correcta_texto", "")
                             
-                            # Cargar banco original de exámenes para extraer por "respuesta_correcta": numero
                             res_examenes_db = supabase.table("examenes").select("id, preguntas_json").execute()
                             banco_todos = res_examenes_db.data if res_examenes_db.data else []
                             
@@ -691,6 +704,10 @@ else:
                                             texto_respuesta_correcta = opciones_disponibles[num_correcta]
                                         break
 
+                            # MOSTRAR EN PANTALLA EL TEXTO COMPLETO DE LA RESPUESTA CORRECTA
+                            if texto_respuesta_correcta:
+                                st.success(f"🎯 **Respuesta correcta según el Banco de Preguntas:**\n\n{texto_respuesta_correcta}")
+
                             # FORMULARIO DE EDICIÓN AUDITADA
                             with st.form(key=f"form_edit_{intento_target_id}_{p_idx}"):
                                 st.markdown("### 📝 Formulario de Modificación de Respuesta")
@@ -700,14 +717,13 @@ else:
                                     value=st.session_state.user_nombre
                                 )
                                 
-                                # Si hay opciones disponibles, mostramos desplegable
                                 if opciones_disponibles:
                                     idx_defecto_resp = 0
                                     if texto_respuesta_correcta in opciones_disponibles:
                                         idx_defecto_resp = opciones_disponibles.index(texto_respuesta_correcta)
                                         
                                     resp_correcta_input = st.selectbox(
-                                        "✅ Respuesta correcta del examen (Obligatorio):*",
+                                        "✅ Seleccionar o Confirmar Respuesta Correcta:*",
                                         options=opciones_disponibles,
                                         index=idx_defecto_resp
                                     )
