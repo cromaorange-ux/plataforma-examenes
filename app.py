@@ -9,7 +9,7 @@ import io
 import pandas as pd
 from google import genai
 from google.genai import types
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from supabase import create_client, Client
 
 # Dependencias para generar PDF
