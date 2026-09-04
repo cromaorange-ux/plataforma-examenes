@@ -894,6 +894,31 @@ else:
                                         except Exception as err:
                                             st.error(f"⚠️ Error al guardar en la base de datos: {err}")
 
+# carga de archivos JSON de examenes
+st.subheader("📄 Cargar Banco de Preguntas desde JSON")
+nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
+archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
+
+if st.button("🚀 Subir Preguntas a Supabase"):
+    if archivo_json and nombre_apartado_json:
+        try:
+            contenido_json = json.load(archivo_json)
+            
+            # Guardar directamente en la tabla 'examenes'
+            supabase.table("examenes").insert({
+                "apartado": nombre_apartado_json,
+                "preguntas_json": contenido_json
+            }).execute()
+            
+            st.success(f"✅ ¡Se cargaron {len(contenido_json)} preguntas correctamente!")
+            time.sleep(1.5)
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al procesar el archivo JSON: {e}")
+    else:
+        st.warning("⚠️ Debes proporcionar un nombre para el apartado y subir un archivo JSON.")
+
+        
         # EXPORTACIÓN CON FILTRO DE AÑO
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
