@@ -685,12 +685,19 @@ else:
                 autorizaciones_set = set()
 
             try:
-                res_examenes = supabase.table("examenes").select("id, apartado, preguntas_json").eq("activo", True).execute()
-                examenes_disponibles = res_examenes.data if res_examenes.data else []
+                # Consulta general de exámenes
+                res_examenes = supabase.table("examenes").select("*").execute()
+                raw_examenes = res_examenes.data if res_examenes.data else []
+    
+                # Filtrar solo los activos (o los que no tengan definido el campo activo aún)
+                examenes_disponibles = [
+                    ex for ex in raw_examenes 
+                    if ex.get("activo") is True or ex.get("activo") is None
+                ]
             except Exception as e:
                 examenes_disponibles = []
-                st.error(f"Error al cargar manuales: {e}")
-
+                st.error(f"Error al cargar manuales de la base de datos: {e}")
+            
             if examenes_disponibles:
                 st.subheader("📋 Seleccionar Modalidad")
                 tab_global, tab_manual = st.tabs(["🌐 Examen Global (15 preguntas aleatorias)", "📘 Examen por Manual (15 preguntas)"])
