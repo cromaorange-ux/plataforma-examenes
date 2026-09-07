@@ -644,7 +644,31 @@ else:
                 "📈 Mi Rendimiento e Informes IA"
             ])
 
-        with tab_examenes:
+with tab_examenes:
+            # Sangría correcta de 12 espacios (o 3 tabulaciones dentro del tab)
+            ahora = datetime.datetime.now(datetime.timezone.utc)
+            primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).isoformat()
+            
+            try:
+                res_user_intentos = supabase.table("intentos_examen").select("*")\
+                    .eq("empleado_id", st.session_state.user_id)\
+                    .neq("activo", False)\
+                    .gte("fecha_inicio", primer_dia_mes).execute()
+                user_intentos = res_user_intentos.data if res_user_intentos.data else []
+            except Exception as e:
+                user_intentos = []
+                # Fallback por si hay desajuste de tipos en Supabase
+                res_fallback = supabase.table("intentos_examen").select("*")\
+                    .eq("empleado_id", st.session_state.user_id)\
+                    .neq("activo", False).execute()
+                
+                if res_fallback.data:
+                    str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
+                    user_intentos = [
+                        it for it in res_fallback.data 
+                        if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
+                    ]
+                    
 # --- CÓDIGO ANTERIOR ---
 # ahora = datetime.datetime.now()
 # primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0).isoformat()
