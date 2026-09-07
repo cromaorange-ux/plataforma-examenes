@@ -1128,7 +1128,8 @@ else:
 
                 if data_intentos_val:
                     df_all = pd.DataFrame(data_intentos_val)
-                    df_all["anio_int"] = pd.to_datetime(df_all["fecha_inicio"]).dt.year
+                    # ✅ LÍNEA CORREGIDA:
+                    df_all["anio_int"] = pd.to_datetime(df_all["fecha_inicio"], errors='coerce').dt.year
                     
                     anios_unicos = sorted(list(df_all["anio_int"].dropna().unique()), reverse=True)
                     anio_actual_def = datetime.datetime.now().year
