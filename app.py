@@ -202,6 +202,27 @@ MODELOS_GEMINI_DISPONIBLES = [
     "gemini-1.5-pro"
 ]
 
+# MAPEO DE CAMPOS PARA NORMALIZAR DIVERSOS FORMATOS DE JSON
+MAPEO_CAMPOS = {
+    'q': 'pregunta',
+    'question': 'pregunta',
+    'ok': 'respuesta_correcta',
+    'correcta': 'respuesta_correcta',
+    'respuesta_correcta': 'respuesta_correcta',
+    'correct': 'respuesta_correcta',
+    'no': 'incorrectas',
+    'incorrectas': 'incorrectas',
+    'respuestas_incorrectas': 'incorrectas',
+    'h': 'pista',
+    'pista': 'pista',
+    'hint': 'pista',
+    'cat': 'categoria',
+    'categoria': 'categoria',
+    'category': 'categoria',
+    'subindex': 'subindice',
+    'subindice': 'subindice'
+}
+
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES
 # ---------------------------------------------------------
@@ -212,6 +233,66 @@ def limpiar_timestamp_sql(ts_val):
     if " " in ts_str and "T" in ts_str:
         ts_str = ts_str.split(" ")[0]
     return ts_str
+
+def normalizar_pregunta_json(item):
+    """
+    Toma un diccionario con datos de pregunta (en varios formatos posibles) 
+    y lo convierte al esquema estandarizado requerido por la app y SQL.
+    """
+    if not isinstance(item, dict):
+        return None
+    
+    # 1. Normalizar las claves del diccionario según el MAPEO_CAMPOS
+    item_normalizado = {}
+    for k, v in item.items():
+        k_lower = str(k).strip().lower()
+        clave_estandar = MAPEO_CAMPOS.get(k_lower, k)
+        item_normalizado[clave_estandar] = v
+
+    # 2. Reconstruir el formato unificado
+    pregunta_texto = item_normalizado.get("pregunta", item_normalizado.get("q", ""))
+    pista_texto = item_normalizado.get("pista", "Revisa la documentación.")
+    subindice_texto = item_normalizado.get("subindice", item_normalizado.get("categoria", "General"))
+    
+    opciones = []
+    idx_correcta = 0
+
+    # Caso A: Trae 'opciones' como lista y 'respuesta_correcta' como índice o texto
+    if "opciones" in item_normalizado and isinstance(item_normalizado["opciones"], list):
+        opciones = [str(o) for o in item_normalizado["opciones"]]
+        raw_correcta = item_normalizado.get("respuesta_correcta", 0)
+        
+        if isinstance(raw_correcta, int) and 0 <= raw_correcta < len(opciones):
+            idx_correcta = raw_correcta
+        elif isinstance(raw_correcta, str) and raw_correcta in opciones:
+            idx_correcta = opciones.index(raw_correcta)
+        else:
+            idx_correcta = 0
+
+    # Caso B: Trae 'respuesta_correcta' (o 'ok') e 'incorrectas' (o 'no') por separado
+    elif "respuesta_correcta" in item_normalizado and "incorrectas" in item_normalizado:
+        val_correcta = str(item_normalizado["respuesta_correcta"])
+        val_incorrectas = item_normalizado["incorrectas"]
+        if isinstance(val_incorrectas, list):
+            val_incorrectas = [str(i) for i in val_incorrectas]
+        else:
+            val_incorrectas = [str(val_incorrectas)]
+        
+        opciones = [val_correcta] + val_incorrectas
+        random.shuffle(opciones)
+        idx_correcta = opciones.index(val_correcta)
+
+    if not pregunta_texto or not opciones:
+        return None
+
+    return {
+        "pregunta": str(pregunta_texto),
+        "opciones": opciones,
+        "respuesta_correcta": idx_correcta,
+        "pista": str(pista_texto),
+        "subindice": str(subindice_texto),
+        "tipo": item_normalizado.get("tipo", "teorica")
+    }
 
 def seleccionar_15_preguntas(banco_completo):
     sample_size = min(len(banco_completo), NUM_PREGUNTAS_EXAMEN)
@@ -1110,7 +1191,7 @@ else:
 
                 st.markdown("---")
 
-                # SECCIÓN 3: CARGA DIRECTA DE JSON
+                # SECCIÓN 3: CARGA DIRECTA DE JSON CON ADAPTACIÓN AUTOMÁTICA DE FORMATO
                 st.subheader("📄 Cargar Banco de Preguntas desde JSON")
                 nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
                 archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
@@ -1118,13 +1199,25 @@ else:
                 if st.button("🚀 Subir Preguntas a Supabase"):
                     if archivo_json and nombre_apartado_json:
                         try:
-                            contenido_json = json.load(archivo_json)
+                            raw_json = json.load(archivo_json)
                             
-                            # Filtrar únicamente elementos tipo diccionario
-                            if isinstance(contenido_json, list):
-                                contenido_validado = [p for p in contenido_json if isinstance(p, dict)]
+                            # Extraer la lista principal de preguntas (sea directa o dentro de un nodo como 'bank')
+                            if isinstance(raw_json, dict):
+                                array_preguntas = raw_json.get("bank", raw_json.get("preguntas", []))
+                            elif isinstance(raw_json, list):
+                                array_preguntas = raw_json
                             else:
-                                contenido_validado = []
+                                array_preguntas = []
+
+                            if not isinstance(array_preguntas, list):
+                                array_preguntas = []
+
+                            # Procesar y normalizar cada objeto de la lista
+                            contenido_validado = []
+                            for p in array_preguntas:
+                                preg_normalizada = normalizar_pregunta_json(p)
+                                if preg_normalizada:
+                                    contenido_validado.append(preg_normalizada)
 
                             if contenido_validado:
                                 supabase.table("examenes").insert({
@@ -1132,11 +1225,11 @@ else:
                                     "preguntas_json": contenido_validado
                                 }).execute()
                                 
-                                st.success(f"✅ ¡Se cargaron {len(contenido_validado)} preguntas correctamente!")
+                                st.success(f"✅ ¡Se adaptaron y cargaron {len(contenido_validado)} preguntas correctamente en SQL!")
                                 time.sleep(1.5)
                                 st.rerun()
                             else:
-                                st.error("❌ El archivo JSON no contiene una lista válida de preguntas.")
+                                st.error("❌ El archivo JSON no contiene preguntas con una estructura válida o reconocible.")
                         except Exception as e:
                             st.error(f"❌ Error al procesar el archivo JSON: {e}")
                     else:
