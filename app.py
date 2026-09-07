@@ -47,11 +47,37 @@ st.markdown("""
         padding-bottom: 3rem;
     }
 
+/* Opciones del selector de respuestas */
     .stRadio label {
         font-size: 18px !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: var(--text-color) !important;
+        color: #1A202C !important; /* Texto oscuro legible */
+    }
+    
+    .stRadio div[role='radiogroup'] {
+        gap: 10px;
+    }
+
+    .stRadio div[role='radiogroup'] > label {
+        background-color: #FFFFFF !important; /* Fondo blanco */
+        padding: 12px 18px !important;
+        border-radius: 8px !important;
+        border: 2px solid #CBD5E0 !important;
+        transition: all 0.2s ease-in-out;
+        width: 100%;
+        margin-bottom: 8px !important;
+    }
+
+    /* Modifica el texto interior de cada opción */
+    .stRadio div[role='radiogroup'] > label p {
+        color: #1A202C !important;
+        font-weight: 600 !important;
+    }
+
+    .stRadio div[role='radiogroup'] > label:hover {
+        background-color: #EDF2F7 !important;
+        border-color: #2B6CB0 !important;
     }
     
     .stRadio div[role='radiogroup'] {
