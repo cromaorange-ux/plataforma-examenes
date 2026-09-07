@@ -391,7 +391,7 @@ if not st.session_state.autenticado:
     st.subheader("Selecciona tu perfil para ingresar")
     
     try:
-        res_usuarios = supabase.table("empleados").select("*").neq("activo", False).execute()
+        res_usuarios = supabase.table("empleados").select("*").eq("activo", True).execute()
         lista_usuarios = res_usuarios.data if res_usuarios.data else []
     except Exception as e:
         lista_usuarios = []
@@ -650,24 +650,21 @@ else:
             try:
                 res_user_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
-                    .neq("activo", False)\
+                    .eq("activo", True)\
                     .gte("fecha_inicio", primer_dia_mes).execute()
                 user_intentos = res_user_intentos.data if res_user_intentos.data else []
             except Exception as e:
                 user_intentos = []
                 res_fallback = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
-
-                try:
-                    response = supabase.table("empleados").select("*").eq("activo", True).execute()
-                    st.write(response.data)
-                except Exception as e:
-                    st.error(f"Error detallado: {e}")
+                    .eq("activo", True).execute()
                 
-                if res_fallback.data:
+                fallback_data = res_fallback.data if hasattr(res_fallback, 'data') else (res_fallback if isinstance(res_fallback, list) else [])
+                
+                if fallback_data:
                     str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
                     user_intentos = [
-                        it for it in res_fallback.data 
+                        it for it in fallback_data 
                         if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
                     ]
 
@@ -688,7 +685,7 @@ else:
                 autorizaciones_set = set()
 
             try:
-                res_examenes = supabase.table("examenes").select("id, apartado, preguntas_json").neq("activo", False).execute()
+                res_examenes = supabase.table("examenes").select("id, apartado, preguntas_json").eq("activo", True).execute()
                 examenes_disponibles = res_examenes.data if res_examenes.data else []
             except Exception as e:
                 examenes_disponibles = []
@@ -825,7 +822,7 @@ else:
                 
                 res_mis_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
-                    .neq("activo", False)\
+                    .eq("activo", True)\
                     .order("fecha_inicio", desc=True).execute()
                 mis_intentos = res_mis_intentos.data if res_mis_intentos.data else []
                 
@@ -874,7 +871,7 @@ else:
                 
                 res_mis_graf = supabase.table("intentos_examen").select("id, nota, porcentaje_obtenido, fecha_inicio, apartado")\
                     .eq("empleado_id", st.session_state.user_id)\
-                    .neq("activo", False)\
+                    .eq("activo", True)\
                     .order("fecha_inicio", desc=False).execute()
                 mis_datos_graf = res_mis_graf.data if res_mis_graf.data else []
                 
@@ -906,7 +903,7 @@ else:
                 st.subheader("📊 Historial General y Edición por Usuario")
                 
                 res_todos = supabase.table("intentos_examen").select("*")\
-                    .neq("activo", False)\
+                    .eq("activo", True)\
                     .order("id", desc=True).execute()
                 todos_intentos = res_todos.data if res_todos.data else []
                 
@@ -926,9 +923,7 @@ else:
                     st.write(f"Se encontraron **{len(intentos_filtrados)}** exámenes realizados en el año **{anio_sel}**.")
                     
                     if intentos_filtrados:
-                        # Ordenar exámenes de mayor ID a menor ID (El más reciente primero)
                         intentos_filtrados_ordenados = sorted(intentos_filtrados, key=lambda x: x['id'], reverse=True)
-                        
                         map_id_to_intento = {it['id']: it for it in intentos_filtrados_ordenados}
                         
                         def format_func(it_id):
@@ -938,7 +933,6 @@ else:
 
                         opciones_ids = list(map_id_to_intento.keys())
                         
-                        # Si no hay selección activa previa o el ID seleccionado no pertenece a la lista actual, fijar por defecto el ID más reciente (índice 0)
                         if st.session_state.intento_auditado_id_sel not in opciones_ids:
                             st.session_state.intento_auditado_id_sel = opciones_ids[0]
 
@@ -952,7 +946,6 @@ else:
                             key="select_intento_audit_id"
                         )
                         
-                        # Persistir el ID seleccionado en la sesión para mantenerlo al guardar
                         st.session_state.intento_auditado_id_sel = intento_target_id
 
                         intento_obj = map_id_to_intento[intento_target_id]
@@ -1068,7 +1061,7 @@ else:
                 st.subheader("📥 Exportación e Informes")
                 
                 res_todos = supabase.table("intentos_examen").select("*")\
-                    .neq("activo", False)\
+                    .eq("activo", True)\
                     .order("fecha_inicio", desc=False).execute()
                 todos_intentos = res_todos.data if res_todos.data else []
 
@@ -1129,7 +1122,7 @@ else:
                 st.subheader("📈 Analítica Global e Inteligencia Artificial")
                 
                 res_all_intentos = supabase.table("intentos_examen").select("*")\
-                    .neq("activo", False)\
+                    .eq("activo", True)\
                     .order("fecha_inicio", desc=False).execute()
                 data_intentos_val = res_all_intentos.data if res_all_intentos.data else []
 
@@ -1177,7 +1170,7 @@ else:
                             )
 
                         if st.button("🚀 Generar Análisis Ejecutivo e Inserción en SQL", use_container_width=True):
-                            res_emp_activos = supabase.table("empleados").select("id, nombre").neq("activo", False).execute()
+                            res_emp_activos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                             emp_activos = res_emp_activos.data if res_emp_activos.data else []
 
                             resumen_datos = f"Años evaluados: {anios_seleccionados}\n"
@@ -1212,7 +1205,6 @@ else:
         # ADMIN CROMA - GESTIÓN Y AUTORIZACIONES
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
-                # SECCIÓN DE DESHABILITACIÓN Y ESTADO OPERATIVO
                 st.subheader("🚫 Control Operativo y Deshabilitación")
                 st.caption("Los registros o entidades deshabilitados serán ignorados de los cómputos, gráficos y analíticas del sistema.")
 
@@ -1257,10 +1249,10 @@ else:
                 st.subheader("🔓 Autorizar Repetición de Examen a un Empleado")
                 
                 try:
-                    res_emp = supabase.table("empleados").select("id, nombre").neq("activo", False).execute()
+                    res_emp = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                     empleados_list = res_emp.data if res_emp.data else []
                     
-                    res_ex_todos = supabase.table("examenes").select("apartado").neq("activo", False).execute()
+                    res_ex_todos = supabase.table("examenes").select("apartado").eq("activo", True).execute()
                     apartados_unicos = sorted(list(set([e["apartado"] for e in (res_ex_todos.data or [])])))
                     apartados_unicos.insert(0, "GLOBAL COMPLETO")
                 except Exception as ex_db:
@@ -1332,7 +1324,6 @@ else:
                                 else:
                                     resp_json = []
 
-                                # Conversión de 'minutes' a segundos asignados
                                 minutos_val = row.get("minutes")
                                 if not pd.isna(minutos_val) and minutos_val is not None:
                                     t_limite = int(minutos_val) * 60
@@ -1342,7 +1333,6 @@ else:
                                 fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
                                 fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
 
-                                # Resta de horas y comprobación de expiración de tiempo
                                 sobrepasado = False
                                 duracion_seg = 0
                                 if fecha_inicio_clean and fecha_fin_clean:
@@ -1358,7 +1348,6 @@ else:
                                 porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
                                 nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
 
-                                # Si se superó el tiempo asignado, se marca como suspenso y nota cero
                                 if sobrepasado:
                                     nota_val = 0.0
                                     porcentaje_val = 0.0
