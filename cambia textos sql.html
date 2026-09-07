@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Convertidor de JSON a Lista de Preguntas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+    }
+    .card {
+      border: 1px solid #ccc;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    input[type="file"] {
+      margin: 15px 0;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+    }
+    .success { color: green; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>Convertidor de JSON de Preguntas</h2>
+    <p>Selecciona tu archivo JSON. El script extraerá la lista de preguntas y normalizará automáticamente los nombres de los campos (ej. <code>pregunta</code> &rarr; <code>q</code>, <code>correcta</code> &rarr; <code>ok</code>).</p>
+    
+    <input type="file" id="jsonInput" accept=".json">
+    <br>
+    <button id="downloadBtn" disabled>Descargar JSON Corregido</button>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('jsonInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const statusDiv = document.getElementById('status');
+    let convertedData = null;
+
+    // Diccionario de equivalencias para normalizar claves
+    const MAPEO_CAMPOS = {
+      'pregunta': 'q',
+      'question': 'q',
+      'correcta': 'ok',
+      'respuesta_correcta': 'ok',
+      'incorrectas': 'no',
+      'respuestas_incorrectas': 'no',
+      'pista': 'h',
+      'hint': 'h',
+      'categoria': 'cat',
+      'category': 'cat'
+    };
+
+    fileInput.addEventListener('change', function(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const rawJson = JSON.parse(e.target.result);
+          
+          // 1. Extraer la lista de preguntas (ya sea del atributo 'bank' o la raíz)
+          let arrayPreguntas = Array.isArray(rawJson) ? rawJson : (rawJson.bank || []);
+
+          if (!Array.isArray(arrayPreguntas) || arrayPreguntas.length === 0) {
+            throw new Error("No se encontró una lista de preguntas válida en el archivo.");
+          }
+
+          // 2. Renombrar las claves de cada objeto al formato estándar
+          convertedData = arrayPreguntas.map(item => {
+            const nuevoObjeto = {};
+            for (let key in item) {
+              const lowerKey = key.toLowerCase();
+              const nuevaClave = MAPEO_CAMPOS[lowerKey] || key;
+              nuevoObjeto[nuevaClave] = item[key];
+            }
+            return nuevoObjeto;
+          });
+
+          statusDiv.className = 'success';
+          statusDiv.textContent = `¡Éxito! Se procesaron ${convertedData.length} preguntas correctamente.`;
+          downloadBtn.disabled = false;
+
+        } catch (err) {
+          statusDiv.className = 'error';
+          statusDiv.textContent = 'Error al procesar el archivo: ' + err.message;
+          downloadBtn.disabled = true;
+          convertedData = null;
+        }
+      };
+
+      reader.readAsText(file);
+    });
+
+    downloadBtn.addEventListener('click', function() {
+      if (!convertedData) return;
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(convertedData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "preguntas_listas.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    });
+  </script>
+
+</body>
+</html>
