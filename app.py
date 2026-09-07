@@ -391,28 +391,32 @@ if not st.session_state.autenticado:
     st.subheader("Selecciona tu perfil para ingresar")
     
     try:
+        # Consulta directa a Supabase para traer los trabajadores activos
         res_usuarios = supabase.table("empleados").select("*").eq("activo", True).execute()
         lista_usuarios = res_usuarios.data if res_usuarios.data else []
     except Exception as e:
         lista_usuarios = []
-        st.error(f"Error al conectar con la base de datos: {e}")
+        st.error(f"Error al conectar con la base de datos de empleados: {e}")
 
     if lista_usuarios:
+        # Renderizado en cuadrícula de 3 columnas
         cols = st.columns(3)
         for idx, u in enumerate(lista_usuarios):
             with cols[idx % 3]:
+                # Muestra el nombre registrado en la columna 'nombre' de la BD
                 st.markdown(f"""
                 <div class="user-card">
                     <h3>👤 {u['nombre']}</h3>
                     <p style="color: #718096; font-size: 14px;">{"Administrador" if u.get("es_admin_croma") else "Empleado"}</p>
                 </div>
                 """, unsafe_allow_html=True)
+                
                 if st.button("Acceder", key=f"usr_btn_{u['id']}", use_container_width=True):
                     st.session_state.usuario_modal_sel = u
                     login_modal()
     else:
-        st.warning("No se encontraron usuarios activos en la base de datos.")
-
+        st.warning("No se encontraron perfiles de empleados activos en la base de datos.")
+        
 # ---------------------------------------------------------
 # MÓDULO 2: PANEL Y EVALUACIÓN
 # ---------------------------------------------------------
