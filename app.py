@@ -658,15 +658,15 @@ else:
                 res_fallback = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id).execute()
                 fallback_data = res_fallback.data if res_fallback and hasattr(res_fallback, 'data') else []
-        except Exception:
-            fallback_data = []
+            except Exception:
+                fallback_data = []
     
-        if fallback_data:
-            str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
-            user_intentos = [
-                it for it in fallback_data 
-                if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
-            ]
+            if fallback_data:
+                str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
+                user_intentos = [
+                    it for it in fallback_data 
+                    if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
+                ]
             
             dict_realizados = {}
             for it in user_intentos:
