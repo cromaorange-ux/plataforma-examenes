@@ -647,27 +647,27 @@ else:
             ahora = datetime.datetime.now(datetime.timezone.utc)
             primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).isoformat()
 
-        try:
-            res_user_intentos = supabase.table("intentos_examen").select("*")\
-                .eq("empleado_id", st.session_state.user_id)\
-                .gte("fecha_inicio", primer_dia_mes).execute()
-            user_intentos = res_user_intentos.data if res_user_intentos.data else []
-        except Exception as e:
             user_intentos = []
             try:
-                res_fallback = supabase.table("intentos_examen").select("*")\
-                    .eq("empleado_id", st.session_state.user_id).execute()
-                fallback_data = res_fallback.data if res_fallback and hasattr(res_fallback, 'data') else []
-            except Exception:
-                fallback_data = []
-    
-            if fallback_data:
-                str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
-                user_intentos = [
-                    it for it in fallback_data 
-                    if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
-                ]
-            
+                res_user_intentos = supabase.table("intentos_examen").select("*")\
+                    .eq("empleado_id", st.session_state.user_id)\
+                    .gte("fecha_inicio", primer_dia_mes).execute()
+                user_intentos = res_user_intentos.data if res_user_intentos.data else []
+            except Exception as e:
+                try:
+                    res_fallback = supabase.table("intentos_examen").select("*")\
+                        .eq("empleado_id", st.session_state.user_id).execute()
+                    fallback_data = res_fallback.data if res_fallback and hasattr(res_fallback, 'data') else []
+                except Exception:
+                    fallback_data = []
+
+                if fallback_data:
+                    str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
+                    user_intentos = [
+                        it for it in fallback_data 
+                        if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
+                    ]
+
             dict_realizados = {}
             for it in user_intentos:
                 apt = it.get("apartado")
@@ -685,11 +685,9 @@ else:
                 autorizaciones_set = set()
 
             try:
-                # Consulta general de exámenes
                 res_examenes = supabase.table("examenes").select("*").execute()
                 raw_examenes = res_examenes.data if res_examenes.data else []
-    
-                # Filtrar solo los activos (o los que no tengan definido el campo activo aún)
+
                 examenes_disponibles = [
                     ex for ex in raw_examenes 
                     if ex.get("activo") is True or ex.get("activo") is None
@@ -697,7 +695,7 @@ else:
             except Exception as e:
                 examenes_disponibles = []
                 st.error(f"Error al cargar manuales de la base de datos: {e}")
-            
+
             if examenes_disponibles:
                 st.subheader("📋 Seleccionar Modalidad")
                 tab_global, tab_manual = st.tabs(["🌐 Examen Global (15 preguntas aleatorias)", "📘 Examen por Manual (15 preguntas)"])
@@ -1135,7 +1133,6 @@ else:
 
                 if data_intentos_val:
                     df_all = pd.DataFrame(data_intentos_val)
-                    # ✅ LÍNEA CORREGIDA:
                     df_all["anio_int"] = pd.to_datetime(df_all["fecha_inicio"], errors='coerce').dt.year
                     
                     anios_unicos = sorted(list(df_all["anio_int"].dropna().unique()), reverse=True)
