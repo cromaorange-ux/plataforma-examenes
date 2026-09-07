@@ -657,7 +657,7 @@ else:
                 user_intentos = []
                 res_fallback = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
-                    .neq("activo", False).execute()
+                    .neq("activo", "false").execute()
                 
                 if res_fallback.data:
                     str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
