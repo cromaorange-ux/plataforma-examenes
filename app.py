@@ -1032,15 +1032,14 @@ else:
 
                 st.markdown("---")
 
-                # SECCIÓN 2: IMPORTAR BANCO DE PREGUNTAS DESDE CSV
-                st.subheader("📥 Importar Banco de Preguntas (CSV)")
-                st.caption("Carga un CSV con el nuevo formato (`q`, `no`, `ok`, `h`) para generar o actualizar el banco de preguntas de un manual.")
+                # SECCIÓN 2: IMPORTAR INTENTOS DESDE CSV
+                st.subheader("📥 Importar Registro de Exámenes (CSV)")
+                st.caption("Carga un archivo CSV para insertar masivamente intentos de examen en la base de datos SQL (`intentos_examen`).")
                 
-                nombre_apartado_csv = st.text_input("Nombre del Manual / Apartado para este CSV:", key="csv_apt_name")
-                archivo_csv_import = st.file_uploader("Seleccionar archivo CSV con preguntas", type=["csv"], key="csv_import_uploader")
+                archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
                 
-                if archivo_csv_import is not None and nombre_apartado_csv:
-                    if st.button("🚀 Cargar Banco de Preguntas desde CSV", use_container_width=True):
+                if archivo_csv_import is not None:
+                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos", use_container_width=True):
                         try:
                             try:
                                 df_csv = pd.read_csv(archivo_csv_import, sep=';')
@@ -1051,54 +1050,60 @@ else:
                                 archivo_csv_import.seek(0)
                                 df_csv = pd.read_csv(archivo_csv_import, sep=',')
 
-                            preguntas_transformadas = []
+                            res_emp_all = supabase.table("empleados").select("id, nombre").execute()
+                            map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
+
+                            registros_insertados = 0
+                            errores_import = 0
 
                             for idx_row, row in df_csv.iterrows():
-                                # 'q' es la pregunta
-                                pregunta_txt = str(row.get("q") or "").strip()
+                                nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
+                                emp_id = map_empleados.get(nombre_emp.lower(), None)
                                 
-                                # 'no' contiene la opción u opciones incorrectas
-                                no_val = row.get("no")
-                                opciones_incorrectas = []
-                                if pd.notna(no_val) and no_val is not None:
-                                    no_str = str(no_val).strip()
-                                    if no_str.startswith("[") and no_str.endswith("]"):
-                                        try:
-                                            opciones_incorrectas = json.loads(no_str)
-                                        except Exception:
-                                            opciones_incorrectas = [no_str]
-                                    else:
-                                        opciones_incorrectas = [opt.strip() for opt in no_str.split(",") if opt.strip()]
+                                resp_raw = row.get("respuestas_usuario", "[]")
+                                if isinstance(resp_raw, str):
+                                    try:
+                                        resp_json = json.loads(resp_raw)
+                                    except Exception:
+                                        resp_json = []
+                                elif isinstance(resp_raw, list):
+                                    resp_json = resp_raw
+                                else:
+                                    resp_json = []
 
-                                # 'ok' es la respuesta correcta (se añade al final)
-                                ok_val = str(row.get("ok") or "").strip()
-                                
-                                opciones_finales = list(opciones_incorrectas)
-                                opciones_finales.append(ok_val)
-                                
-                                # 'h' es la pista
-                                pista_txt = str(row.get("h") or "").strip()
-                                
-                                if pregunta_txt and ok_val:
-                                    preguntas_transformadas.append({
-                                        "pregunta": pregunta_txt,
-                                        "opciones": opciones_finales,
-                                        "respuesta_correcta": len(opciones_finales) - 1,  # Siempre la posición de 'ok' al final
-                                        "pista": pista_txt,
-                                        "tipo": "teorica"
-                                    })
+                                t_limite = row.get("tiempo_limite")
+                                if pd.isna(t_limite) or t_limite is None:
+                                    t_limite = row.get("tiempo_limite_segundos", 0)
 
-                            if preguntas_transformadas:
-                                supabase.table("examenes").insert({
-                                    "apartado": nombre_apartado_csv.strip(),
-                                    "preguntas_json": preguntas_transformadas
-                                }).execute()
-                                
-                                st.success(f"✅ Se cargaron **{len(preguntas_transformadas)}** preguntas correctamente para el apartado **'{nombre_apartado_csv}'**.")
+                                fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
+                                fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
+
+                                registro_nuevo = {
+                                    "empleado_id": emp_id,
+                                    "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
+                                    "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
+                                    "fecha_inicio": fecha_inicio_clean,
+                                    "fecha_fin": fecha_fin_clean,
+                                    "tiempo_total_segundos": int(row.get("tiempo_total_segundos", 0)) if not pd.isna(row.get("tiempo_total_segundos")) else 0,
+                                    "tiempo_limite": int(t_limite) if not pd.isna(t_limite) else 0,
+                                    "porcentaje_obtenido": float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0,
+                                    "nota": float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0,
+                                    "respuestas_usuario": resp_json,
+                                }
+
+                                try:
+                                    supabase.table("intentos_examen").insert(registro_nuevo).execute()
+                                    registros_insertados += 1
+                                except Exception as err_ins:
+                                    st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
+                                    errores_import += 1
+
+                            if registros_insertados > 0:
+                                st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
+                                if errores_import > 0:
+                                    st.warning(f"⚠️ Ocurrieron {errores_import} errores durante la carga.")
                                 time.sleep(1.5)
                                 st.rerun()
-                            else:
-                                st.error("❌ No se pudieron procesar preguntas válidas desde el archivo CSV.")
 
                         except Exception as e_csv:
                             st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
@@ -1115,27 +1120,11 @@ else:
                         try:
                             contenido_json = json.load(archivo_json)
                             
-                            # Mapear claves simplificadas si vienen en formato 'q', 'no', 'ok', 'h'
-                            contenido_validado = []
+                            # Filtrar únicamente elementos tipo diccionario
                             if isinstance(contenido_json, list):
-                                for item in contenido_json:
-                                    if isinstance(item, dict):
-                                        if "q" in item:
-                                            p_txt = item.get("q", "")
-                                            no_val = item.get("no", [])
-                                            opts = list(no_val) if isinstance(no_val, list) else [str(no_val)]
-                                            ok_val = item.get("ok", "")
-                                            opts.append(ok_val)
-                                            
-                                            contenido_validado.append({
-                                                "pregunta": p_txt,
-                                                "opciones": opts,
-                                                "respuesta_correcta": len(opts) - 1,
-                                                "pista": item.get("h", ""),
-                                                "tipo": "teorica"
-                                            })
-                                        else:
-                                            contenido_validado.append(item)
+                                contenido_validado = [p for p in contenido_json if isinstance(p, dict)]
+                            else:
+                                contenido_validado = []
 
                             if contenido_validado:
                                 supabase.table("examenes").insert({
