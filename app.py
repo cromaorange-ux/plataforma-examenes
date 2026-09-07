@@ -97,8 +97,8 @@ st.markdown("""
         word-break: break-word !important;
     }
 
-    .user-card {
-        background-color: var(--card-bg);
+.user-card {
+        background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
@@ -106,7 +106,19 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         margin-bottom: 15px;
     }
-    </style>
+
+    .user-card h3 {
+        color: #1A365D !important;
+        font-weight: 700 !important;
+        font-size: 20px !important;
+        margin-bottom: 5px !important;
+    }
+
+    .user-card p {
+        color: #4A5568 !important;
+        font-size: 14px !important;
+        margin: 0 !important;
+    }    </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
