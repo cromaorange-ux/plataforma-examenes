@@ -169,8 +169,8 @@ if "comodines_restantes" not in st.session_state:
     st.session_state.comodines_restantes = 3
 if "pistas_activadas" not in st.session_state:
     st.session_state.pistas_activadas = set()
-if "intento_auditado_sel" not in st.session_state:
-    st.session_state.intento_auditado_sel = None
+if "intento_auditado_id_sel" not in st.session_state:
+    st.session_state.intento_auditado_id_sel = None
 
 TIEMPO_LIMITE_PREGUNTA = 45
 UMBRAL_APROBADO_PORCENTAJE = 70.0
@@ -197,8 +197,7 @@ Responde ÚNICAMENTE con un array JSON estructurado así:
 Texto del manual:
 """
 
-PROMPT_ANALISIS_ANALISTA = """Quiero un análisis de los trabajadores en el cual me digas una opinión como profesional de la materia, en el que me digas puntos débiles y fuertes del trabajador que se encuentra activo. Y una comparativa general de todos los trabajadores activos que me digan opiniones globales.
-"""
+PROMPT_ANALISIS_ANALISTA = """quiero un analisis de los trabajadores en el cual me digas una opcion como profesional de la materia, en el que me digas puntos debiles y fuertes del trabajador que se encuentra activo. y una comparativa general de todos los trabajadores activo que me digan opiniones global. Todo esto almacenado en SQL."""
 
 MODELOS_GEMINI_DISPONIBLES = [
     "gemini-3.6-flash",
@@ -647,7 +646,7 @@ else:
         with tab_examenes:
             ahora = datetime.datetime.now(datetime.timezone.utc)
             primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).isoformat()
-            
+
             try:
                 res_user_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
@@ -922,32 +921,36 @@ else:
                     st.write(f"Se encontraron **{len(intentos_filtrados)}** exámenes realizados en el año **{anio_sel}**.")
                     
                     if intentos_filtrados:
-                        # Ordenar los exámenes de más reciente a más antiguo (ID mayor a menor)
+                        # Ordenar exámenes de mayor ID a menor ID (El más reciente primero)
                         intentos_filtrados_ordenados = sorted(intentos_filtrados, key=lambda x: x['id'], reverse=True)
                         
-                        dict_intentos = {}
-                        for it in intentos_filtrados_ordenados:
-                            est_it = "🔴 EXPIRADO" if it.get("sobrepasado_tiempo") else ("🟢 APROBADO" if it.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO")
-                            dict_intentos[f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')}) | Nota: {it.get('nota', 0)}/10 [{est_it}]"] = it
-
-                        opciones_keys = list(dict_intentos.keys())
+                        map_id_to_intento = {it['id']: it for it in intentos_filtrados_ordenados}
                         
-                        # ID por defecto siempre es el primero de la lista (el más reciente / ID más alto)
-                        idx_defecto_intento = 0
-                        if st.session_state.intento_auditado_sel in dict_intentos:
-                            idx_defecto_intento = opciones_keys.index(st.session_state.intento_auditado_sel)
+                        def format_func(it_id):
+                            it = map_id_to_intento[it_id]
+                            est_it = "🔴 EXPIRADO" if it.get("sobrepasado_tiempo") else ("🟢 APROBADO" if it.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO")
+                            return f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')}) | Nota: {it.get('nota', 0)}/10 [{est_it}]"
 
-                        intento_sel_key = st.selectbox(
+                        opciones_ids = list(map_id_to_intento.keys())
+                        
+                        # Si no hay selección activa previa o el ID seleccionado no pertenece a la lista actual, fijar por defecto el ID más reciente (índice 0)
+                        if st.session_state.intento_auditado_id_sel not in opciones_ids:
+                            st.session_state.intento_auditado_id_sel = opciones_ids[0]
+
+                        idx_defecto_intento = opciones_ids.index(st.session_state.intento_auditado_id_sel)
+
+                        intento_target_id = st.selectbox(
                             "Selecciona un examen para auditar/editar:", 
-                            opciones_keys, 
+                            options=opciones_ids,
                             index=idx_defecto_intento,
-                            key="select_intento_audit"
+                            format_func=format_func,
+                            key="select_intento_audit_id"
                         )
                         
-                        st.session_state.intento_auditado_sel = intento_sel_key
+                        # Persistir el ID seleccionado en la sesión para mantenerlo al guardar
+                        st.session_state.intento_auditado_id_sel = intento_target_id
 
-                        intento_obj = dict_intentos[intento_sel_key]
-                        intento_target_id = intento_obj["id"]
+                        intento_obj = map_id_to_intento[intento_target_id]
                         respuestas_lista = json.loads(json.dumps(intento_obj.get("respuestas_usuario", [])))
                         
                         if respuestas_lista:
@@ -1234,7 +1237,7 @@ else:
 
                 with col_des3:
                     st.markdown("#### 📝 Intentos No Válidos")
-                    res_todos_int = supabase.table("intentos_examen").select("id, nombre_empleado, apartado, activo").order("id", desc=True).limit(20).execute()
+                    res_todos_int = supabase.table("intentos_examen").select("id, nombre_empleado, apartado, activo").order("id", desc=True).limit(30).execute()
                     if res_todos_int.data:
                         for it_i in res_todos_int.data:
                             es_act_it = it_i.get("activo", True)
@@ -1324,7 +1327,7 @@ else:
                                 else:
                                     resp_json = []
 
-                                # Procesar minutos asignados a segundos
+                                # Conversión de 'minutes' a segundos asignados
                                 minutos_val = row.get("minutes")
                                 if not pd.isna(minutos_val) and minutos_val is not None:
                                     t_limite = int(minutos_val) * 60
@@ -1334,7 +1337,7 @@ else:
                                 fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
                                 fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
 
-                                # Comprobar si sobrepasó el tiempo restando fecha_fin y fecha_inicio
+                                # Resta de horas y comprobación de expiración de tiempo
                                 sobrepasado = False
                                 duracion_seg = 0
                                 if fecha_inicio_clean and fecha_fin_clean:
@@ -1350,7 +1353,7 @@ else:
                                 porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
                                 nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
 
-                                # Si superó el tiempo asignado, se marca como suspenso
+                                # Si se superó el tiempo asignado, se marca como suspenso y nota cero
                                 if sobrepasado:
                                     nota_val = 0.0
                                     porcentaje_val = 0.0
