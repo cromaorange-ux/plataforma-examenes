@@ -661,7 +661,7 @@ else:
                 try:
                     response = supabase.table("empleados").select("*").eq("activo", True).execute()
                     st.write(response.data)
-                        except Exception as e:
+                except Exception as e:
                     st.error(f"Error detallado: {e}")
                 
                 if res_fallback.data:
