@@ -647,27 +647,25 @@ else:
             ahora = datetime.datetime.now(datetime.timezone.utc)
             primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).isoformat()
 
-            try:
-                res_user_intentos = supabase.table("intentos_examen").select("*")\
-                    .eq("empleado_id", st.session_state.user_id)\
-                    .eq("activo", True)\
-                    .gte("fecha_inicio", primer_dia_mes).execute()
-                user_intentos = res_user_intentos.data if res_user_intentos.data else []
-            except Exception as e:
-                user_intentos = []
-                res_fallback = supabase.table("intentos_examen").select("*")\
-                    .eq("empleado_id", st.session_state.user_id)\
-                    .eq("activo", True).execute()
-                
-                fallback_data = res_fallback.data if hasattr(res_fallback, 'data') else (res_fallback if isinstance(res_fallback, list) else [])
-                
-                if fallback_data:
-                    str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
-                    user_intentos = [
-                        it for it in fallback_data 
-                        if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
-                    ]
-
+        try:
+            res_user_intentos = supabase.table("intentos_examen").select("*")\
+                .eq("empleado_id", st.session_state.user_id)\
+                .gte("fecha_inicio", primer_dia_mes).execute()
+            user_intentos = res_user_intentos.data if res_user_intentos.data else []
+        except Exception as e:
+            user_intentos = []
+            res_fallback = supabase.table("intentos_examen").select("*")\
+                .eq("empleado_id", st.session_state.user_id).execute()
+    
+        fallback_data = res_fallback.data if hasattr(res_fallback, 'data') else []
+    
+        if fallback_data:
+            str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
+            user_intentos = [
+                it for it in fallback_data 
+                if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
+            ]
+            
             dict_realizados = {}
             for it in user_intentos:
                 apt = it.get("apartado")
