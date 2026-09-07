@@ -644,8 +644,7 @@ else:
                 "📈 Mi Rendimiento e Informes IA"
             ])
 
-with tab_examenes:
-            # Sangría correcta de 12 espacios (o 3 tabulaciones dentro del tab)
+        with tab_examenes:
             ahora = datetime.datetime.now(datetime.timezone.utc)
             primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).isoformat()
             
@@ -657,7 +656,6 @@ with tab_examenes:
                 user_intentos = res_user_intentos.data if res_user_intentos.data else []
             except Exception as e:
                 user_intentos = []
-                # Fallback por si hay desajuste de tipos en Supabase
                 res_fallback = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
                     .neq("activo", False).execute()
@@ -668,7 +666,30 @@ with tab_examenes:
                         it for it in res_fallback.data 
                         if it.get("fecha_inicio") and str(it["fecha_inicio"]).startswith(str_mes_actual)
                     ]
-                    
+
+            dict_realizados = {}
+            for it in user_intentos:
+                apt = it.get("apartado")
+                if apt:
+                    dict_realizados[apt] = {
+                        "nota": it.get("nota", 0),
+                        "porcentaje": it.get("porcentaje_obtenido", 0)
+                    }
+
+            try:
+                res_aut = supabase.table("autorizaciones_examen").select("apartado")\
+                    .eq("empleado_id", st.session_state.user_id).execute()
+                autorizaciones_set = set(item["apartado"] for item in (res_aut.data or []))
+            except Exception:
+                autorizaciones_set = set()
+
+            try:
+                res_examenes = supabase.table("examenes").select("id, apartado, preguntas_json").neq("activo", False).execute()
+                examenes_disponibles = res_examenes.data if res_examenes.data else []
+            except Exception as e:
+                examenes_disponibles = []
+                st.error(f"Error al cargar manuales: {e}")
+                
 # --- CÓDIGO ANTERIOR ---
 # ahora = datetime.datetime.now()
 # primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0).isoformat()
