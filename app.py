@@ -286,7 +286,8 @@ def normalizar_pregunta_json(item):
 
     pregunta_texto = item_normalizado.get("pregunta", item_normalizado.get("q", ""))
     pista_texto = item_normalizado.get("pista", "Revisa la documentación.")
-    subindice_texto = item_normalizado.get("subindice", item_normalizado.get("categoria", "General"))
+    # Extraer categoría o subíndice
+    categoria_texto = item_normalizado.get("subindice", item_normalizado.get("categoria", "General"))
     
     opciones = []
     idx_correcta = 0
@@ -322,16 +323,17 @@ def normalizar_pregunta_json(item):
         "opciones": opciones,
         "respuesta_correcta": idx_correcta,
         "pista": str(pista_texto),
-        "subindice": str(subindice_texto),
+        "subindice": str(categoria_texto),
         "tipo": item_normalizado.get("tipo", "teorica")
     }
-
+    
 def seleccionar_15_preguntas(banco_completo):
     sample_size = min(len(banco_completo), NUM_PREGUNTAS_EXAMEN)
     seleccionadas = random.sample(banco_completo, sample_size)
-    random.shuffle(seleccionadas)
+    # Ordenar correlativamente según el nombre del Subíndice / Categoría
+    seleccionadas.sort(key=lambda x: str(x.get("subindice", "General")).lower())
     return seleccionadas
-
+    
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
     _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
@@ -624,22 +626,23 @@ else:
                 if st.button(lbl_btn, key=f"btn_sig_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
                     
-                    # Determinar qué respuesta guardar según el tiempo y la elección
-                    if deshabilitar_opciones and not resp_previa:
-                        es_correcta = False
-                        opcion_guardada = "En blanco (Agotado tiempo)"
-                    elif eleccion is None or eleccion == "":
-                        es_correcta = False
-                        opcion_guardada = "En blanco (Sin marcar)"
-                    else:
+                    # Si el tiempo expiró pero hay una opción elegida, se evalúa esa respuesta
+                    if eleccion is not None and eleccion != "":
                         es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
                         opcion_guardada = eleccion
+                    elif deshabilitar_opciones:
+                        es_correcta = False
+                        opcion_guardada = "En blanco (Agotado tiempo)"
+                    else:
+                        es_correcta = False
+                        opcion_guardada = "En blanco (Sin marcar)"
                     
                     # Registrar respuesta
                     st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
                     st.session_state.respuestas_detalle.append({
                         "idx_pregunta": idx,
                         "pregunta": p_actual["pregunta"],
+                        "subindice": p_actual.get("subindice", "General"),
                         "opcion_elegida": opcion_guardada,
                         "respuesta_correcta_texto": p_actual["respuesta_correcta_texto"],
                         "opciones_posibles": p_actual["opciones_barajadas"],
