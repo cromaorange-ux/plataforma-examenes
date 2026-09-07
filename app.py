@@ -618,10 +618,13 @@ else:
             st.write("")
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                lbl_btn = "Ir a Revisión" if (st.session_state.modificando_desde_revision or deshabilitar_opciones) else "Responder / Siguiente"
+                # El texto del botón solo dirá "Ir a Revisión" si vienes explícitamente desde la pantalla de revisión
+                lbl_btn = "Ir a Revisión" if st.session_state.modificando_desde_revision else "Responder / Siguiente"
+                
                 if st.button(lbl_btn, key=f"btn_sig_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
                     
+                    # Determinar qué respuesta guardar según el tiempo y la elección
                     if deshabilitar_opciones and not resp_previa:
                         es_correcta = False
                         opcion_guardada = "En blanco (Agotado tiempo)"
@@ -632,6 +635,7 @@ else:
                         es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
                         opcion_guardada = eleccion
                     
+                    # Registrar respuesta
                     st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
                     st.session_state.respuestas_detalle.append({
                         "idx_pregunta": idx,
@@ -642,7 +646,10 @@ else:
                         "es_correcta": es_correcta
                     })
                     
-                    if st.session_state.modificando_desde_revision or deshabilitar_opciones:
+                    # Lógica de navegación corregida:
+                    # Si venías de modificar una pregunta desde la revisión, vuelve a la revisión.
+                    # Si no, AVANZA a la siguiente pregunta (incluso si se agotó el tiempo).
+                    if st.session_state.modificando_desde_revision:
                         st.session_state.modificando_desde_revision = False
                         st.session_state.modo_revision = True
                     else:
