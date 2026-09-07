@@ -657,13 +657,12 @@ else:
                 user_intentos = []
                 res_fallback = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
-                    try:
-    # Tu consulta
-    response = supabase.table("empleados").select("*").eq("activo", True).execute()
-    st.write(response.data)
-except Exception as e:
-    # Esto imprimirá el código y mensaje real de PostgREST en pantalla
-    st.error(f"Error detallado: {e}")
+
+                try:
+                    response = supabase.table("empleados").select("*").eq("activo", True).execute()
+                    st.write(response.data)
+                        except Exception as e:
+                    st.error(f"Error detallado: {e}")
                 
                 if res_fallback.data:
                     str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
