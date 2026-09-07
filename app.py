@@ -654,10 +654,12 @@ else:
             user_intentos = res_user_intentos.data if res_user_intentos.data else []
         except Exception as e:
             user_intentos = []
-            res_fallback = supabase.table("intentos_examen").select("*")\
-                .eq("empleado_id", st.session_state.user_id).execute()
-    
-        fallback_data = res_fallback.data if hasattr(res_fallback, 'data') else []
+            try:
+                res_fallback = supabase.table("intentos_examen").select("*")\
+                    .eq("empleado_id", st.session_state.user_id).execute()
+                fallback_data = res_fallback.data if res_fallback and hasattr(res_fallback, 'data') else []
+        except Exception:
+            fallback_data = []
     
         if fallback_data:
             str_mes_actual = f"{ahora.year}-{ahora.month:02d}"
