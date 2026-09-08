@@ -12,7 +12,7 @@ from google.genai import types
 from pypdf import PdfReader
 from supabase import create_client, Client
 
-# Importar SDK de Anthropic (Claude)
+# Importar SDK de Anthropic (Claude) - Opcional / Fallback futuro
 try:
     import anthropic
     CLAUDE_DISPONIBLE = True
@@ -233,11 +233,10 @@ Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown
 PROMPT_ANALISIS_ANALISTA = """quiero un analisis de los trabajadores en el cual me digas una opcion como profesional de la materia, en el que me digas puntos debiles y fuertes del trabajador que se encuentra activo. y una comparativa general de todos los trabajadores activo que me digan opiniones global. Todo esto almacenado en SQL."""
 
 MODELOS_IA_DISPONIBLES = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-pro"
+    "claude-3-5-haiku-20241022"
 ]
 
 MAPEO_CAMPOS = {
@@ -264,19 +263,12 @@ MAPEO_CAMPOS = {
 # FUNCIONES AUXILIARES DE IA Y PROCESAMIENTO
 # ---------------------------------------------------------
 def consultar_ia(modelo, prompt, sistema=""):
-    """Función unificada para consultar Gemini o Claude según la selección del usuario."""
-    if "claude" in modelo.lower():
-        if not claude_client:
-            raise Exception("El cliente de Claude (Anthropic) no está disponible o falta ANTHROPIC_API_KEY.")
-        
-        mensaje = claude_client.messages.create(
-            model=modelo,
-            max_tokens=4096,
-            system=sistema if sistema else "Eres un asistente experto en análisis de datos y creación de contenido formativo.",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return mensaje.content[0].text
-    else:
+    """
+    Proveedor principal: Gemini.
+    Fallback opcional: Claude (si Gemini falla y la API Key de Claude existe).
+    """
+    # Intentar con Gemini como canal principal
+    try:
         if not gemini_client:
             raise Exception("El cliente de Gemini no está configurado.")
         
@@ -285,12 +277,32 @@ def consultar_ia(modelo, prompt, sistema=""):
         if "JSON" in prompt.upper() or "json" in prompt:
             config_gen.response_mime_type = "application/json"
             
+        modelo_gemini = modelo if "gemini" in modelo.lower() else "gemini-2.5-flash"
         res = gemini_client.models.generate_content(
-            model=modelo,
+            model=modelo_gemini,
             contents=p_final,
             config=config_gen
         )
-        return res.text if res else ""
+        if res and res.text:
+            return res.text
+        raise Exception("Respuesta vacía recibida de Gemini.")
+
+    except Exception as error_gemini:
+        # Fallback alternativo a Claude
+        if CLAUDE_DISPONIBLE and claude_client:
+            try:
+                modelo_claude = modelo if "claude" in modelo.lower() else "claude-3-5-sonnet-20241022"
+                mensaje = claude_client.messages.create(
+                    model=modelo_claude,
+                    max_tokens=4096,
+                    system=sistema if sistema else "Eres un asistente experto en análisis de datos y evaluación formativa.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return mensaje.content[0].text
+            except Exception as error_claude:
+                raise Exception(f"Error en Gemini ({error_gemini}) y en Claude Fallback ({error_claude})")
+        else:
+            raise Exception(f"Error en la llamada principal con Gemini: {error_gemini}")
 
 def limpiar_timestamp_sql(ts_val):
     if pd.isna(ts_val) or ts_val is None:
@@ -701,7 +713,7 @@ else:
                 "📊 Resultados / Edición", 
                 "📥 Exportación e Informes",
                 "📈 Analítica e IA",
-                "🤖 Consultas Claude / IA",
+                "🤖 Consultas Gemini / IA",
                 "⚙️ Gestión y Autorizaciones"
             ])
         else:
@@ -891,8 +903,9 @@ else:
         # VISTA USUARIO: MIS RESULTADOS
         if not st.session_state.es_croma:
             with tab_mis_resultados:
-                st.subheader("📌 Mis Calificaciones e Historial")
+                st.subheader("📌 Mis Calificaciones e Historial Completo")
                 
+                # Consulta de todo el historial de exámenes realizados por este empleado (no solo CSV o mes actual)
                 res_mis_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
                     .eq("activo", True)\
@@ -967,6 +980,7 @@ else:
             with tab_mi_analisis:
                 st.subheader("📈 Mi Rendimiento Personal")
                 
+                # Obtención de métricas históricas del empleado
                 res_mis_graf = supabase.table("intentos_examen").select("id, nota, porcentaje_obtenido, fecha_inicio, apartado")\
                     .eq("empleado_id", st.session_state.user_id)\
                     .eq("activo", True)\
@@ -991,7 +1005,7 @@ else:
                     if res_mi_an.data:
                         st.info(res_mi_an.data[0]["analisis_texto"])
                     else:
-                        st.caption("Aún no hay un informe cualitativo generado para ti por el administrador en el ciclo actual.")
+                        st.caption("Aún no hay un informe cualitativo generado para ti en el ciclo actual.")
                 else:
                     st.info("No dispones de suficientes evaluaciones registradas para generar gráficos.")
 
@@ -1219,6 +1233,7 @@ else:
             with tab_admin_analisis:
                 st.subheader("📈 Analítica Global e Inteligencia Artificial")
                 
+                # Consulta completa de exámenes realizados (histórico completo)
                 res_all_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("activo", True)\
                     .order("fecha_inicio", desc=False).execute()
@@ -1240,18 +1255,21 @@ else:
                     if anios_seleccionados:
                         df_filtrado = df_all[df_all["anio_int"].isin(anios_seleccionados)]
                         
-                        st.markdown("### 📊 Gráficas y Métricas por Empleado")
+                        st.markdown("### 📊 Gráficas y Métricas por Empleado (Histórico)")
                         metricas_emp = df_filtrado.groupby("nombre_empleado").agg(
                             Examenes_Realizados=('id', 'count'),
                             Nota_Media=('nota', 'mean'),
                             Porcentaje_Medio=('porcentaje_obtenido', 'mean')
                         ).reset_index()
 
+                        metricas_emp["Nota_Media"] = metricas_emp["Nota_Media"].round(2)
+                        metricas_emp["Porcentaje_Medio"] = metricas_emp["Porcentaje_Medio"].round(2)
+
                         st.dataframe(metricas_emp, use_container_width=True)
                         st.bar_chart(metricas_emp, x="nombre_empleado", y="Nota_Media")
 
                         st.markdown("---")
-                        st.markdown("### 🤖 Configuración y Generación de Análisis")
+                        st.markdown("### 🤖 Configuración y Generación de Análisis con IA")
                         
                         col_an1, col_an2 = st.columns([3, 1])
                         with col_an1:
@@ -1271,14 +1289,15 @@ else:
                             res_emp_activos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                             emp_activos = res_emp_activos.data if res_emp_activos.data else []
 
+                            # Adaptación del prompt según rol (siempre de administración en este panel)
                             resumen_datos = f"Años evaluados: {anios_seleccionados}\n"
-                            resumen_datos += "Rendimiento acumulado por empleados activos:\n"
+                            resumen_datos += "Rendimiento acumulado de plantilla activa:\n"
                             for _, row in metricas_emp.iterrows():
-                                resumen_datos += f"- {row['nombre_empleado']}: {row['Examenes_Realizados']} exámenes realizados, Nota Media: {round(row['Nota_Media'], 2)}/10, Porcentaje Medio: {round(row['Porcentaje_Medio'], 2)}%\n"
+                                resumen_datos += f"- {row['nombre_empleado']}: {row['Examenes_Realizados']} exámenes realizados, Nota Media: {row['Nota_Media']}/10, Porcentaje Medio: {row['Porcentaje_Medio']}%\n"
 
                             prompt_compuesto = f"{prompt_analisis_input}\n\n[DATOS RECOPILADOS PARA EL ANÁLISIS]:\n{resumen_datos}"
 
-                            with st.spinner("Generando informe analítico cualitativo con IA..."):
+                            with st.spinner("Generando informe analítico con Gemini..."):
                                 try:
                                     analisis_texto_resultado = consultar_ia(modelo_analisis_sel, prompt_compuesto)
                                     
@@ -1296,15 +1315,15 @@ else:
                                 except Exception as err_ia:
                                     st.error(f"❌ Error al consultar la IA: {err_ia}")
 
-        # ADMIN CROMA - CONSULTAS LIBRES Y ANÁLISIS CON CLAUDE / IA
+        # ADMIN CROMA - CONSULTAS LIBRES CON GEMINI / IA
         if st.session_state.es_croma and tab_admin_claude:
             with tab_admin_claude:
-                st.subheader("🤖 Consola de Consultas y Análisis Libre con Claude / IA")
+                st.subheader("🤖 Consola de Consultas y Análisis Libre con Gemini / IA")
                 st.caption("Escribe un prompt para consultar bases de datos, realizar análisis avanzados o procesar información en lenguaje natural.")
 
                 col_cl1, col_cl2 = st.columns([3, 1])
                 with col_cl1:
-                    modelo_claude_sel = st.selectbox(
+                    modelo_gemini_cons = st.selectbox(
                         "Seleccionar Modelo para Consulta:",
                         options=MODELOS_IA_DISPONIBLES,
                         index=0,
@@ -1320,7 +1339,7 @@ else:
                     key="prompt_consulta_libre_text"
                 )
 
-                if st.button("🚀 Ejecutar Consulta en Claude / IA", use_container_width=True):
+                if st.button("🚀 Ejecutar Consulta en Gemini / IA", use_container_width=True):
                     if not prompt_consulta_libre.strip():
                         st.warning("⚠️ Introduce un prompt antes de ejecutar la consulta.")
                     else:
@@ -1335,13 +1354,13 @@ else:
 
                         with st.spinner("Procesando consulta con el modelo seleccionado..."):
                             try:
-                                respuesta_claude = consultar_ia(
-                                    modelo=modelo_claude_sel,
+                                respuesta_ia = consultar_ia(
+                                    modelo=modelo_gemini_cons,
                                     prompt=prompt_consulta_libre + contexto_adicional,
                                     sistema="Eres un analista de datos Senior y consultor experto para la plataforma."
                                 )
                                 st.markdown("### 📋 Respuesta / Resultado del Análisis")
-                                st.markdown(respuesta_claude)
+                                st.markdown(respuesta_ia)
                             except Exception as err_c:
                                 st.error(f"❌ Error al procesar la consulta: {err_c}")
 
@@ -1568,7 +1587,7 @@ else:
 
                 st.markdown("---")
 
-                # CARGA Y BORRADO DE MANUALES CON PROMPTS E IA (CLAUDE / GEMINI)
+                # CARGA Y BORRADO DE MANUALES CON PROMPTS E IA (GEMINI / CLAUDE)
                 col_subir, col_del = st.columns([3, 2])
                 
                 with col_subir:
