@@ -230,10 +230,29 @@ Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown
 ]
 """
 
-# ORDENADOS DE MÁS RECIENTE A MÁS ANTIGUO
-MODELOS_GEMINI_OPCIONES = ["gemini-2.5-pro", "gemini-2.5-flash"]
-MODELOS_CLAUDE_OPCIONES = ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
-MODELOS_IA_DISPONIBLES = MODELOS_GEMINI_OPCIONES + MODELOS_CLAUDE_OPCIONES
+def obtener_modelos_ia_disponibles():
+    """Obtiene dinámicamente la lista de modelos de IA registrados en la base de datos SQL."""
+    try:
+        # Revisa la tabla config_prompts en Supabase
+        res = supabase.table("config_prompts").select("modelo_gemini, modelo_claude").execute()
+        if res.data:
+            modelos_sql = []
+            for fila in res.data:
+                if fila.get("modelo_gemini"):
+                    modelos_sql.append(fila["modelo_gemini"])
+                if fila.get("modelo_claude"):
+                    modelos_sql.append(fila["modelo_claude"])
+            
+            # Elimina duplicados manteniendo el orden
+            modelos_unicos = list(dict.fromkeys(modelos_sql))
+            if modelos_unicos:
+                return modelos_unicos
+
+    except Exception as err:
+        st.warning(f"No se pudieron cargar los modelos desde la base de datos: {err}")
+    
+    # Fallback de respaldo por seguridad si falla la consulta SQL
+    return ["gemini-3.1-pro", "gemini-3.6-flash", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
 
 MAPEO_CAMPOS = {
     'q': 'pregunta',
@@ -1291,11 +1310,13 @@ else:
                         
                         col_m1, col_m2 = st.columns(2)
                         with col_m1:
-                            modelo_ia_eval = st.selectbox(
-                                "🤖 Seleccionar versión de IA a utilizar (Más reciente primero):",
-                                options=MODELOS_IA_DISPONIBLES,
-                                index=MODELOS_IA_DISPONIBLES.index(modelo_gemini_defecto) if modelo_gemini_defecto in MODELOS_IA_DISPONIBLES else 0
-                            )
+                                modelos_actuales = obtener_modelos_ia_disponibles()
+
+                                modelo_ia_eval = st.selectbox(
+                                    "🤖 Seleccionar versión de IA a utilizar:",
+                                    options=modelos_actuales,
+                                    index=0
+                                )
                         with col_m2:
                             st.write("")
                             st.write("")
@@ -1338,12 +1359,14 @@ else:
                 with tab_sub_nueva:
                     col_cl1, col_cl2 = st.columns([3, 1])
                     with col_cl1:
-                        modelo_gemini_cons = st.selectbox(
-                            "Seleccionar Modelo para Consulta (Ordenados de más reciente a más antiguo):",
-                            options=MODELOS_IA_DISPONIBLES,
-                            index=0,
-                            key="sel_mod_consulta_libre"
-                        )
+                            modelos_actuales = obtener_modelos_ia_disponibles()
+
+                            modelo_ia_eval = st.selectbox(
+                                "🤖 Seleccionar versión de IA a utilizar:",
+                                options=modelos_actuales,
+                                index=0
+                            )
+
                     with col_cl2:
                         incluir_datos_sql = st.checkbox("Inyectar contexto actual de la BD (Exámenes/Empleados)", value=True)
 
@@ -1404,7 +1427,7 @@ else:
                         modelos_presentes = list(set([c.get("modelo", "Desconocido") for c in consultas_lista]))
                         
                         # Reordenar los filtros según la prioridad cronológica
-                        modelos_ordenados_filtro = [m for m in MODELOS_IA_DISPONIBLES if m in modelos_presentes] + [m for m in modelos_presentes if m not in MODELOS_IA_DISPONIBLES]
+                        #modelos_ordenados_filtro = [m for m in MODELOS_IA_DISPONIBLES if m in modelos_presentes] + [m for m in modelos_presentes if m not in MODELOS_IA_DISPONIBLES]
                         
                         col_f1, col_f2 = st.columns(2)
                         with col_f1:
@@ -1751,11 +1774,14 @@ else:
                         height=200
                     )
 
-                    modelo_ia_sel = st.selectbox(
-                        "🤖 Modelo de IA a utilizar (Más reciente primero):",
-                        options=MODELOS_IA_DISPONIBLES,
-                        index=0
-                    )
+                        modelos_actuales = obtener_modelos_ia_disponibles()
+
+                        modelo_ia_eval = st.selectbox(
+                            "🤖 Seleccionar versión de IA a utilizar:",
+                            options=modelos_actuales,
+                            index=0
+                        )
+
 
                     btn_procesar_manual = st.button("🚀 Procesar y Generar Banco", use_container_width=True)
 
