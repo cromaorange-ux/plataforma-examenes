@@ -12,6 +12,13 @@ from google.genai import types
 from pypdf import PdfReader
 from supabase import create_client, Client
 
+# Importar SDK de Anthropic (Claude)
+try:
+    import anthropic
+    CLAUDE_DISPONIBLE = True
+except ImportError:
+    CLAUDE_DISPONIBLE = False
+
 # Dependencias para generar PDF
 try:
     from reportlab.lib.pagesizes import letter
@@ -47,12 +54,12 @@ st.markdown("""
         padding-bottom: 3rem;
     }
 
-/* Opciones del selector de respuestas */
+    /* Opciones del selector de respuestas */
     .stRadio label {
         font-size: 18px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #1A202C !important; /* Texto oscuro legible */
+        color: #1A202C !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -60,7 +67,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label {
-        background-color: #FFFFFF !important; /* Fondo blanco */
+        background-color: #FFFFFF !important;
         padding: 12px 18px !important;
         border-radius: 8px !important;
         border: 2px solid #CBD5E0 !important;
@@ -69,7 +76,6 @@ st.markdown("""
         margin-bottom: 8px !important;
     }
 
-    /* Modifica el texto interior de cada opción */
     .stRadio div[role='radiogroup'] > label p {
         color: #1A202C !important;
         font-weight: 600 !important;
@@ -78,25 +84,6 @@ st.markdown("""
     .stRadio div[role='radiogroup'] > label:hover {
         background-color: #EDF2F7 !important;
         border-color: #2B6CB0 !important;
-    }
-    
-    .stRadio div[role='radiogroup'] {
-        gap: 10px;
-    }
-
-    .stRadio div[role='radiogroup'] > label {
-        background-color: #EDF2F7;
-        padding: 12px 18px !important;
-        border-radius: 8px !important;
-        border: 1px solid #CBD5E0 !important;
-        transition: all 0.2s ease-in-out;
-        width: 100%;
-        margin-bottom: 8px !important;
-    }
-
-    .stRadio div[role='radiogroup'] > label:hover {
-        background-color: #E2E8F0;
-        border-color: #A0AEC0 !important;
     }
 
     .pregunta-titulo {
@@ -123,7 +110,7 @@ st.markdown("""
         word-break: break-word !important;
     }
 
-.user-card {
+    .user-card {
         background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
@@ -144,7 +131,8 @@ st.markdown("""
         color: #4A5568 !important;
         font-size: 14px !important;
         margin: 0 !important;
-    }    </style>
+    }
+    </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
@@ -152,7 +140,8 @@ st.markdown("""
 # ---------------------------------------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+CLAUDE_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
 
 os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
@@ -161,7 +150,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 except Exception as e:
-    st.error(f"Error al inicializar el cliente de Gemini: {e}")
+    gemini_client = None
+
+claude_client = None
+if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
+    try:
+        claude_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    except Exception as e:
+        claude_client = None
 
 # ---------------------------------------------------------
 # ESTADO DE LA SESIÓN
@@ -221,23 +217,24 @@ Requisitos strictly para el JSON:
 2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
 3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
 
-Responde ÚNICAMENTE con un array JSON estructurado así:
+Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown fuera del json):
 [
   {
     "pregunta": "texto de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C"],
     "respuesta_correcta": 0,
     "pista": "Texto de la pista de ayuda",
+    "subindice": "Nombre del Tema/Sección",
     "tipo": "teorica"
   }
 ]
-
-Texto del manual:
 """
 
 PROMPT_ANALISIS_ANALISTA = """quiero un analisis de los trabajadores en el cual me digas una opcion como profesional de la materia, en el que me digas puntos debiles y fuertes del trabajador que se encuentra activo. y una comparativa general de todos los trabajadores activo que me digan opiniones global. Todo esto almacenado en SQL."""
 
-MODELOS_GEMINI_DISPONIBLES = [
+MODELOS_IA_DISPONIBLES = [
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
     "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.1-pro"
@@ -264,8 +261,37 @@ MAPEO_CAMPOS = {
 }
 
 # ---------------------------------------------------------
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES DE IA Y PROCESAMIENTO
 # ---------------------------------------------------------
+def consultar_ia(modelo, prompt, sistema=""):
+    """Función unificada para consultar Gemini o Claude según la selección del usuario."""
+    if "claude" in modelo.lower():
+        if not claude_client:
+            raise Exception("El cliente de Claude (Anthropic) no está disponible o falta ANTHROPIC_API_KEY.")
+        
+        mensaje = claude_client.messages.create(
+            model=modelo,
+            max_tokens=4096,
+            system=sistema if sistema else "Eres un asistente experto en análisis de datos y creación de contenido formativo.",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return mensaje.content[0].text
+    else:
+        if not gemini_client:
+            raise Exception("El cliente de Gemini no está configurado.")
+        
+        p_final = f"{sistema}\n\n{prompt}" if sistema else prompt
+        config_gen = types.GenerateContentConfig()
+        if "JSON" in prompt.upper() or "json" in prompt:
+            config_gen.response_mime_type = "application/json"
+            
+        res = gemini_client.models.generate_content(
+            model=modelo,
+            contents=p_final,
+            config=config_gen
+        )
+        return res.text if res else ""
+
 def limpiar_timestamp_sql(ts_val):
     if pd.isna(ts_val) or ts_val is None:
         return None
@@ -286,7 +312,6 @@ def normalizar_pregunta_json(item):
 
     pregunta_texto = item_normalizado.get("pregunta", item_normalizado.get("q", ""))
     pista_texto = item_normalizado.get("pista", "Revisa la documentación.")
-    # Extraer categoría o subíndice
     categoria_texto = item_normalizado.get("subindice", item_normalizado.get("categoria", "General"))
     
     opciones = []
@@ -330,7 +355,6 @@ def normalizar_pregunta_json(item):
 def seleccionar_15_preguntas(banco_completo):
     sample_size = min(len(banco_completo), NUM_PREGUNTAS_EXAMEN)
     seleccionadas = random.sample(banco_completo, sample_size)
-    # Ordenar correlativamente según el nombre del Subíndice / Categoría
     seleccionadas.sort(key=lambda x: str(x.get("subindice", "General")).lower())
     return seleccionadas
     
@@ -431,7 +455,6 @@ if not st.session_state.autenticado:
     st.subheader("Selecciona tu perfil para ingresar")
     
     try:
-        # Consulta directa a Supabase para traer los trabajadores activos
         res_usuarios = supabase.table("empleados").select("*").eq("activo", True).execute()
         lista_usuarios = res_usuarios.data if res_usuarios.data else []
     except Exception as e:
@@ -439,11 +462,9 @@ if not st.session_state.autenticado:
         st.error(f"Error al conectar con la base de datos de empleados: {e}")
 
     if lista_usuarios:
-        # Renderizado en cuadrícula de 3 columnas
         cols = st.columns(3)
         for idx, u in enumerate(lista_usuarios):
             with cols[idx % 3]:
-                # Muestra el nombre registrado en la columna 'nombre' de la BD
                 st.markdown(f"""
                 <div class="user-card">
                     <h3>👤 {u['nombre']}</h3>
@@ -456,7 +477,7 @@ if not st.session_state.autenticado:
                     login_modal()
     else:
         st.warning("No se encontraron perfiles de empleados activos en la base de datos.")
-        
+
 # ---------------------------------------------------------
 # MÓDULO 2: PANEL Y EVALUACIÓN
 # ---------------------------------------------------------
@@ -620,13 +641,11 @@ else:
             st.write("")
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                # El texto del botón solo dirá "Ir a Revisión" si vienes explícitamente desde la pantalla de revisión
                 lbl_btn = "Ir a Revisión" if st.session_state.modificando_desde_revision else "Responder / Siguiente"
                 
                 if st.button(lbl_btn, key=f"btn_sig_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
                     
-                    # Si el tiempo expiró pero hay una opción elegida, se evalúa esa respuesta
                     if eleccion is not None and eleccion != "":
                         es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
                         opcion_guardada = eleccion
@@ -637,7 +656,6 @@ else:
                         es_correcta = False
                         opcion_guardada = "En blanco (Sin marcar)"
                     
-                    # Registrar respuesta
                     st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
                     st.session_state.respuestas_detalle.append({
                         "idx_pregunta": idx,
@@ -649,9 +667,6 @@ else:
                         "es_correcta": es_correcta
                     })
                     
-                    # Lógica de navegación corregida:
-                    # Si venías de modificar una pregunta desde la revisión, vuelve a la revisión.
-                    # Si no, AVANZA a la siguiente pregunta (incluso si se agotó el tiempo).
                     if st.session_state.modificando_desde_revision:
                         st.session_state.modificando_desde_revision = False
                         st.session_state.modo_revision = True
@@ -681,11 +696,12 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos).")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_gestion = st.tabs([
+            tab_examenes, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_claude, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación e Informes",
                 "📈 Analítica e IA",
+                "🤖 Consultas Claude / IA",
                 "⚙️ Gestión y Autorizaciones"
             ])
         else:
@@ -872,7 +888,7 @@ else:
             else:
                 st.warning("No hay manuales activos cargados en el sistema.")
 
-        # VISTA USUARIO: MIS RESULTADOS Y DETALLE DE PREGUNTAS FALLADAS
+        # VISTA USUARIO: MIS RESULTADOS
         if not st.session_state.es_croma:
             with tab_mis_resultados:
                 st.subheader("📌 Mis Calificaciones e Historial")
@@ -899,6 +915,31 @@ else:
                         
                         with st.expander(f"Examen #{i['id']} - {i.get('apartado')} | {fecha_str} | Nota: {i.get('nota', 0)}/10 | Estado: {estado}"):
                             st.write(f"**Resultado:** {num_correctas} / {total_p} aciertos ({porc}%) - **{estado}**")
+                            
+                            if respuestas:
+                                df_resp = pd.DataFrame(respuestas)
+    
+                                if "subindice" not in df_resp.columns:
+                                    df_resp["subindice"] = df_resp.get("categoria", "General")
+                                df_resp["subindice"] = df_resp["subindice"].fillna("General")
+
+                                resumen_cat = df_resp.groupby("subindice").agg(
+                                    Aciertos=('es_correcta', lambda x: sum(x == True)),
+                                    Fallos_o_Blanco=('es_correcta', lambda x: sum(x == False)),
+                                    Total=('es_correcta', 'count')
+                                ).reset_index()
+
+                                st.markdown("#### 📊 Desglose de Aciertos por Categoría / Tema")
+                                st.bar_chart(
+                                    resumen_cat.set_index("subindice")[["Aciertos", "Fallos_o_Blanco"]], 
+                                    use_container_width=True
+                                )
+
+                                st.dataframe(
+                                    resumen_cat.rename(columns={"subindice": "Categoría / Tema"}), 
+                                    use_container_width=True, 
+                                    hide_index=True
+                                )
                             
                             pdf_bytes = generar_pdf_resultado(i)
                             if pdf_bytes:
@@ -1210,7 +1251,7 @@ else:
                         st.bar_chart(metricas_emp, x="nombre_empleado", y="Nota_Media")
 
                         st.markdown("---")
-                        st.markdown("### 🤖 Configuración y Generación de Análisis con Gemini")
+                        st.markdown("### 🤖 Configuración y Generación de Análisis")
                         
                         col_an1, col_an2 = st.columns([3, 1])
                         with col_an1:
@@ -1221,9 +1262,9 @@ else:
                             )
                         with col_an2:
                             modelo_analisis_sel = st.selectbox(
-                                "🤖 Versión del Modelo Gemini:",
-                                options=MODELOS_GEMINI_DISPONIBLES,
-                                key="mod_gem_analisis"
+                                "🤖 Modelo de IA:",
+                                options=MODELOS_IA_DISPONIBLES,
+                                key="mod_ia_analisis"
                             )
 
                         if st.button("🚀 Generar Análisis Ejecutivo e Inserción en SQL", use_container_width=True):
@@ -1237,13 +1278,9 @@ else:
 
                             prompt_compuesto = f"{prompt_analisis_input}\n\n[DATOS RECOPILADOS PARA EL ANÁLISIS]:\n{resumen_datos}"
 
-                            with st.spinner("Generando informe analítico cualitativo..."):
+                            with st.spinner("Generando informe analítico cualitativo con IA..."):
                                 try:
-                                    res_ia = gemini_client.models.generate_content(
-                                        model=modelo_analisis_sel,
-                                        contents=prompt_compuesto
-                                    )
-                                    analisis_texto_resultado = res_ia.text if res_ia else "No se obtuvo respuesta."
+                                    analisis_texto_resultado = consultar_ia(modelo_analisis_sel, prompt_compuesto)
                                     
                                     for emp in emp_activos:
                                         for anio_i in anios_seleccionados:
@@ -1258,6 +1295,55 @@ else:
                                     st.info(analisis_texto_resultado)
                                 except Exception as err_ia:
                                     st.error(f"❌ Error al consultar la IA: {err_ia}")
+
+        # ADMIN CROMA - CONSULTAS LIBRES Y ANÁLISIS CON CLAUDE / IA
+        if st.session_state.es_croma and tab_admin_claude:
+            with tab_admin_claude:
+                st.subheader("🤖 Consola de Consultas y Análisis Libre con Claude / IA")
+                st.caption("Escribe un prompt para consultar bases de datos, realizar análisis avanzados o procesar información en lenguaje natural.")
+
+                col_cl1, col_cl2 = st.columns([3, 1])
+                with col_cl1:
+                    modelo_claude_sel = st.selectbox(
+                        "Seleccionar Modelo para Consulta:",
+                        options=MODELOS_IA_DISPONIBLES,
+                        index=0,
+                        key="sel_mod_consulta_libre"
+                    )
+                with col_cl2:
+                    incluir_datos_sql = st.checkbox("Inyectar contexto actual de la BD (Exámenes/Empleados)", value=True)
+
+                prompt_consulta_libre = st.text_area(
+                    "💬 Prompt de Consulta o Análisis personalizado:",
+                    height=200,
+                    placeholder="Ejemplo: Realiza un resumen comparativo del rendimiento del personal en el último trimestre y da 3 recomendaciones tácticas.",
+                    key="prompt_consulta_libre_text"
+                )
+
+                if st.button("🚀 Ejecutar Consulta en Claude / IA", use_container_width=True):
+                    if not prompt_consulta_libre.strip():
+                        st.warning("⚠️ Introduce un prompt antes de ejecutar la consulta.")
+                    else:
+                        contexto_adicional = ""
+                        if incluir_datos_sql:
+                            try:
+                                res_e = supabase.table("empleados").select("nombre, activo").execute()
+                                res_i = supabase.table("intentos_examen").select("nombre_empleado, apartado, nota, porcentaje_obtenido, fecha_inicio").order("id", desc=True).limit(50).execute()
+                                contexto_adicional = f"\n\n[CONTEXTO BASE DE DATOS]:\nEmpleados: {json.dumps(res_e.data or [])}\nÚltimos 50 intentos: {json.dumps(res_i.data or [])}"
+                            except Exception as ex_ctx:
+                                contexto_adicional = f"\n\n[Error extrayendo contexto SQL: {ex_ctx}]"
+
+                        with st.spinner("Procesando consulta con el modelo seleccionado..."):
+                            try:
+                                respuesta_claude = consultar_ia(
+                                    modelo=modelo_claude_sel,
+                                    prompt=prompt_consulta_libre + contexto_adicional,
+                                    sistema="Eres un analista de datos Senior y consultor experto para la plataforma."
+                                )
+                                st.markdown("### 📋 Respuesta / Resultado del Análisis")
+                                st.markdown(respuesta_claude)
+                            except Exception as err_c:
+                                st.error(f"❌ Error al procesar la consulta: {err_c}")
 
         # ADMIN CROMA - GESTIÓN Y AUTORIZACIONES
         if st.session_state.es_croma and tab_admin_gestion:
@@ -1342,10 +1428,8 @@ else:
 
                 st.markdown("---")
 
-                # IMPORTAR INTENTOS DESDE CSV CON VERIFICACIÓN DE TIEMPO
+                # IMPORTAR INTENTOS DESDE CSV
                 st.subheader("📥 Importar Registro de Exámenes (CSV)")
-                st.caption("Carga un archivo CSV. Si incluye la columna 'minutes', esta se convertirá a segundos para el tiempo límite. Si el examen supera dicho tiempo, se marcará como Expirado y Suspenso.")
-                
                 archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
                 
                 if archivo_csv_import is not None:
@@ -1441,50 +1525,50 @@ else:
 
                 st.markdown("---")
 
-                # CARGA DIRECTA DE JSON
-                st.subheader("📄 Cargar Banco de Preguntas desde JSON")
+                # CARGA DIRECTA Y UNIFICACIÓN DE JSON
+                st.subheader("📄 Cargar Banco de Preguntas desde JSON (Soporta múltiples archivos)")
                 nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
-                archivo_json = st.file_uploader("Seleccionar archivo JSON con preguntas", type=["json"])
+                archivos_json = st.file_uploader("Seleccionar uno o varios archivos JSON con preguntas", type=["json"], accept_multiple_files=True)
 
-                if st.button("🚀 Subir Preguntas a Supabase"):
-                    if archivo_json and nombre_apartado_json:
+                if st.button("🚀 Subir y Unificar Preguntas a Supabase"):
+                    if archivos_json and nombre_apartado_json:
                         try:
-                            raw_json = json.load(archivo_json)
+                            contenido_validado_unificado = []
                             
-                            if isinstance(raw_json, dict):
-                                array_preguntas = raw_json.get("bank", raw_json.get("preguntas", []))
-                            elif isinstance(raw_json, list):
-                                array_preguntas = raw_json
-                            else:
-                                array_preguntas = []
+                            for f_json in archivos_json:
+                                raw_json = json.load(f_json)
+                                
+                                if isinstance(raw_json, dict):
+                                    array_preguntas = raw_json.get("bank", raw_json.get("preguntas", []))
+                                elif isinstance(raw_json, list):
+                                    array_preguntas = raw_json
+                                else:
+                                    array_preguntas = []
 
-                            if not isinstance(array_preguntas, list):
-                                array_preguntas = []
+                                if isinstance(array_preguntas, list):
+                                    for p in array_preguntas:
+                                        preg_normalizada = normalizar_pregunta_json(p)
+                                        if preg_normalizada:
+                                            contenido_validado_unificado.append(preg_normalizada)
 
-                            contenido_validado = []
-                            for p in array_preguntas:
-                                preg_normalizada = normalizar_pregunta_json(p)
-                                if preg_normalizada:
-                                    contenido_validado.append(preg_normalizada)
-
-                            if contenido_validado:
+                            if contenido_validado_unificado:
                                 supabase.table("examenes").insert({
                                     "apartado": nombre_apartado_json,
-                                    "preguntas_json": contenido_validado,
+                                    "preguntas_json": contenido_validado_unificado,
                                     "activo": True
                                 }).execute()
                                 
-                                st.success(f"✅ ¡Se adaptaron y cargaron {len(contenido_validado)} preguntas correctamente en SQL!")
+                                st.success(f"✅ ¡Se unificaron y cargaron {len(contenido_validado_unificado)} preguntas en un solo registro SQL correctamente!")
                                 time.sleep(1.5)
                                 st.rerun()
                             else:
-                                st.error("❌ El archivo JSON no contiene preguntas válidas.")
+                                st.error("❌ Los archivos JSON subidos no contienen preguntas válidas.")
                         except Exception as e:
-                            st.error(f"❌ Error al procesar el archivo JSON: {e}")
+                            st.error(f"❌ Error al procesar y unificar los JSON: {e}")
 
                 st.markdown("---")
 
-                # CARGA Y BORRADO DE MANUALES CON PROMPTS
+                # CARGA Y BORRADO DE MANUALES CON PROMPTS E IA (CLAUDE / GEMINI)
                 col_subir, col_del = st.columns([3, 2])
                 
                 with col_subir:
@@ -1516,20 +1600,16 @@ else:
                         prompt_seleccionado_obj = configs_prompts_db[idx_sel]
                         
                         prompt_val_inicial = prompt_seleccionado_obj["prompt_texto"]
-                        
                         modelo_db = prompt_seleccionado_obj["modelo"]
-                        if modelo_db in MODELOS_GEMINI_DISPONIBLES:
-                            modelo_val_inicial = MODELOS_GEMINI_DISPONIBLES.index(modelo_db)
-                        else:
-                            modelo_val_inicial = 0
+                        modelo_val_inicial = MODELOS_IA_DISPONIBLES.index(modelo_db) if modelo_db in MODELOS_IA_DISPONIBLES else 0
                     else:
                         prompt_val_inicial = PROMPT_DEFECTO
                         modelo_val_inicial = 0
 
                     st.markdown("### ✏️ Configuración editable")
-                    modelo_gemini_sel = st.selectbox(
-                        "🤖 Versión del Modelo Gemini:",
-                        options=MODELOS_GEMINI_DISPONIBLES,
+                    modelo_ia_sel = st.selectbox(
+                        "🤖 Modelo de IA a utilizar:",
+                        options=MODELOS_IA_DISPONIBLES,
                         index=modelo_val_inicial
                     )
 
@@ -1562,7 +1642,7 @@ else:
                                         supabase.table("config_prompts").insert({
                                             "nombre": nombre_nueva_config.strip(),
                                             "prompt_texto": prompt_editable,
-                                            "modelo": modelo_gemini_sel
+                                            "modelo": modelo_ia_sel
                                         }).execute()
 
                                 reader = PdfReader(archivo_pdf)
@@ -1574,15 +1654,15 @@ else:
 
                                 prompt_final = prompt_editable + "\n\nTexto del manual:\n" + texto[:12000]
 
-                                with st.spinner("Generando banco de preguntas con IA..."):
-                                    res = gemini_client.models.generate_content(
-                                        model=modelo_gemini_sel,
-                                        contents=prompt_final,
-                                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                                with st.spinner(f"Generando banco de preguntas con {modelo_ia_sel}..."):
+                                    raw_response = consultar_ia(
+                                        modelo=modelo_ia_sel,
+                                        prompt=prompt_final,
+                                        sistema="Eres un generador experto de evaluaciones tipo test. Responde ÚNICAMENTE en formato JSON válido."
                                     )
 
-                                if res and res.text:
-                                    clean_text = res.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                                if raw_response:
+                                    clean_text = raw_response.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
                                     preguntas_json = json.loads(clean_text)
                                     
                                     supabase.table("examenes").insert({
@@ -1591,7 +1671,7 @@ else:
                                         "activo": True
                                     }).execute()
                                     
-                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco.")
+                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco mediante {modelo_ia_sel}.")
                                     time.sleep(1.5)
                                     st.rerun()
 
