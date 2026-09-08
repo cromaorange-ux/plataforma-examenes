@@ -230,7 +230,8 @@ Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown
 ]
 """
 
-MODELOS_GEMINI_OPCIONES = ["gemini-2.5-flash", "gemini-2.5-pro"]
+# ORDENADOS DE MÁS RECIENTE A MÁS ANTIGUO
+MODELOS_GEMINI_OPCIONES = ["gemini-2.5-pro", "gemini-2.5-flash"]
 MODELOS_CLAUDE_OPCIONES = ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
 MODELOS_IA_DISPONIBLES = MODELOS_GEMINI_OPCIONES + MODELOS_CLAUDE_OPCIONES
 
@@ -1234,7 +1235,7 @@ else:
                     cfg_eval = None
 
                 prompt_defecto_eval = cfg_eval.get("prompt_texto") if cfg_eval else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
-                modelo_gemini_defecto = cfg_eval.get("modelo_gemini", "gemini-2.5-flash") if cfg_eval else "gemini-2.5-flash"
+                modelo_gemini_defecto = cfg_eval.get("modelo_gemini", "gemini-2.5-pro") if cfg_eval else "gemini-2.5-pro"
                 modelo_claude_defecto = cfg_eval.get("modelo_claude", "claude-3-5-sonnet-20241022") if cfg_eval else "claude-3-5-sonnet-20241022"
 
                 # Consulta de TODOS los datos de intentos_examen en SQL activos
@@ -1291,7 +1292,7 @@ else:
                         col_m1, col_m2 = st.columns(2)
                         with col_m1:
                             modelo_ia_eval = st.selectbox(
-                                "🤖 Seleccionar versión de IA a utilizar:",
+                                "🤖 Seleccionar versión de IA a utilizar (Más reciente primero):",
                                 options=MODELOS_IA_DISPONIBLES,
                                 index=MODELOS_IA_DISPONIBLES.index(modelo_gemini_defecto) if modelo_gemini_defecto in MODELOS_IA_DISPONIBLES else 0
                             )
@@ -1326,60 +1327,143 @@ else:
                     st.markdown("#### 📝 Resultado de la Evaluación IA:")
                     st.info(st.session_state.get("eval_resultado_cache", "Aún no se ha generado un informe."))
 
-        # ADMIN CROMA - CONSULTAS LIBRES CON GEMINI / IA
+        # ADMIN CROMA - CONSULTAS LIBRES CON GEMINI / CLAUDE Y GESTIÓN EN BD
         if st.session_state.es_croma and tab_admin_claude:
             with tab_admin_claude:
-                st.subheader("🤖 Consola de Consultas y Análisis Libre con Gemini / IA")
-                st.caption("Escribe un prompt para consultar bases de datos, realizar análisis avanzados o procesar información en lenguaje natural.")
+                st.subheader("🤖 Consola de Consultas y Análisis Libre con Gemini / Claude")
+                st.caption("Escribe un prompt para realizar consultas, análisis avanzados o interactuar con los modelos guardando los resultados en la base de datos.")
 
-                col_cl1, col_cl2 = st.columns([3, 1])
-                with col_cl1:
-                    modelo_gemini_cons = st.selectbox(
-                        "Seleccionar Modelo para Consulta:",
-                        options=MODELOS_IA_DISPONIBLES,
-                        index=0,
-                        key="sel_mod_consulta_libre"
+                tab_sub_nueva, tab_sub_historial = st.tabs(["💬 Nueva Consulta", "🗄️ Historial y Gestión de Consultas (BD)"])
+
+                with tab_sub_nueva:
+                    col_cl1, col_cl2 = st.columns([3, 1])
+                    with col_cl1:
+                        modelo_gemini_cons = st.selectbox(
+                            "Seleccionar Modelo para Consulta (Ordenados de más reciente a más antiguo):",
+                            options=MODELOS_IA_DISPONIBLES,
+                            index=0,
+                            key="sel_mod_consulta_libre"
+                        )
+                    with col_cl2:
+                        incluir_datos_sql = st.checkbox("Inyectar contexto actual de la BD (Exámenes/Empleados)", value=True)
+
+                    prompt_consulta_libre = st.text_area(
+                        "💬 Prompt de Consulta o Análisis personalizado:",
+                        height=180,
+                        placeholder="Ejemplo: Realiza un resumen comparativo del rendimiento del personal en el último trimestre y da 3 recomendaciones tácticas.",
+                        key="prompt_consulta_libre_text"
                     )
-                with col_cl2:
-                    incluir_datos_sql = st.checkbox("Inyectar contexto actual de la BD (Exámenes/Empleados)", value=True)
 
-                prompt_consulta_libre = st.text_area(
-                    "💬 Prompt de Consulta o Análisis personalizado:",
-                    height=200,
-                    placeholder="Ejemplo: Realiza un resumen comparativo del rendimiento del personal en el último trimestre y da 3 recomendaciones tácticas.",
-                    key="prompt_consulta_libre_text"
-                )
+                    if st.button("🚀 Ejecutar Consulta y Guardar en BD", use_container_width=True):
+                        if not prompt_consulta_libre.strip():
+                            st.warning("⚠️ Introduce un prompt antes de ejecutar la consulta.")
+                        else:
+                            contexto_adicional = ""
+                            if incluir_datos_sql:
+                                try:
+                                    res_e = supabase.table("empleados").select("nombre, activo").execute()
+                                    res_i = supabase.table("intentos_examen").select("nombre_empleado, apartado, nota, porcentaje_obtenido, fecha_inicio").order("id", desc=True).limit(50).execute()
+                                    contexto_adicional = f"\n\n[CONTEXTO BASE DE DATOS]:\nEmpleados: {json.dumps(res_e.data or [])}\nÚltimos 50 intentos: {json.dumps(res_i.data or [])}"
+                                except Exception as ex_ctx:
+                                    contexto_adicional = f"\n\n[Error extrayendo contexto SQL: {ex_ctx}]"
 
-                if st.button("🚀 Ejecutar Consulta en Gemini / IA", use_container_width=True):
-                    if not prompt_consulta_libre.strip():
-                        st.warning("⚠️ Introduce un prompt antes de ejecutar la consulta.")
+                            with st.spinner("Procesando consulta con el modelo seleccionado..."):
+                                try:
+                                    respuesta_ia = consultar_ia(
+                                        modelo=modelo_gemini_cons,
+                                        prompt=prompt_consulta_libre + contexto_adicional,
+                                        sistema="Eres un analista de datos Senior y consultor experto para la plataforma."
+                                    )
+                                    
+                                    # Guardar la consulta en la BD
+                                    registro_consulta = {
+                                        "usuario": st.session_state.user_nombre,
+                                        "modelo": modelo_gemini_cons,
+                                        "prompt": prompt_consulta_libre,
+                                        "respuesta": respuesta_ia,
+                                        "fecha": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                                    }
+                                    supabase.table("consultas_ia").insert(registro_consulta).execute()
+
+                                    st.markdown("### 📋 Respuesta / Resultado del Análisis")
+                                    st.markdown(respuesta_ia)
+                                    st.success("✅ Consulta registrada en la base de datos correctamente.")
+                                except Exception as err_c:
+                                    st.error(f"❌ Error al procesar la consulta: {err_c}")
+
+                with tab_sub_historial:
+                    st.subheader("🛠️ Registros de Consultas de Gemini / Claude")
+                    try:
+                        res_consultas = supabase.table("consultas_ia").select("*").order("fecha", desc=True).execute()
+                        consultas_lista = res_consultas.data if res_consultas.data else []
+                    except Exception as err_hist:
+                        consultas_lista = []
+                        st.error(f"Error al obtener el historial de consultas de la BD: {err_hist}")
+
+                    if consultas_lista:
+                        modelos_presentes = list(set([c.get("modelo", "Desconocido") for c in consultas_lista]))
+                        
+                        # Reordenar los filtros según la prioridad cronológica
+                        modelos_ordenados_filtro = [m for m in MODELOS_IA_DISPONIBLES if m in modelos_presentes] + [m for m in modelos_presentes if m not in MODELOS_IA_DISPONIBLES]
+                        
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            filtro_modelo = st.selectbox("Filtrar por modelo de IA:", ["Todos"] + modelos_ordenados_filtro, key="filt_mod_consultas")
+                        
+                        consultas_filtradas = consultas_lista
+                        if filtro_modelo != "Todos":
+                            consultas_filtradas = [c for c in consultas_lista if c.get("modelo") == filtro_modelo]
+
+                        st.write(f"Mostrando **{len(consultas_filtradas)}** consultas registradas:")
+
+                        for cons in consultas_filtradas:
+                            cid = cons["id"]
+                            c_fecha = cons.get("fecha", "")[:19].replace("T", " ")
+                            c_usr = cons.get("usuario", "Anonimo")
+                            c_mod = cons.get("modelo", "General")
+                            c_prompt = cons.get("prompt", "")
+                            c_resp = cons.get("respuesta", "")
+
+                            with st.expander(f"📌 #{cid} | {c_mod} | {c_usr} | {c_fecha}"):
+                                with st.form(key=f"form_cons_edit_{cid}"):
+                                    st.markdown(f"**Usuario:** {c_usr} | **Modelo:** {c_mod}")
+                                    p_edit = st.text_area("Prompt enviado:", value=c_prompt, height=100, key=f"p_e_{cid}")
+                                    r_edit = st.text_area("Respuesta del modelo:", value=c_resp, height=200, key=f"r_e_{cid}")
+
+                                    col_eb1, col_eb2 = st.columns(2)
+                                    with col_eb1:
+                                        btn_mod_cons = st.form_submit_button("✏️ Guardar Modificación", use_container_width=True)
+                                    with col_eb2:
+                                        btn_del_cons = st.form_submit_button("🗑️ Eliminar Registro", use_container_width=True)
+
+                                    if btn_mod_cons:
+                                        try:
+                                            supabase.table("consultas_ia").update({
+                                                "prompt": p_edit,
+                                                "respuesta": r_edit
+                                            }).eq("id", cid).execute()
+                                            st.success("✅ Consulta actualizada correctamente.")
+                                            time.sleep(1)
+                                            st.rerun()
+                                        except Exception as err_upd:
+                                            st.error(f"❌ Error actualizando la consulta: {err_upd}")
+
+                                    if btn_del_cons:
+                                        try:
+                                            supabase.table("consultas_ia").delete().eq("id", cid).execute()
+                                            st.success("🗑️ Registro eliminado de la base de datos.")
+                                            time.sleep(1)
+                                            st.rerun()
+                                        except Exception as err_del:
+                                            st.error(f"❌ Error eliminando la consulta: {err_del}")
                     else:
-                        contexto_adicional = ""
-                        if incluir_datos_sql:
-                            try:
-                                res_e = supabase.table("empleados").select("nombre, activo").execute()
-                                res_i = supabase.table("intentos_examen").select("nombre_empleado, apartado, nota, porcentaje_obtenido, fecha_inicio").order("id", desc=True).limit(50).execute()
-                                contexto_adicional = f"\n\n[CONTEXTO BASE DE DATOS]:\nEmpleados: {json.dumps(res_e.data or [])}\nÚltimos 50 intentos: {json.dumps(res_i.data or [])}"
-                            except Exception as ex_ctx:
-                                contexto_adicional = f"\n\n[Error extrayendo contexto SQL: {ex_ctx}]"
-
-                        with st.spinner("Procesando consulta con el modelo seleccionado..."):
-                            try:
-                                respuesta_ia = consultar_ia(
-                                    modelo=modelo_gemini_cons,
-                                    prompt=prompt_consulta_libre + contexto_adicional,
-                                    sistema="Eres un analista de datos Senior y consultor experto para la plataforma."
-                                )
-                                st.markdown("### 📋 Respuesta / Resultado del Análisis")
-                                st.markdown(respuesta_ia)
-                            except Exception as err_c:
-                                st.error(f"❌ Error al procesar la consulta: {err_c}")
+                        st.info("No hay consultas de IA registradas en la base de datos.")
 
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Configuración de IA y Modelos (SQL config_prompts)")
-                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude.")
+                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude (Mostrados de más reciente a más antiguo).")
 
                 # Cargar configuración actual
                 config_prompt_actual = None
@@ -1391,7 +1475,7 @@ else:
                     config_prompt_actual = None
 
                 p_def_val = config_prompt_actual.get("prompt_texto") if config_prompt_actual else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
-                g_def_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-flash") if config_prompt_actual else "gemini-2.5-flash"
+                g_def_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro") if config_prompt_actual else "gemini-2.5-pro"
                 c_def_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022"
 
                 with st.form("form_config_ia_prompts"):
@@ -1668,7 +1752,7 @@ else:
                     )
 
                     modelo_ia_sel = st.selectbox(
-                        "🤖 Modelo de IA a utilizar:",
+                        "🤖 Modelo de IA a utilizar (Más reciente primero):",
                         options=MODELOS_IA_DISPONIBLES,
                         index=0
                     )
