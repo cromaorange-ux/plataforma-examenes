@@ -205,6 +205,8 @@ if "pistas_activadas" not in st.session_state:
     st.session_state.pistas_activadas = set()
 if "intento_auditado_id_sel" not in st.session_state:
     st.session_state.intento_auditado_id_sel = None
+if "eval_resultado_cache" not in st.session_state:
+    st.session_state.eval_resultado_cache = None
 
 TIEMPO_LIMITE_PREGUNTA = 45
 UMBRAL_APROBADO_PORCENTAJE = 70.0
@@ -238,9 +240,9 @@ def obtener_modelos_ia_disponibles():
             modelos_sql = []
             for fila in res.data:
                 if fila.get("modelo_gemini"):
-                    modelos_sql.append(fila["modelo_gemini"])
+                    modelos_sql.extend([m.strip() for m in fila["modelo_gemini"].split(",") if m.strip()])
                 if fila.get("modelo_claude"):
-                    modelos_sql.append(fila["modelo_claude"])
+                    modelos_sql.extend([m.strip() for m in fila["modelo_claude"].split(",") if m.strip()])
             
             modelos_unicos = list(dict.fromkeys(modelos_sql))
             if modelos_unicos:
@@ -274,6 +276,15 @@ MAPEO_CAMPOS = {
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES DE IA Y PROCESAMIENTO
 # ---------------------------------------------------------
+def obtener_estado_evaluacion(porcentaje, sobrepasado_tiempo=False):
+    """Evalúa correctamente la nota/porcentaje basándose en los parámetros de experto."""
+    porc_val = float(porcentaje) if porcentaje is not None else 0.0
+    if sobrepasado_tiempo:
+        return "🔴 SUSPENSO (TIEMPO EXCEDIDO)"
+    if porc_val >= UMBRAL_APROBADO_PORCENTAJE:
+        return "🟢 APROBADO"
+    return "🔴 SUSPENSO"
+
 def consultar_ia(modelo, prompt, sistema=""):
     """
     Soporta explícitamente Gemini o Claude según el modelo seleccionado.
@@ -409,7 +420,7 @@ def generar_pdf_resultado(intento):
     total_p = len(respuestas) if respuestas else 1
     correctas = sum(1 for r in respuestas if r.get("es_correcta"))
     porcentaje = intento.get("porcentaje_obtenido", 0)
-    estado_txt = "APROBADO" if porcentaje >= UMBRAL_APROBADO_PORCENTAJE and not intento.get("sobrepasado_tiempo") else "SUSPENSO"
+    estado_txt = obtener_estado_evaluacion(porcentaje, intento.get("sobrepasado_tiempo", False))
 
     data_res = [
         [Paragraph("<b>Aciertos</b>", norm_style), Paragraph(f"{correctas} / {total_p}", norm_style)],
@@ -548,7 +559,8 @@ else:
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
             porcentaje = round((correctas / total_p) * 100, 2)
             nota_final = round((correctas / total_p) * 10, 2)
-            estado_evaluacion = "🟢 APROBADO" if porcentaje >= UMBRAL_APROBADO_PORCENTAJE and not st.session_state.sobrepaso_tiempo_global else "🔴 SUSPENSO"
+            
+            estado_evaluacion = obtener_estado_evaluacion(porcentaje, st.session_state.sobrepaso_tiempo_global)
             
             duracion_total = int(time.time() - st.session_state.tiempo_inicio_examen)
             tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
@@ -582,7 +594,7 @@ else:
                 except Exception:
                     pass
                 
-                if porcentaje >= UMBRAL_APROBADO_PORCENTAJE and not st.session_state.sobrepaso_tiempo_global:
+                if "APROBADO" in estado_evaluacion:
                     st.success(f"🎉 Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
                 else:
                     st.error(f"❌ Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
@@ -626,9 +638,8 @@ else:
             if tiempo_restante > 0:
                 st.caption(f"⏱️ Tiempo restante: **{tiempo_restante} segundos**")
             else:
-                st.error("⏰ ¡Tiempo agotado en esta pregunta! La selección ha sido bloqueada.")
+                st.warning("⏰ ¡Tiempo agotado en esta pregunta! Se registrará la opción elegida hasta el momento.")
                 deshabilitar_opciones = True
-                st.session_state.sobrepaso_tiempo_global = True
                 st.session_state.tiempos_restantes_preguntas[idx] = 0
 
             st.markdown(f"<div class='pregunta-titulo'>{p_actual['pregunta']}</div>", unsafe_allow_html=True)
@@ -662,32 +673,33 @@ else:
 
             st.write("")
             col_b1, col_b2 = st.columns(2)
+            
+            # Guardado automático / Procesamiento
+            def registrar_respuesta_pregunta(elec_val):
+                if elec_val is not None and elec_val != "":
+                    es_corr = (elec_val == p_actual["respuesta_correcta_texto"])
+                    op_guardada = elec_val
+                else:
+                    es_corr = False
+                    op_guardada = "En blanco (Sin responder)"
+
+                st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
+                st.session_state.respuestas_detalle.append({
+                    "idx_pregunta": idx,
+                    "pregunta": p_actual["pregunta"],
+                    "subindice": p_actual.get("subindice", "General"),
+                    "opcion_elegida": op_guardada,
+                    "respuesta_correcta_texto": p_actual["respuesta_correcta_texto"],
+                    "opciones_posibles": p_actual["opciones_barajadas"],
+                    "es_correcta": es_corr
+                })
+
             with col_b1:
                 lbl_btn = "Ir a Revisión" if st.session_state.modificando_desde_revision else "Responder / Siguiente"
                 
                 if st.button(lbl_btn, key=f"btn_sig_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
-                    
-                    if eleccion is not None and eleccion != "":
-                        es_correcta = (eleccion == p_actual["respuesta_correcta_texto"])
-                        opcion_guardada = eleccion
-                    elif deshabilitar_opciones:
-                        es_correcta = False
-                        opcion_guardada = "En blanco (Agotado tiempo)"
-                    else:
-                        es_correcta = False
-                        opcion_guardada = "En blanco (Sin marcar)"
-                    
-                    st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
-                    st.session_state.respuestas_detalle.append({
-                        "idx_pregunta": idx,
-                        "pregunta": p_actual["pregunta"],
-                        "subindice": p_actual.get("subindice", "General"),
-                        "opcion_elegida": opcion_guardada,
-                        "respuesta_correcta_texto": p_actual["respuesta_correcta_texto"],
-                        "opciones_posibles": p_actual["opciones_barajadas"],
-                        "es_correcta": es_correcta
-                    })
+                    registrar_respuesta_pregunta(eleccion)
                     
                     if st.session_state.modificando_desde_revision:
                         st.session_state.modificando_desde_revision = False
@@ -701,9 +713,13 @@ else:
             with col_b2:
                 if st.button("📋 Ir a Revisión Directa", key=f"btn_rev_{idx}", use_container_width=True):
                     st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
+                    registrar_respuesta_pregunta(eleccion)
                     st.session_state.modificando_desde_revision = False
                     st.session_state.modo_revision = True
                     st.rerun()
+
+            if tiempo_restante <= 0:
+                registrar_respuesta_pregunta(eleccion)
 
             if tiempo_restante > 0:
                 time.sleep(1)
@@ -799,7 +815,7 @@ else:
 
                     if ya_hecho_global:
                         info_g = dict_realizados["GLOBAL COMPLETO"]
-                        est_txt = "🟢 APROBADO" if info_g["porcentaje"] >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                        est_txt = obtener_estado_evaluacion(info_g['porcentaje'])
                         st.warning(f"⚠️ **REALIZADO ESTE MES** — Nota previa: **{info_g['nota']} / 10** ({info_g['porcentaje']}%) | **{est_txt}**")
                         if permitido_global:
                             st.success("🔓 **El administrador te ha habilitado un nuevo intento para este examen.**")
@@ -844,6 +860,7 @@ else:
                         st.session_state.tiempo_inicio_pregunta = time.time()
                         st.session_state.comodines_restantes = 3
                         st.session_state.pistas_activadas = set()
+                        st.session_state.sobrepaso_tiempo_global = False
                         st.session_state.examen_activo = True
                         st.rerun()
 
@@ -861,7 +878,7 @@ else:
 
                             if ya_hecho_manual:
                                 info_m = dict_realizados[nombre_apt]
-                                est_txt = "🟢 APROBADO" if info_m["porcentaje"] >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO"
+                                est_txt = obtener_estado_evaluacion(info_m['porcentaje'])
                                 st.warning(f"⚠️ **REALIZADO ESTE MES** — Nota previa: **{info_m['nota']} / 10** | **{est_txt}**")
                                 if permitido_manual:
                                     st.success("🔓 **El administrador te ha habilitado un nuevo intento para este examen.**")
@@ -905,6 +922,7 @@ else:
                                 st.session_state.tiempo_inicio_pregunta = time.time()
                                 st.session_state.comodines_restantes = 3
                                 st.session_state.pistas_activadas = set()
+                                st.session_state.sobrepaso_tiempo_global = False
                                 st.session_state.examen_activo = True
                                 st.rerun()
             else:
@@ -933,7 +951,7 @@ else:
                         total_p = len(respuestas) if respuestas else 15
                         
                         expirado = i.get("sobrepasado_tiempo", False)
-                        estado = "🔴 EXPIRADO (SUSPENSO)" if expirado else ("🟢 APROBADO" if porc >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO")
+                        estado = obtener_estado_evaluacion(porc, expirado)
                         
                         with st.expander(f"Examen #{i['id']} - {i.get('apartado')} | {fecha_str} | Nota: {i.get('nota', 0)}/10 | Estado: {estado}"):
                             st.write(f"**Resultado:** {num_correctas} / {total_p} aciertos ({porc}%) - **{estado}**")
@@ -1048,7 +1066,7 @@ else:
                         
                         def format_func(it_id):
                             it = map_id_to_intento[it_id]
-                            est_it = "🔴 EXPIRADO" if it.get("sobrepasado_tiempo") else ("🟢 APROBADO" if it.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE else "🔴 SUSPENSO")
+                            est_it = obtener_estado_evaluacion(it.get("porcentaje_obtenido", 0), it.get("sobrepasado_tiempo"))
                             return f"ID #{it['id']} - {it.get('nombre_empleado')} ({it.get('apartado')}) | Nota: {it.get('nota', 0)}/10 [{est_it}]"
 
                         opciones_ids = list(map_id_to_intento.keys())
@@ -1200,7 +1218,7 @@ else:
                     if intentos_exp_filtrados:
                         opciones_examenes = []
                         for i in intentos_exp_filtrados:
-                            est_exp = "🟢 APROBADO" if i.get("porcentaje_obtenido", 0) >= UMBRAL_APROBADO_PORCENTAJE and not i.get("sobrepasado_tiempo") else "🔴 SUSPENSO"
+                            est_exp = obtener_estado_evaluacion(i.get("porcentaje_obtenido", 0), i.get("sobrepasado_tiempo"))
                             opciones_examenes.append(
                                 f"Examen #{i['id']} - {i.get('nombre_empleado')} | {i.get('apartado')} | Nota: {i.get('nota', 0)}/10 [{est_exp}]"
                             )
@@ -1261,31 +1279,47 @@ else:
                     df_all["fecha_inicio_dt"] = pd.to_datetime(df_all["fecha_inicio"], errors='coerce')
                     df_all["anio_int"] = df_all["fecha_inicio_dt"].dt.year
                     
+                    anios_m_disponibles = sorted(list(df_all["anio_int"].dropna().astype(int).unique()), reverse=True)
+                    anio_metrica_sel = st.selectbox("📅 Selecciona el año de consulta para métricas:", anios_m_disponibles)
+                    
                     st.markdown("### 📊 Gráficas y Métricas por Empleado (Histórico Completo SQL)")
                     
                     res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                     emp_list_select = res_emp_activos_todos.data if res_emp_activos_todos.data else []
-                    map_emp_id_nombre = {e["nombre"]: e["id"] for e in emp_list_select}
+                    
+                    # Incluir a todos los trabajadores en el selector
+                    nombres_trabajadores = sorted(list(set([e["nombre"] for e in emp_list_select] + list(df_all["nombre_empleado"].dropna().unique()))))
+                    
+                    emp_seleccionado_nombre = st.selectbox("👤 Selecciona un trabajador para ver sus métricas y evolución:", nombres_trabajadores)
+                    
+                    # Filtro por trabajador y por año
+                    df_emp_tot = df_all[df_all["nombre_empleado"].str.strip().str.lower() == emp_seleccionado_nombre.strip().lower()]
+                    df_emp_anio = df_emp_tot[df_emp_tot["anio_int"] == anio_metrica_sel]
 
-                    emp_seleccionado_nombre = st.selectbox("👤 Selecciona un trabajador para ver sus métricas y evolución:", list(map_emp_id_nombre.keys()))
-                    emp_seleccionado_id = map_emp_id_nombre[emp_seleccionado_nombre]
+                    if not df_emp_anio.empty:
+                        total_ex = len(df_emp_anio)
+                        nota_media = round(df_emp_anio["nota"].mean(), 2)
+                        porcentaje_medio = round(nota_media * 10, 2)
+                        nota_max = round(df_emp_anio["nota"].max(), 2)
+                        nota_min = round(df_emp_anio["nota"].min(), 2)
+                        porc_max = round(df_emp_anio["porcentaje_obtenido"].max(), 2)
+                        porc_min = round(df_emp_anio["porcentaje_obtenido"].min(), 2)
 
-                    df_emp = df_all[df_all["nombre_empleado"].str.lower() == emp_seleccionado_nombre.lower()]
+                        df_resumen_metricas = pd.DataFrame([{
+                            "Año": anio_metrica_sel,
+                            "Total Exámenes": total_ex,
+                            "Nota Media": nota_media,
+                            "Porcentaje Medio (%)": porcentaje_medio,
+                            "Nota Máxima": nota_max,
+                            "Nota Mínima": nota_min,
+                            "Porcentaje Máximo (%)": porc_max,
+                            "Porcentaje Mínimo (%)": porc_min
+                        }])
 
-                    if not df_emp.empty:
-                        metricas_emp_individual = df_emp.groupby("anio_int").agg(
-                            Examenes_Realizados=('id', 'count'),
-                            Nota_Media=('nota', 'mean'),
-                            Porcentaje_Medio=('porcentaje_obtenido', 'mean')
-                        ).reset_index().rename(columns={"anio_int": "Año"})
-
-                        metricas_emp_individual["Nota_Media"] = metricas_emp_individual["Nota_Media"].round(2)
-                        metricas_emp_individual["Porcentaje_Medio"] = metricas_emp_individual["Porcentaje_Medio"].round(2)
-
-                        st.dataframe(metricas_emp_individual, use_container_width=True, hide_index=True)
-                        st.line_chart(df_emp, x="fecha_inicio", y="nota")
+                        st.dataframe(df_resumen_metricas, use_container_width=True, hide_index=True)
+                        st.line_chart(df_emp_tot, x="fecha_inicio", y="nota")
                     else:
-                        st.info("Este trabajador no registra exámenes activos en el sistema.")
+                        st.info(f"El trabajador **{emp_seleccionado_nombre}** no registra exámenes realizados en el año **{anio_metrica_sel}**.")
 
                     st.markdown("---")
                     st.markdown("### 📄 Informe Profesional de Evaluación IA")
@@ -1314,7 +1348,7 @@ else:
                         with st.spinner("Procesando histórico de exámenes y generando evaluación IA..."):
                             try:
                                 resumen_historico = f"HISTORIAL COMPLETO DE EXÁMENES DE {emp_seleccionado_nombre.upper()}:\n"
-                                for _, row in df_emp.iterrows():
+                                for _, row in df_emp_tot.iterrows():
                                     resumen_historico += f"- Fecha: {str(row['fecha_inicio'])[:10]} | Examen: {row['apartado']} | Nota: {row['nota']}/10 | Aciertos: {row['porcentaje_obtenido']}%\n"
                                 
                                 prompt_completo_eval = f"{prompt_eval_input}\n\n[DATOS DEL TRABAJADOR]:\n{resumen_historico}"
@@ -1322,17 +1356,26 @@ else:
                                 res_analisis_final = consultar_ia(modelo_ia_eval, prompt_completo_eval)
                                 st.session_state.eval_resultado_cache = res_analisis_final
 
-                                supabase.table("analisis_ia_empleados").insert({
-                                    "empleado_id": emp_seleccionado_id,
-                                    "anio": datetime.datetime.now().year,
-                                    "analisis_texto": res_analisis_final
-                                }).execute()
+                                emp_id_final = None
+                                emp_busq = [e["id"] for e in emp_list_select if e["nombre"].strip().lower() == emp_seleccionado_nombre.strip().lower()]
+                                if emp_busq:
+                                    emp_id_final = emp_busq[0]
+
+                                if emp_id_final:
+                                    supabase.table("analisis_ia_empleados").insert({
+                                        "empleado_id": emp_id_final,
+                                        "anio": anio_metrica_sel,
+                                        "analisis_texto": res_analisis_final
+                                    }).execute()
 
                             except Exception as e_ia:
                                 st.session_state.eval_resultado_cache = f"Error al generar informe: {e_ia}"
 
                     st.markdown("#### 📝 Resultado de la Evaluación IA:")
-                    st.info(st.session_state.get("eval_resultado_cache", "Aún no se ha generado un informe."))
+                    if st.session_state.eval_resultado_cache:
+                        st.info(st.session_state.eval_resultado_cache)
+                    else:
+                        st.caption("🔒 El apartado de evaluación se encuentra desactivado hasta que pulses en 'Generar Informe de Evaluación'.")
 
         # ADMIN CROMA - CONSULTAS LIBRES CON GEMINI / CLAUDE Y GESTIÓN EN BD
         if st.session_state.es_croma and tab_admin_claude:
@@ -1484,6 +1527,26 @@ else:
 
                 listado_modelos = obtener_modelos_ia_disponibles()
 
+                # PANEL EDITAR MODELOS DE IA DISPONIBLES
+                with st.expander("🛠️ Editar Lista Global de Modelos de IA"):
+                    st.write("Agrega o edita las versiones de los modelos registradas en la base de datos (separadas por comas):")
+                    nuevos_modelos_str = st.text_area("Modelos disponibles:", value=", ".join(listado_modelos))
+                    if st.button("💾 Actualizar Lista de Modelos IA"):
+                        lista_nuevos = [m.strip() for m in nuevos_modelos_str.split(",") if m.strip()]
+                        g_str = ",".join([m for m in lista_nuevos if "gemini" in m.lower()])
+                        c_str = ",".join([m for m in lista_nuevos if "claude" in m.lower()])
+                        try:
+                            supabase.table("config_prompts").upsert({
+                                "nombre": "evaluacion_empleado",
+                                "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
+                                "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
+                            }, on_conflict="nombre").execute()
+                            st.success("✅ Lista de modelos actualizada correctamente.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e_mod:
+                            st.error(f"Error actualizando lista de modelos: {e_mod}")
+
                 with st.form("form_config_ia_prompts"):
                     prompt_eval_config = st.text_area(
                         "Prompt por defecto (Informe Profesional de Evaluación IA):",
@@ -1496,13 +1559,13 @@ else:
                         modelo_gemini_config = st.selectbox(
                             "Versión por defecto de Gemini:",
                             options=listado_modelos,
-                            index=listado_modelos.index(g_def_val) if g_def_val in listado_modelos else 0
+                            index=listado_modelos.index(g_def_val.split(',')[0]) if g_def_val.split(',')[0] in listado_modelos else 0
                         )
                     with col_cfg2:
                         modelo_claude_config = st.selectbox(
                             "Versión por defecto de Claude:",
                             options=listado_modelos,
-                            index=listado_modelos.index(c_def_val) if c_def_val in listado_modelos else 0
+                            index=listado_modelos.index(c_def_val.split(',')[0]) if c_def_val.split(',')[0] in listado_modelos else 0
                         )
 
                     btn_guardar_config = st.form_submit_button("💾 Guardar Configuración en config_prompts", use_container_width=True)
