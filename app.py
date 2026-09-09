@@ -149,14 +149,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-except Exception as e:
+except Exception:
     gemini_client = None
 
 claude_client = None
 if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
     try:
         claude_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-    except Exception as e:
+    except Exception:
         claude_client = None
 
 # ---------------------------------------------------------
@@ -570,6 +570,52 @@ def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
 # ---------------------------------------------------------
 # GENERACIÓN Y RENDERIZADO MOTOR HTML (VERSIÓN 1)
 # ---------------------------------------------------------
+def registrar_intento_version1(respuestas_usuario, apartado, examen_id):
+    if not respuestas_usuario:
+        return False, "No se recibieron respuestas."
+        
+    total_p = len(respuestas_usuario)
+    correctas = sum(1 for r in respuestas_usuario if r.get("es_correcta"))
+    porcentaje = round((correctas / total_p) * 100, 2)
+    nota_final = round((correctas / total_p) * 10, 2)
+    
+    duracion_total = total_p * TIEMPO_LIMITE_PREGUNTA
+    tiempo_limite_total = duracion_total
+    tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    tiempo_ini_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    
+    try:
+        id_examen_validado = int(examen_id) if examen_id and str(examen_id).isdigit() and int(examen_id) > 0 else None
+
+        registro_intento = {
+            "empleado_id": st.session_state.user_id,
+            "nombre_empleado": st.session_state.user_nombre,
+            "examen_id": id_examen_validado,
+            "apartado": apartado,
+            "nota": nota_final,
+            "porcentaje_obtenido": porcentaje,
+            "respuestas_usuario": respuestas_usuario,
+            "fecha_inicio": tiempo_ini_examen,
+            "fecha_fin": tiempo_fin_examen,
+            "tiempo_total_segundos": duracion_total,
+            "tiempo_limite": tiempo_limite_total,
+            "sobrepasado_tiempo": False,
+            "activo": True
+        }
+        
+        supabase.table("intentos_examen").insert(registro_intento).execute()
+
+        try:
+            supabase.table("autorizaciones_examen").delete()\
+                .eq("empleado_id", st.session_state.user_id)\
+                .eq("apartado", apartado).execute()
+        except Exception:
+            pass
+            
+        return True, f"Nota final: {nota_final}/10 ({porcentaje}%)"
+    except Exception as e:
+        return False, str(e)
+
 def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_segundos_por_pregunta):
     json_preguntas = json.dumps(preguntas_seleccionadas, ensure_ascii=False)
     num_preguntas = len(preguntas_seleccionadas)
@@ -839,12 +885,15 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
                 clearInterval(globalTimerInterval);
                 document.getElementById("examen-card").innerHTML = "<h2>Examen Finalizado</h2><p>Procesando y registrando resultados...</p>";
                 
-                window.parent.postMessage({{
-                    type: 'EXAMEN_FINALIZADO',
+                const dataToSend = {{
                     respuestas: respuestasUsuario,
                     apartado: '{apartado}',
                     examen_id: '{examen_id}'
-                }}, '*');
+                }};
+
+                const url = new URL(window.location.href);
+                url.searchParams.set('v1_data', JSON.stringify(dataToSend));
+                window.location.href = url.toString();
             }}
 
             startGlobalTimer();
@@ -854,6 +903,30 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
     </html>
     """
     st.components.v1.html(html_code, height=600, scrolling=True)
+
+# ---------------------------------------------------------
+# PROCESAMIENTO DE DATOS ENVIADOS DESDE VERSIÓN 1 (HTML)
+# ---------------------------------------------------------
+query_params = st.query_params
+if "v1_data" in query_params:
+    try:
+        data_v1 = json.loads(query_params["v1_data"])
+        st.query_params.clear()
+        
+        ok_v1, msg_v1 = registrar_intento_version1(
+            data_v1.get("respuestas", []),
+            data_v1.get("apartado", ""),
+            data_v1.get("examen_id")
+        )
+        if ok_v1:
+            st.success(f"🎉 Examen finalizado y registrado correctamente en SQL: {msg_v1}")
+        else:
+            st.error(f"❌ Error al registrar los resultados en SQL: {msg_v1}")
+        time.sleep(2)
+        st.rerun()
+    except Exception as e_v1:
+        st.error(f"Error al procesar la respuesta de la Versión 1: {e_v1}")
+        st.query_params.clear()
 
 # ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN
@@ -1011,7 +1084,7 @@ else:
             if st.button("Volver al Inicio", use_container_width=True):
                 st.rerun()
 
-    # CUESTIONARIO ACTIVO (VERSIÓN 2 CORREGIDA - TIEMPO AGOTADO MANTIENE RESPUESTA)
+    # CUESTIONARIO ACTIVO (VERSIÓN 2 CORREGIDA)
     elif st.session_state.examen_activo:
         st.markdown("<div id='pregunta_activa'></div>", unsafe_allow_html=True)
         st.components.v1.html(
@@ -1143,15 +1216,14 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos). Tiempo configurado por pregunta: **{TIEMPO_LIMITE_PREGUNTA} segundos**.")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_claude, tab_admin_gestion, tab_admin_deshabilitados = st.tabs([
+            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_claude, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen",
                 "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación e Informes",
                 "📈 Analítica e IA",
                 "🤖 Consultas Gemini / IA",
-                "⚙️ Gestión y Configuración",
-                "🗑️ Entidades Deshabilitadas"
+                "⚙️ Gestión y Configuración"
             ])
         else:
             tab_examenes, tab_mis_resultados, tab_mi_analisis = st.tabs([
@@ -2285,276 +2357,32 @@ else:
                 except Exception:
                     config_prompt_actual = None
 
-                cfg_prompt_examen = None
-                try:
-                    res_cfg_ex = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
-                    if res_cfg_ex.data:
-                        cfg_prompt_examen = res_cfg_ex.data[0]
-                except Exception:
-                    cfg_prompt_examen = None
+                with st.form("form_config_prompts_models"):
+                    prompt_texto_val = config_prompt_actual.get("prompt_texto", PROMPT_DEFECTO) if config_prompt_actual else PROMPT_DEFECTO
+                    gemini_modelos_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro, gemini-2.5-flash") if config_prompt_actual else "gemini-2.5-pro, gemini-2.5-flash"
+                    claude_modelos_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
 
-                p_def_val = config_prompt_actual.get("prompt_texto") if config_prompt_actual else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
-                p_def_ex_val = cfg_prompt_examen.get("prompt_texto") if cfg_prompt_examen else PROMPT_DEFECTO_EXAMEN
+                    txt_prompt_cfg = st.text_area("Prompt Base para Evaluaciones IA:", value=prompt_texto_val, height=120)
+                    txt_gemini_cfg = st.text_input("Modelos Gemini disponibles (separados por coma):", value=gemini_modelos_val)
+                    txt_claude_cfg = st.text_input("Modelos Claude disponibles (separados por coma):", value=claude_modelos_val)
 
-                g_def_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro") if config_prompt_actual else "gemini-2.5-pro"
-                c_def_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022"
+                    btn_guardar_cfg = st.form_submit_button("💾 Guardar Configuración de Prompts e IA")
 
-                listado_modelos = obtener_modelos_ia_disponibles()
-
-                with st.expander("🛠️ Editar Lista Global de Modelos de IA"):
-                    st.write("Agrega o edita las versiones de los modelos registradas en la base de datos (separadas por comas):")
-                    nuevos_modelos_str = st.text_area("Modelos disponibles:", value=", ".join(listado_modelos))
-                    if st.button("💾 Actualizar Lista de Modelos IA"):
-                        lista_nuevos = [m.strip() for m in nuevos_modelos_str.split(",") if m.strip()]
-                        g_str = ",".join([m for m in lista_nuevos if "gemini" in m.lower()])
-                        c_str = ",".join([m for m in lista_nuevos if "claude" in m.lower()])
+                    if btn_guardar_cfg:
                         try:
-                            res_c1 = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
-                            if res_c1.data:
-                                supabase.table("config_prompts").update({
-                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
-                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
-                                }).eq("nombre", "evaluacion_empleado").execute()
+                            datos_cfg_update = {
+                                "nombre": "evaluacion_empleado",
+                                "prompt_texto": txt_prompt_cfg.strip(),
+                                "modelo_gemini": txt_gemini_cfg.strip(),
+                                "modelo_claude": txt_claude_cfg.strip()
+                            }
+                            if config_prompt_actual:
+                                supabase.table("config_prompts").update(datos_cfg_update).eq("id", config_prompt_actual["id"]).execute()
                             else:
-                                supabase.table("config_prompts").insert({
-                                    "nombre": "evaluacion_empleado",
-                                    "prompt_texto": p_def_val,
-                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
-                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
-                                }).execute()
+                                supabase.table("config_prompts").insert(datos_cfg_update).execute()
 
-                            st.success("✅ Lista de modelos actualizada correctamente.")
+                            st.success("✅ Configuración de Prompts e IA guardada correctamente.")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e_mod:
-                            st.error(f"Error actualizando lista de modelos: {e_mod}")
-
-                with st.form("form_config_ia_prompts"):
-                    prompt_eval_config = st.text_area(
-                        "Prompt por defecto (Informe Profesional de Evaluación IA):",
-                        value=p_def_val,
-                        height=100
-                    )
-
-                    prompt_ex_config = st.text_area(
-                        "Prompt por defecto (Tabla config_prompts para Examen - Cargar Manual):",
-                        value=p_def_ex_val,
-                        height=150
-                    )
-
-                    col_cfg1, col_cfg2 = st.columns(2)
-                    with col_cfg1:
-                        modelo_gemini_config = st.selectbox(
-                            "Versión por defecto de Gemini:",
-                            options=listado_modelos,
-                            index=listado_modelos.index(g_def_val.split(',')[0]) if g_def_val.split(',')[0] in listado_modelos else 0
-                        )
-                    with col_cfg2:
-                        modelo_claude_config = st.selectbox(
-                            "Versión por defecto de Claude:",
-                            options=listado_modelos,
-                            index=listado_modelos.index(c_def_val.split(',')[0]) if c_def_val.split(',')[0] in listado_modelos else 0
-                        )
-
-                    btn_guardar_config = st.form_submit_button("💾 Guardar Configuración en config_prompts", use_container_width=True)
-
-                    if btn_guardar_config:
-                        try:
-                            res_cfg1 = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
-                            if res_cfg1.data:
-                                supabase.table("config_prompts").update({
-                                    "prompt_texto": prompt_eval_config.strip(),
-                                    "modelo_gemini": modelo_gemini_config,
-                                    "modelo_claude": modelo_claude_config
-                                }).eq("nombre", "evaluacion_empleado").execute()
-                            else:
-                                supabase.table("config_prompts").insert({
-                                    "nombre": "evaluacion_empleado",
-                                    "prompt_texto": prompt_eval_config.strip(),
-                                    "modelo_gemini": modelo_gemini_config,
-                                    "modelo_claude": modelo_claude_config
-                                }).execute()
-
-                            res_cfg2 = supabase.table("config_prompts").select("id").eq("nombre", "prompt_examen").execute()
-                            if res_cfg2.data:
-                                supabase.table("config_prompts").update({
-                                    "prompt_texto": prompt_ex_config.strip(),
-                                    "modelo_gemini": modelo_gemini_config,
-                                    "modelo_claude": modelo_claude_config
-                                }).eq("nombre", "prompt_examen").execute()
-                            else:
-                                supabase.table("config_prompts").insert({
-                                    "nombre": "prompt_examen",
-                                    "prompt_texto": prompt_ex_config.strip(),
-                                    "modelo_gemini": modelo_gemini_config,
-                                    "modelo_claude": modelo_claude_config
-                                }).execute()
-
-                            st.success("✅ Configuración de prompts y versiones de IA actualizada en SQL correctamente.")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as e_cfg:
-                            st.error(f"❌ Error al guardar configuración: {e_cfg}")
-
-                st.markdown("---")
-
-                st.subheader("🌐 Configuración del Texto del Examen Global")
-                
-                texto_global_actual = TEXTO_EXAMEN_GLOBAL_INFO
-                try:
-                    res_tg = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "info_examen_global").limit(1).execute()
-                    if res_tg.data and res_tg.data[0].get("prompt_texto"):
-                        texto_global_actual = res_tg.data[0]["prompt_texto"]
-                except Exception:
-                    pass
-
-                with st.form("form_info_examen_global"):
-                    texto_global_input = st.text_area(
-                        "Texto explicativo/normativo para Examen Global (Se guarda en BD para registrar cambios):",
-                        value=texto_global_actual,
-                        height=100
-                    )
-                    btn_save_global_txt = st.form_submit_button("💾 Guardar Texto Examen Global en BD")
-
-                    if btn_save_global_txt:
-                        try:
-                            res_chk_g = supabase.table("config_prompts").select("id").eq("nombre", "info_examen_global").execute()
-                            if res_chk_g.data:
-                                supabase.table("config_prompts").update({
-                                    "prompt_texto": texto_global_input.strip()
-                                }).eq("nombre", "info_examen_global").execute()
-                            else:
-                                supabase.table("config_prompts").insert({
-                                    "nombre": "info_examen_global",
-                                    "prompt_texto": texto_global_input.strip(),
-                                    "modelo_gemini": "gemini-2.5-pro",
-                                    "modelo_claude": "claude-3-5-sonnet-20241022"
-                                }).execute()
-                            st.success("✅ Texto para Examen Global actualizado en la base de datos.")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as err_g_txt:
-                            st.error(f"❌ Error guardando texto del Examen Global: {err_g_txt}")
-
-                st.markdown("---")
-                st.subheader("🚫 Control Operativo y Deshabilitación (Año 2026)")
-                st.caption("Gestiona los registros activos del año 2026. Los desactivados pasarán a la pestaña de Entidades Deshabilitadas.")
-
-                col_des1, col_des2, col_des3 = st.columns(3)
-                
-                with col_des1:
-                    st.markdown("#### 👤 Trabajadores Operativos")
-                    res_todos_emp = supabase.table("empleados").select("id, nombre, activo").eq("activo", True).execute()
-                    if res_todos_emp.data:
-                        for emp in res_todos_emp.data:
-                            chk = st.checkbox(f"{emp['nombre']}", value=True, key=f"emp_act_{emp['id']}")
-                            if not chk:
-                                supabase.table("empleados").update({"activo": False}).eq("id", emp["id"]).execute()
-                                st.rerun()
-
-                with col_des2:
-                    st.markdown("#### 📘 Exámenes Operativos")
-                    res_todos_ex = supabase.table("examenes").select("id, apartado, activo").eq("activo", True).execute()
-                    if res_todos_ex.data:
-                        for ex_i in res_todos_ex.data:
-                            chk_ex = st.checkbox(f"{ex_i['apartado']}", value=True, key=f"ex_act_{ex_i['id']}")
-                            if not chk_ex:
-                                supabase.table("examenes").update({"activo": False}).eq("id", ex_i["id"]).execute()
-                                st.rerun()
-
-                with col_des3:
-                    st.markdown("#### 📝 Intentos 2026 Operativos")
-                    res_todos_int = supabase.table("intentos_examen").select("id, nombre_empleado, apartado, activo")\
-                        .eq("activo", True)\
-                        .gte("fecha_inicio", "2026-01-01 00:00:00")\
-                        .order("id", desc=True).limit(20).execute()
-                    if res_todos_int.data:
-                        for it_i in res_todos_int.data:
-                            chk_it = st.checkbox(f"#{it_i['id']} {it_i['nombre_empleado']} ({it_i['apartado']})", value=True, key=f"it_act_{it_i['id']}")
-                            if not chk_it:
-                                supabase.table("intentos_examen").update({"activo": False}).eq("id", it_i["id"]).execute()
-                                st.rerun()
-
-                st.markdown("---")
-                st.subheader("🔓 Autorizar Repetición de Examen a Empleado")
-                st.caption("Permite habilitar una autorización especial para repetir un examen que ya fue realizado dentro del mes.")
-
-                try:
-                    res_emp_aut = supabase.table("empleados").select("id, nombre").eq("activo", True).order("nombre").execute()
-                    list_emp_aut = res_emp_aut.data if res_emp_aut.data else []
-                    
-                    res_ex_aut = supabase.table("examenes").select("apartado").eq("activo", True).order("apartado").execute()
-                    list_ex_aut = [e["apartado"] for e in (res_ex_aut.data or [])]
-                    list_ex_aut.insert(0, "GLOBAL COMPLETO")
-                except Exception:
-                    list_emp_aut = []
-                    list_ex_aut = []
-
-                if list_emp_aut and list_ex_aut:
-                    with st.form("form_autorizar_repeticion"):
-                        col_a1, col_a2 = st.columns(2)
-                        with col_a1:
-                            emp_map_aut = {f"{e['nombre']} (ID: {e['id']})": e['id'] for e in list_emp_aut}
-                            emp_aut_sel_nom = st.selectbox("Seleccionar Empleado:", list(emp_map_aut.keys()))
-                        with col_a2:
-                            apartado_aut_sel = st.selectbox("Seleccionar Examen/Apartado a Habilitar:", list_ex_aut)
-
-                        btn_otorgar_aut = st.form_submit_button("🔓 Habilitar Intento Extra en BD")
-
-                        if btn_otorgar_aut:
-                            target_emp_id = emp_map_aut[emp_aut_sel_nom]
-                            try:
-                                supabase.table("autorizaciones_examen").insert({
-                                    "empleado_id": target_emp_id,
-                                    "apartado": apartado_aut_sel,
-                                    "autorizado_por": st.session_state.user_nombre,
-                                    "fecha_autorizacion": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                                }).execute()
-                                st.success(f"✅ Habilitación registrada. El empleado ya puede repetir el examen '{apartado_aut_sel}'.")
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as err_aut:
-                                st.error(f"❌ Error al conceder la autorización: {err_aut}")
-                else:
-                    st.info("No se dispone de datos suficientes para otorgar autorizaciones.")
-
-        # ADMIN CROMA - ENTIDADES DESHABILITADAS
-        if st.session_state.es_croma and tab_admin_deshabilitados:
-            with tab_admin_deshabilitados:
-                st.subheader("🗑️ Registros y Entidades Deshabilitadas")
-                st.caption("Pestaña de recuperación. Vuelve a activar de forma segura empleados, manuales o intentos deshabilitados.")
-
-                col_dh1, col_dh2, col_dh3 = st.columns(3)
-
-                with col_dh1:
-                    st.markdown("#### 👤 Empleados Inactivos")
-                    res_inact_emp = supabase.table("empleados").select("id, nombre").eq("activo", False).execute()
-                    if res_inact_emp.data:
-                        for emp_i in res_inact_emp.data:
-                            if st.button(f"♻️ Activar {emp_i['nombre']}", key=f"react_emp_{emp_i['id']}", use_container_width=True):
-                                supabase.table("empleados").update({"activo": True}).eq("id", emp_i["id"]).execute()
-                                st.rerun()
-                    else:
-                        st.caption("No hay empleados deshabilitados.")
-
-                with col_dh2:
-                    st.markdown("#### 📘 Manuales/Exámenes Inactivos")
-                    res_inact_ex = supabase.table("examenes").select("id, apartado").eq("activo", False).execute()
-                    if res_inact_ex.data:
-                        for ex_i in res_inact_ex.data:
-                            if st.button(f"♻️ Activar {ex_i['apartado']}", key=f"react_ex_{ex_i['id']}", use_container_width=True):
-                                supabase.table("examenes").update({"activo": True}).eq("id", ex_i["id"]).execute()
-                                st.rerun()
-                    else:
-                        st.caption("No hay manuales deshabilitados.")
-
-                with col_dh3:
-                    st.markdown("#### 📝 Intentos Inactivos")
-                    res_inact_it = supabase.table("intentos_examen").select("id, nombre_empleado, apartado").eq("activo", False).order("id", desc=True).limit(20).execute()
-                    if res_inact_it.data:
-                        for it_i in res_inact_it.data:
-                            if st.button(f"♻️ Activar #{it_i['id']} ({it_i['nombre_empleado']})", key=f"react_it_{it_i['id']}", use_container_width=True):
-                                supabase.table("intentos_examen").update({"activo": True}).eq("id", it_i["id"]).execute()
-                                st.rerun()
-                    else:
-                        st.caption("No hay intentos deshabilitados.")
+                        except Exception as err_cfg_save:
+                            st.error(f"❌ Error al guardar la configuración: {err_cfg_save}")
