@@ -163,7 +163,6 @@ if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
 # FUNCIONES AUXILIARES DE TIEMPO Y CONFIGURACIÓN SQL
 # ---------------------------------------------------------
 def obtener_tiempo_pregunta_config():
-    """Obtiene el tiempo por pregunta configurado en la BD (por defecto 45 segundos)."""
     try:
         res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "tiempo_pregunta_segundos").limit(1).execute()
         if res.data and res.data[0].get("prompt_texto"):
@@ -173,7 +172,6 @@ def obtener_tiempo_pregunta_config():
     return 45
 
 def guardar_tiempo_pregunta_config(nuevos_segundos):
-    """Guarda o actualiza la configuración de tiempo por pregunta en la base de datos."""
     try:
         res = supabase.table("config_prompts").select("id").eq("nombre", "tiempo_pregunta_segundos").execute()
         if res.data:
@@ -274,7 +272,7 @@ Cada pregunta debe incluir la propiedad "tiempo_segundos": {TIEMPO_LIMITE_PREGUN
 Responde ÚNICAMENTE con un array JSON estructurado exactamente de la siguiente forma (sin envoltorios markdown extraños fuera del json):
 [
   {{
-    "pregunta": "Texto detallado de la pregunta",
+    "pregunta": "Texto detailed de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
     "pista": "Breve pista aclaratoria",
@@ -289,7 +287,6 @@ Responde ÚNICAMENTE con un array JSON estructurado exactamente de la siguiente 
 TEXTO_EXAMEN_GLOBAL_INFO = f"""En el examen global, deben aparecer al menos dos preguntas por tema siendo de nivel difícil por defecto y examen, cada pregunta por defecto son {TIEMPO_LIMITE_PREGUNTA} segundos. Da igual el número de preguntas a realizar."""
 
 def obtener_modelos_ia_disponibles():
-    """Obtiene dinámicamente la lista de modelos de IA registrados en la base de datos SQL."""
     try:
         res = supabase.table("config_prompts").select("modelo_gemini, modelo_claude").execute()
         if res.data:
@@ -335,7 +332,6 @@ MAPEO_CAMPOS = {
 # FUNCIONES AUXILIARES DE IA Y PROCESAMIENTO
 # ---------------------------------------------------------
 def obtener_estado_evaluacion(porcentaje, sobrepasado_tiempo=False):
-    """Evalúa correctamente la nota/porcentaje basándose en los parámetros de experto."""
     porc_val = float(porcentaje) if porcentaje is not None else 0.0
     if sobrepasado_tiempo:
         return "🔴 SUSPENSO (TIEMPO EXCEDIDO)"
@@ -344,10 +340,6 @@ def obtener_estado_evaluacion(porcentaje, sobrepasado_tiempo=False):
     return "🔴 SUSPENSO"
 
 def consultar_ia(modelo, prompt, sistema=""):
-    """
-    Soporta explícitamente Gemini o Claude según el modelo seleccionado.
-    Recorre la lista de modelos disponibles en orden de fallback si falla el seleccionado.
-    """
     modelos_disponibles = obtener_modelos_ia_disponibles()
     cola_modelos = [modelo] + [m for m in modelos_disponibles if m != modelo]
     
@@ -453,11 +445,6 @@ def normalizar_pregunta_json(item):
     }
     
 def seleccionar_15_preguntas(banco_completo):
-    """
-    Selecciona las preguntas organizándolas por tema/subíndice.
-    Muestra mínimo 2 preguntas por tema. Si hay muchos temas y el total supera 15,
-    ajusta a 1 pregunta por tema.
-    """
     if not banco_completo:
         return []
 
@@ -584,11 +571,9 @@ def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
 # GENERACIÓN Y RENDERIZADO MOTOR HTML (VERSIÓN 1)
 # ---------------------------------------------------------
 def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_segundos_por_pregunta):
-    """
-    Genera un visor dinámico e interactivo adaptado de motor.html con temporizador y 
-    comunicación asíncrona hacia Supabase o interfaz de usuario.
-    """
     json_preguntas = json.dumps(preguntas_seleccionadas, ensure_ascii=False)
+    num_preguntas = len(preguntas_seleccionadas)
+    tiempo_total_examen = num_preguntas * tiempo_segundos_por_pregunta
     
     html_code = f"""
     <!DOCTYPE html>
@@ -619,14 +604,42 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
                 padding-bottom: 12px;
                 margin-bottom: 20px;
             }}
+            .timers-container {{
+                text-align: right;
+            }}
             .timer {{
-                font-size: 20px;
+                font-size: 18px;
                 font-weight: bold;
                 color: #E53E3E;
                 background: #FFF5F5;
-                padding: 6px 16px;
-                border-radius: 20px;
+                padding: 4px 12px;
+                border-radius: 15px;
                 border: 1px solid #FEB2B2;
+                display: inline-block;
+                margin-left: 5px;
+            }}
+            .timer-total {{
+                font-size: 14px;
+                font-weight: 600;
+                color: #2B6CB0;
+                background: #EBF8FF;
+                padding: 4px 10px;
+                border-radius: 12px;
+                border: 1px solid #90CDF4;
+                display: inline-block;
+            }}
+            .meta-info {{
+                margin-bottom: 10px;
+                font-size: 14px;
+                color: #4A5568;
+            }}
+            .categoria-tag {{
+                background: #EDF2F7;
+                color: #2D3748;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-weight: 600;
+                margin-right: 8px;
             }}
             .pregunta {{
                 font-size: 20px;
@@ -686,20 +699,27 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
         </style>
     </head>
     <body>
-        <div class="card">
+        <div class="card" id="examen-card">
             <div class="header">
                 <div>
                     <span id="p-index" style="font-weight: bold; font-size: 18px;">Pregunta 1</span>
                     <span id="p-difficulty" class="difficulty-tag">difícil</span>
                 </div>
-                <div class="timer" id="timer-display">{tiempo_segundos_por_pregunta}s</div>
+                <div class="timers-container">
+                    <div class="timer-total" id="timer-total-display">Tiempo Total: 00:00</div>
+                    <div class="timer" id="timer-display">{tiempo_segundos_por_pregunta}s</div>
+                </div>
             </div>
             
+            <div class="meta-info">
+                <span>📂 Categoría/Tema: </span><span id="p-categoria" class="categoria-tag">General</span>
+            </div>
+
             <div class="pregunta" id="pregunta-texto">Cargando...</div>
             <div id="opciones-container"></div>
             
             <div class="nav-btns">
-                <button class="btn" id="btn-pista" onclick="mostrarPista()">💡 Pista</button>
+                <button class="btn" id="btn-pista" onclick="mostrarPista()">💡 Pedir Pista (<span id="comodines-count">3</span> le quedan)</button>
                 <button class="btn" id="btn-sig" onclick="siguientePregunta()">Siguiente ➔</button>
             </div>
             <div id="pista-text" style="margin-top: 15px; font-style: italic; color: #4A5568; display: none;"></div>
@@ -708,14 +728,36 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
         <script>
             const bancoPreguntas = {json_preguntas};
             const tiempoPorPregunta = {tiempo_segundos_por_pregunta};
+            let tiempoGlobalRestante = {tiempo_total_examen};
             let currentIndex = 0;
             let timerInterval;
+            let globalTimerInterval;
             let tiempoRestante = tiempoPorPregunta;
             let respuestasUsuario = [];
+            let comodinesRestantes = 3;
+            let opcionSeleccionada = null;
+
+            function formatTime(seconds) {{
+                const m = Math.floor(seconds / 60);
+                const s = seconds % 60;
+                return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+            }}
+
+            function startGlobalTimer() {{
+                globalTimerInterval = setInterval(() => {{
+                    tiempoGlobalRestante--;
+                    document.getElementById("timer-total-display").innerText = "Tiempo Total: " + formatTime(Math.max(0, tiempoGlobalRestante));
+                    if (tiempoGlobalRestante <= 0) {{
+                        clearInterval(globalTimerInterval);
+                        finalizarExamen();
+                    }}
+                }}, 1000);
+            }}
 
             function renderPregunta() {{
                 clearInterval(timerInterval);
                 tiempoRestante = tiempoPorPregunta;
+                opcionSeleccionada = null;
                 document.getElementById("timer-display").innerText = tiempoRestante + "s";
                 document.getElementById("pista-text").style.display = "none";
                 
@@ -727,12 +769,14 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
                 const p = bancoPreguntas[currentIndex];
                 document.getElementById("p-index").innerText = "Pregunta " + (currentIndex + 1) + " de " + bancoPreguntas.length;
                 document.getElementById("p-difficulty").innerText = p.dificultad || "difícil";
+                document.getElementById("p-categoria").innerText = p.subindice || p.categoria || "General";
                 document.getElementById("pregunta-texto").innerText = p.pregunta;
+                document.getElementById("comodines-count").innerText = comodinesRestantes;
 
                 const container = document.getElementById("opciones-container");
                 container.innerHTML = "";
 
-                p.opciones_barajadas.forEach((op, idx) => {{
+                p.opciones_barajadas.forEach((op) => {{
                     const btn = document.createElement("button");
                     btn.className = "opcion-btn";
                     btn.innerText = op;
@@ -750,7 +794,6 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
                 }}, 1000);
             }}
 
-            let opcionSeleccionada = null;
             function seleccionarOpcion(op, element) {{
                 opcionSeleccionada = op;
                 const buttons = document.querySelectorAll(".opcion-btn");
@@ -759,42 +802,58 @@ def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_s
             }}
 
             function mostrarPista() {{
+                if (comodinesRestantes <= 0) {{
+                    alert("Has agotado todos tus comodines disponibles.");
+                    return;
+                }}
                 const p = bancoPreguntas[currentIndex];
                 const pt = document.getElementById("pista-text");
                 pt.innerText = "💡 Pista: " + (p.pista || "Analiza detenidamente las opciones.");
                 pt.style.display = "block";
+                comodinesRestantes--;
+                document.getElementById("comodines-count").innerText = comodinesRestantes;
             }}
 
             function siguientePregunta() {{
                 const p = bancoPreguntas[currentIndex];
-                const esCorr = (opcionSeleccionada === p.respuesta_correcta_texto);
+                const optFinal = opcionSeleccionada || "En blanco (Tiempo Agotado)";
+                const esCorr = (optFinal === p.respuesta_correcta_texto);
                 
                 respuestasUsuario.push({{
                     idx_pregunta: currentIndex,
                     pregunta: p.pregunta,
                     subindice: p.subindice || "General",
-                    opcion_elegida: opcionSeleccionada || "En blanco (Tiempo Agotado)",
+                    opcion_elegida: optFinal,
                     respuesta_correcta_texto: p.respuesta_correcta_texto,
                     opciones_posibles: p.opciones_barajadas,
                     es_correcta: esCorr,
                     dificultad: p.dificultad || "difícil"
                 }});
 
-                opcionSeleccionada = null;
                 currentIndex++;
                 renderPregunta();
             }}
 
             function finalizarExamen() {{
-                document.body.innerHTML = "<div class='card'><h2>Examen Finalizado</h2><p>Procesando resultados...</p></div>";
+                clearInterval(timerInterval);
+                clearInterval(globalTimerInterval);
+                document.getElementById("examen-card").innerHTML = "<h2>Examen Finalizado</h2><p>Procesando y registrando resultados...</p>";
+                
+                window.parent.postMessage({{
+                    type: 'EXAMEN_FINALIZADO',
+                    respuestas: respuestasUsuario,
+                    apartado: '{apartado}',
+                    examen_id: '{examen_id}'
+                }}, '*');
             }}
 
+            startGlobalTimer();
             renderPregunta();
         </script>
     </body>
     </html>
     """
-    st.components.v1.html(html_code, height=520, scrolling=True)
+    st.components.v1.html(html_code, height=600, scrolling=True)
 
 # ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN
@@ -885,7 +944,7 @@ else:
             c1, c2 = st.columns([4, 1])
             with c1:
                 st.write(f"**Pregunta {i+1}:** {p_item['pregunta']}")
-                st.caption(f"Respuesta actual: **{texto_resp}** | ⏱️ Tiempo restante: **{t_restante} s** | Dificultad: **{p_item.get('dificultad', 'dificil')}**")
+                st.caption(f"Categoría/Tema: **{p_item.get('subindice', 'General')}** | Respuesta actual: **{texto_resp}** | ⏱️ Tiempo restante: **{t_restante} s** | Dificultad: **{p_item.get('dificultad', 'dificil')}**")
             with c2:
                 btn_bloqueado = (t_restante <= 0)
                 if st.button("Modificar", key=f"mod_rev_{i}", disabled=btn_bloqueado, use_container_width=True):
@@ -952,7 +1011,7 @@ else:
             if st.button("Volver al Inicio", use_container_width=True):
                 st.rerun()
 
-    # CUESTIONARIO ACTIVO (VERSIÓN 2)
+    # CUESTIONARIO ACTIVO (VERSIÓN 2 CORREGIDA - TIEMPO AGOTADO MANTIENE RESPUESTA)
     elif st.session_state.examen_activo:
         st.markdown("<div id='pregunta_activa'></div>", unsafe_allow_html=True)
         st.components.v1.html(
@@ -969,7 +1028,7 @@ else:
             col_info, col_ayuda = st.columns([3, 2])
             with col_info:
                 st.subheader(f"Pregunta {idx + 1} de {total_p}")
-                st.caption(f"📌 **Subíndice/Apartado:** {p_actual.get('subindice', p_actual.get('apartado', 'General'))} | Dificultad: **{p_actual.get('dificultad', 'dificil')}**")
+                st.caption(f"📌 **Subíndice/Categoría:** {p_actual.get('subindice', p_actual.get('apartado', 'General'))} | Dificultad: **{p_actual.get('dificultad', 'dificil')}**")
             with col_ayuda:
                 st.caption(f"💡 Ayudas disponibles: **{st.session_state.comodines_restantes} / 3**")
 
@@ -987,7 +1046,7 @@ else:
             if tiempo_restante > 0:
                 st.caption(f"⏱️ Tiempo restante: **{tiempo_restante} segundos**")
             else:
-                st.warning("⏰ ¡Tiempo agotado en esta pregunta! Se registrará la opción elegida hasta el momento.")
+                st.warning("⏰ ¡Tiempo agotado en esta pregunta! Se registrará la casilla marcada.")
                 deshabilitar_opciones = True
                 st.session_state.tiempos_restantes_preguntas[idx] = 0
 
@@ -1067,6 +1126,7 @@ else:
                     st.session_state.modo_revision = True
                     st.rerun()
 
+            # REGISTRO PERMANENTE DE LA OPCIÓN SELECCIONADA AL AGOTAR TIEMPO
             if tiempo_restante <= 0:
                 registrar_respuesta_pregunta(eleccion)
 
@@ -1083,8 +1143,9 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos). Tiempo configurado por pregunta: **{TIEMPO_LIMITE_PREGUNTA} segundos**.")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_claude, tab_admin_gestion, tab_admin_deshabilitados = st.tabs([
-                "📝 Realizar Examen", 
+            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_claude, tab_admin_gestion, tab_admin_deshabilitados = st.tabs([
+                "📝 Realizar Examen",
+                "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación e Informes",
                 "📈 Analítica e IA",
@@ -1099,6 +1160,7 @@ else:
                 "📈 Mi Rendimiento e Informes IA"
             ])
 
+        # TAB: REALIZAR EXAMEN
         with tab_examenes:
             ahora = datetime.datetime.now(datetime.timezone.utc)
             primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -1157,7 +1219,6 @@ else:
             if examenes_disponibles:
                 st.subheader("📋 Seleccionar Modalidad")
                 
-                # SELECCIÓN DE VERSIÓN DE EXAMEN SOLICITADA
                 version_examen_sel = st.radio(
                     "🔧 Selecciona la versión del motor de examen:",
                     options=["Versión 1 (Documento motor.html adaptado)", "Versión 2 (Flujo app.py nativo)"],
@@ -1249,6 +1310,9 @@ else:
                     
                     if ex_obj:
                         nombre_apt = ex_obj['apartado']
+                        num_p_totales = len(ex_obj.get("preguntas_json", [])) if isinstance(ex_obj.get("preguntas_json"), list) else 0
+                        st.info(f"📊 **Información del Manual:** Se han generado un total de **{num_p_totales} preguntas** para este examen.")
+
                         ya_hecho_manual = nombre_apt in dict_realizados
                         permitido_manual = autorizaciones_set.__contains__(nombre_apt)
                         bloqueado_manual = ya_hecho_manual and not permitido_manual and not st.session_state.es_croma
@@ -1385,6 +1449,100 @@ else:
                                 st.dataframe(resumen_cat_m, use_container_width=True, hide_index=True)
             else:
                 st.warning("No hay manuales activos cargados en el sistema.")
+
+        # TAB: CARGAR MANUAL Y PROMPT (ADMIN)
+        if st.session_state.es_croma and tab_admin_manual:
+            with tab_admin_manual:
+                st.subheader("📄 Cargar Nuevo Manual en PDF y Generar Examen con IA")
+                
+                cfg_prompt_ex = None
+                try:
+                    res_cfg_ex = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
+                    if res_cfg_ex.data:
+                        cfg_prompt_ex = res_cfg_ex.data[0]
+                except Exception:
+                    cfg_prompt_ex = None
+
+                prompt_defecto_cargador = cfg_prompt_ex.get("prompt_texto") if cfg_prompt_ex else PROMPT_DEFECTO_EXAMEN
+
+                with st.form("form_cargar_manual", clear_on_submit=False):
+                    nombre_apartado = st.text_input("📘 Nombre del Manual/Apartado (Ej. Manual Seguridad 2026):*")
+                    pdf_file = st.file_uploader("📂 Selecciona el documento PDF:*", type=["pdf"])
+                    
+                    prompt_manual_input = st.text_area(
+                        "💬 Prompt para la IA (Generación de JSON):",
+                        value=prompt_defecto_cargador,
+                        height=200
+                    )
+                    
+                    modelos_ia_opciones = obtener_modelos_ia_disponibles()
+                    modelo_cargador_sel = st.selectbox("🤖 Modelo de IA a utilizar:", opciones=modelos_ia_opciones, index=0)
+                    
+                    btn_procesar_manual = st.form_submit_button("🚀 Procesar Documento y Guardar Examen", use_container_width=True)
+
+                if btn_procesar_manual:
+                    if not nombre_apartado.strip():
+                        st.error("❌ Por favor indica el nombre del manual/apartado.")
+                    elif not pdf_file:
+                        st.error("❌ Por favor sube un archivo PDF válido.")
+                    else:
+                        status_box = st.status("🔄 Procesando manual en el sistema...", expanded=True)
+                        try:
+                            status_box.write("📖 Extrayendo texto del archivo PDF...")
+                            reader = PdfReader(pdf_file)
+                            texto_pdf = ""
+                            for page in reader.pages:
+                                page_text = page.extract_text()
+                                if page_text:
+                                    texto_pdf += page_text + "\n"
+
+                            if not texto_pdf.strip():
+                                raise Exception("No se pudo extraer texto del PDF subido.")
+
+                            status_box.write(f"🧠 Consultando al modelo {modelo_cargador_sel}...")
+                            prompt_final = f"{prompt_manual_input}\n\n[CONTENIDO DEL DOCUMENTO PDF]:\n{texto_pdf[:40000]}"
+                            
+                            res_ia_raw = consultar_ia(modelo_cargador_sel, prompt_final, sistema="Eres un generador de exámenes técnicos estructurados exclusivamente en formato JSON.")
+                            
+                            status_box.write("⚙️ Normalizando preguntas y comprobando formato JSON...")
+                            
+                            # Limpieza del bloque JSON devuelto por la IA
+                            txt_json = res_ia_raw.strip()
+                            if "```json" in txt_json:
+                                txt_json = txt_json.split("```json")[1].split("```")[0].strip()
+                            elif "```" in txt_json:
+                                txt_json = txt_json.split("```")[1].split("```")[0].strip()
+
+                            parsed_json = json.loads(txt_json)
+                            preguntas_validas = []
+
+                            if isinstance(parsed_json, list):
+                                for item in parsed_json:
+                                    p_norm = normalizar_pregunta_json(item)
+                                    if p_norm:
+                                        preguntas_validas.append(p_norm)
+
+                            if not preguntas_validas:
+                                raise Exception("No se generaron preguntas válidas a partir del documento.")
+
+                            status_box.write("💾 Registrando examen en Supabase...")
+                            
+                            registro_nuevo_examen = {
+                                "apartado": nombre_apartado.strip(),
+                                "preguntas_json": preguntas_validas,
+                                "activo": True
+                            }
+                            
+                            supabase.table("examenes").insert(registro_nuevo_examen).execute()
+                            
+                            status_box.update(label="✅ ¡Manual procesado y guardado con éxito!", state="complete", expanded=False)
+                            st.success(f"🎉 Se han generado exitosamente **{len(preguntas_validas)} preguntas** para el manual **{nombre_apartado.strip()}**.")
+                            time.sleep(2)
+                            st.rerun()
+
+                        except Exception as err_m:
+                            status_box.update(label="❌ Error al procesar el manual", state="error", expanded=True)
+                            st.error(f"Se produjo un fallo al procesar el documento: {err_m}")
 
         # VISTA USUARIO: MIS RESULTADOS
         if not st.session_state.es_croma:
@@ -1727,6 +1885,26 @@ else:
             with tab_admin_analisis:
                 st.subheader("📈 Analítica Global e Inteligencia Artificial")
                 
+                # REPORTE DE PREGUNTAS GENERADAS POR EXAMEN
+                try:
+                    res_m_counts = supabase.table("examenes").select("id, apartado, preguntas_json, activo").execute()
+                    if res_m_counts.data:
+                        st.markdown("### 📊 Conteo de Preguntas Generadas por Examen/Manual")
+                        data_counts = []
+                        for ex_m in res_m_counts.data:
+                            preg_list = ex_m.get("preguntas_json", [])
+                            data_counts.append({
+                                "ID": ex_m.get("id"),
+                                "Manual / Examen": ex_m.get("apartado"),
+                                "Preguntas Generadas": len(preg_list) if isinstance(preg_list, list) else 0,
+                                "Estado": "Activo" if ex_m.get("activo") else "Deshabilitado"
+                            })
+                        st.dataframe(pd.DataFrame(data_counts), use_container_width=True, hide_index=True)
+                except Exception as e_cnt:
+                    st.warning(f"No se pudo obtener el desglose de preguntas por examen: {e_cnt}")
+
+                st.markdown("---")
+
                 cfg_eval = None
                 try:
                     res_cfg_eval = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
@@ -2298,272 +2476,85 @@ else:
                                 st.rerun()
 
                 st.markdown("---")
+                st.subheader("🔓 Autorizar Repetición de Examen a Empleado")
+                st.caption("Permite habilitar una autorización especial para repetir un examen que ya fue realizado dentro del mes.")
 
-                st.subheader("🔓 Autorizar Repetición de Examen a un Empleado")
-                
                 try:
-                    res_emp = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
-                    empleados_list = res_emp.data if res_emp.data else []
+                    res_emp_aut = supabase.table("empleados").select("id, nombre").eq("activo", True).order("nombre").execute()
+                    list_emp_aut = res_emp_aut.data if res_emp_aut.data else []
                     
-                    res_ex_todos = supabase.table("examenes").select("apartado").eq("activo", True).execute()
-                    apartados_unicos = sorted(list(set([e["apartado"] for e in (res_ex_todos.data or [])])))
-                    apartados_unicos.insert(0, "GLOBAL COMPLETO")
-                except Exception as ex_db:
-                    empleados_list = []
-                    apartados_unicos = []
+                    res_ex_aut = supabase.table("examenes").select("apartado").eq("activo", True).order("apartado").execute()
+                    list_ex_aut = [e["apartado"] for e in (res_ex_aut.data or [])]
+                    list_ex_aut.insert(0, "GLOBAL COMPLETO")
+                except Exception:
+                    list_emp_aut = []
+                    list_ex_aut = []
 
-                if empleados_list and apartados_unicos:
-                    dict_emp = {emp["nombre"]: emp["id"] for emp in empleados_list}
-                    
-                    col_aut1, col_aut2 = st.columns(2)
-                    with col_aut1:
-                        emp_aut_sel = st.selectbox("Seleccionar Empleado:", list(dict_emp.keys()), key="aut_emp_sel")
-                    with col_aut2:
-                        apt_aut_sel = st.selectbox("Seleccionar Examen/Manual:", apartados_unicos, key="aut_apt_sel")
-                        
-                    if st.button("Habilitar Repetición de Examen", use_container_width=True):
-                        emp_id_target = dict_emp[emp_aut_sel]
-                        try:
-                            data_aut = {
-                                "empleado_id": emp_id_target,
-                                "apartado": apt_aut_sel,
-                                "autorizado_por": st.session_state.user_nombre
-                            }
-                            supabase.table("autorizaciones_examen").insert(data_aut).execute()
-                            st.success(f"✅ Se ha autorizado a **{emp_aut_sel}** para repetir el examen **{apt_aut_sel}**.")
-                            time.sleep(1.5)
-                            st.rerun()
-                        except Exception:
-                            st.info("El usuario ya cuenta con un permiso activo para realizar este examen.")
+                if list_emp_aut and list_ex_aut:
+                    with st.form("form_autorizar_repeticion"):
+                        col_a1, col_a2 = st.columns(2)
+                        with col_a1:
+                            emp_map_aut = {f"{e['nombre']} (ID: {e['id']})": e['id'] for e in list_emp_aut}
+                            emp_aut_sel_nom = st.selectbox("Seleccionar Empleado:", list(emp_map_aut.keys()))
+                        with col_a2:
+                            apartado_aut_sel = st.selectbox("Seleccionar Examen/Apartado a Habilitar:", list_ex_aut)
 
-                st.markdown("---")
+                        btn_otorgar_aut = st.form_submit_button("🔓 Habilitar Intento Extra en BD")
 
-                st.subheader("📥 Importar Registro de Exámenes (CSV)")
-                archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
-                
-                if archivo_csv_import is not None:
-                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos", use_container_width=True):
-                        try:
+                        if btn_otorgar_aut:
+                            target_emp_id = emp_map_aut[emp_aut_sel_nom]
                             try:
-                                df_csv = pd.read_csv(archivo_csv_import, sep=';')
-                                if len(df_csv.columns) <= 1:
-                                    archivo_csv_import.seek(0)
-                                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
-                            except Exception:
-                                archivo_csv_import.seek(0)
-                                df_csv = pd.read_csv(archivo_csv_import, sep=',')
-
-                            res_emp_all = supabase.table("empleados").select("id, nombre").execute()
-                            map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
-
-                            registros_insertados = 0
-                            errores_import = 0
-
-                            for idx_row, row in df_csv.iterrows():
-                                nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
-                                emp_id = map_empleados.get(nombre_emp.lower(), None)
-                                
-                                resp_raw = row.get("respuestas_usuario", "[]")
-                                if isinstance(resp_raw, str):
-                                    try:
-                                        resp_json = json.loads(resp_raw)
-                                    except Exception:
-                                        resp_json = []
-                                elif isinstance(resp_raw, list):
-                                    resp_json = resp_raw
-                                else:
-                                    resp_json = []
-
-                                minutos_val = row.get("minutes")
-                                if not pd.isna(minutos_val) and minutos_val is not None:
-                                    t_limite = int(minutos_val) * 60
-                                else:
-                                    t_limite = int(row.get("tiempo_limite") or row.get("tiempo_limite_segundos") or 0)
-
-                                fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
-                                fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
-
-                                sobrepasado = False
-                                duracion_seg = 0
-                                if fecha_inicio_clean and fecha_fin_clean:
-                                    try:
-                                        dt_ini = pd.to_datetime(fecha_inicio_clean)
-                                        dt_fin = pd.to_datetime(fecha_fin_clean)
-                                        duracion_seg = int((dt_fin - dt_ini).total_seconds())
-                                        if t_limite > 0 and duracion_seg > t_limite:
-                                            sobrepasado = True
-                                    except Exception:
-                                        pass
-
-                                if len(row) >= 8 and not pd.isna(row.iloc[7]):
-                                    porcentaje_val = float(row.iloc[7])
-                                else:
-                                    porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
-
-                                nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
-
-                                if sobrepasado:
-                                    nota_val = 0.0
-                                    porcentaje_val = 0.0
-
-                                registro_nuevo = {
-                                    "empleado_id": emp_id,
-                                    "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
-                                    "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
-                                    "fecha_inicio": fecha_inicio_clean,
-                                    "fecha_fin": fecha_fin_clean,
-                                    "tiempo_total_segundos": duracion_seg if duracion_seg > 0 else int(row.get("tiempo_total_segundos", 0)),
-                                    "tiempo_limite": t_limite,
-                                    "porcentaje_obtenido": porcentaje_val,
-                                    "nota": nota_val,
-                                    "respuestas_usuario": resp_json,
-                                    "sobrepasado_tiempo": sobrepasado,
-                                    "activo": True
-                                }
-
-                                try:
-                                    supabase.table("intentos_examen").insert(registro_nuevo).execute()
-                                    registros_insertados += 1
-                                except Exception as err_ins:
-                                    st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
-                                    errores_import += 1
-
-                            if registros_insertados > 0:
-                                st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
-                                time.sleep(1.5)
-                                st.rerun()
-
-                        except Exception as e_csv:
-                            st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
-
-                st.markdown("---")
-
-                st.subheader("📄 Cargar Banco de Preguntas desde JSON (Soporta múltiples archivos)")
-                nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
-                archivos_json = st.file_uploader("Seleccionar uno o varios archivos JSON con preguntas", type=["json"], accept_multiple_files=True)
-
-                if st.button("🚀 Subir y Unificar Preguntas a Supabase"):
-                    if archivos_json and nombre_apartado_json:
-                        try:
-                            contenido_validado_unificado = []
-                            
-                            for f_json in archivos_json:
-                                raw_json = json.load(f_json)
-                                
-                                if isinstance(raw_json, dict):
-                                    array_preguntas = raw_json.get("bank", raw_json.get("preguntas", []))
-                                elif isinstance(raw_json, list):
-                                    array_preguntas = raw_json
-                                else:
-                                    array_preguntas = []
-
-                                if isinstance(array_preguntas, list):
-                                    for p in array_preguntas:
-                                        preg_normalizada = normalizar_pregunta_json(p)
-                                        if preg_normalizada:
-                                            contenido_validado_unificado.append(preg_normalizada)
-
-                            if contenido_validado_unificado:
-                                supabase.table("examenes").insert({
-                                    "apartado": nombre_apartado_json,
-                                    "preguntas_json": contenido_validado_unificado,
-                                    "activo": True
+                                supabase.table("autorizaciones_examen").insert({
+                                    "empleado_id": target_emp_id,
+                                    "apartado": apartado_aut_sel,
+                                    "autorizado_por": st.session_state.user_nombre,
+                                    "fecha_autorizacion": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                                 }).execute()
-                                
-                                st.success(f"✅ ¡Se unificaron y cargaron {len(contenido_validado_unificado)} preguntas en un solo registro SQL correctamente!")
-                                time.sleep(1.5)
+                                st.success(f"✅ Habilitación registrada. El empleado ya puede repetir el examen '{apartado_aut_sel}'.")
+                                time.sleep(1)
                                 st.rerun()
-                            else:
-                                st.error("❌ Los archivos JSON subidos no contienen preguntas válidas.")
-                        except Exception as e:
-                            st.error(f"❌ Error al procesar y unificar los JSON: {e}")
+                            except Exception as err_aut:
+                                st.error(f"❌ Error al conceder la autorización: {err_aut}")
+                else:
+                    st.info("No se dispone de datos suficientes para otorgar autorizaciones.")
 
-                st.markdown("---")
-
-                col_subir, col_del = st.columns([3, 2])
-                
-                with col_subir:
-                    st.subheader("⚙️ Cargar Manual con Configuración de IA")
-                    archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
-                    nombre_apartado = st.text_input("Nombre del Manual / Apartado (PDF)")
-
-                    prompt_inicial = p_def_ex_val if p_def_ex_val else PROMPT_DEFECTO_EXAMEN
-
-                    prompt_editable = st.text_area(
-                        "💬 Prompt de Generación de Examen por defecto (Editable):",
-                        value=prompt_inicial,
-                        height=200
-                    )
-
-                    if st.button("💾 Guardar Prompt Memorizado en config_prompts (prompt_examen)"):
-                        try:
-                            res_chk_ex = supabase.table("config_prompts").select("id").eq("nombre", "prompt_examen").execute()
-                            if res_chk_ex.data:
-                                supabase.table("config_prompts").update({
-                                    "prompt_texto": prompt_editable.strip(),
-                                    "modelo_gemini": g_def_val,
-                                    "modelo_claude": c_def_val
-                                }).eq("nombre", "prompt_examen").execute()
-                            else:
-                                supabase.table("config_prompts").insert({
-                                    "nombre": "prompt_examen",
-                                    "prompt_texto": prompt_editable.strip(),
-                                    "modelo_gemini": g_def_val,
-                                    "modelo_claude": c_def_val
-                                }).execute()
-                            st.success("✅ Prompt de Examen guardado y memorizado en la base de datos.")
-                        except Exception as e_p_sav:
-                            st.error(f"Error memorizando el prompt: {e_p_sav}")
-
-                    modelos_actuales = obtener_modelos_ia_disponibles()
-
-                    modelo_ia_eval = st.selectbox(
-                        "🤖 Seleccionar versión de IA a utilizar:",
-                        options=modelos_actuales,
-                        index=0,
-                        key="sel_mod_pdf"
-                    )
-
-                    btn_procesar_manual = st.button("🚀 Procesar y Generar Banco", use_container_width=True)
-
+        # ADMIN CROMA - ENTIDADES DESHABILITADAS
         if st.session_state.es_croma and tab_admin_deshabilitados:
             with tab_admin_deshabilitados:
-                st.subheader("🗑️ Entidades Deshabilitadas (Filtro por Año 2026)")
-                
-                t_des_emp, t_des_ex, t_des_int = st.tabs(["👤 Empleados Desactivados", "📘 Exámenes Desactivados", "📝 Intentos Desactivados"])
-                
-                with t_des_emp:
-                    res_inact_emp = supabase.table("empleados").select("*").eq("activo", False).execute()
+                st.subheader("🗑️ Registros y Entidades Deshabilitadas")
+                st.caption("Pestaña de recuperación. Vuelve a activar de forma segura empleados, manuales o intentos deshabilitados.")
+
+                col_dh1, col_dh2, col_dh3 = st.columns(3)
+
+                with col_dh1:
+                    st.markdown("#### 👤 Empleados Inactivos")
+                    res_inact_emp = supabase.table("empleados").select("id, nombre").eq("activo", False).execute()
                     if res_inact_emp.data:
-                        for e_i in res_inact_emp.data:
-                            c_a, c_b = st.columns([3, 1])
-                            c_a.write(f"**{e_i['nombre']}** (ID: {e_i['id']})")
-                            if c_b.button("Reactivar", key=f"reac_emp_{e_i['id']}"):
-                                supabase.table("empleados").update({"activo": True}).eq("id", e_i["id"]).execute()
+                        for emp_i in res_inact_emp.data:
+                            if st.button(f"♻️ Activar {emp_i['nombre']}", key=f"react_emp_{emp_i['id']}", use_container_width=True):
+                                supabase.table("empleados").update({"activo": True}).eq("id", emp_i["id"]).execute()
                                 st.rerun()
                     else:
-                        st.info("No hay empleados desactivados.")
+                        st.caption("No hay empleados deshabilitados.")
 
-                with t_des_ex:
-                    res_inact_ex = supabase.table("examenes").select("*").eq("activo", False).execute()
+                with col_dh2:
+                    st.markdown("#### 📘 Manuales/Exámenes Inactivos")
+                    res_inact_ex = supabase.table("examenes").select("id, apartado").eq("activo", False).execute()
                     if res_inact_ex.data:
                         for ex_i in res_inact_ex.data:
-                            c_a, c_b = st.columns([3, 1])
-                            c_a.write(f"**{ex_i['apartado']}** (ID: {ex_i['id']})")
-                            if c_b.button("Reactivar", key=f"reac_ex_{ex_i['id']}"):
+                            if st.button(f"♻️ Activar {ex_i['apartado']}", key=f"react_ex_{ex_i['id']}", use_container_width=True):
                                 supabase.table("examenes").update({"activo": True}).eq("id", ex_i["id"]).execute()
                                 st.rerun()
                     else:
-                        st.info("No hay exámenes desactivados.")
+                        st.caption("No hay manuales deshabilitados.")
 
-                with t_des_int:
-                    res_inact_int = supabase.table("intentos_examen").select("*").eq("activo", False).execute()
-                    if res_inact_int.data:
-                        for it_i in res_inact_int.data:
-                            c_a, c_b = st.columns([3, 1])
-                            c_a.write(f"#{it_i['id']} - **{it_i['nombre_empleado']}** ({it_i['apartado']})")
-                            if c_b.button("Reactivar", key=f"reac_it_{it_i['id']}"):
+                with col_dh3:
+                    st.markdown("#### 📝 Intentos Inactivos")
+                    res_inact_it = supabase.table("intentos_examen").select("id, nombre_empleado, apartado").eq("activo", False).order("id", desc=True).limit(20).execute()
+                    if res_inact_it.data:
+                        for it_i in res_inact_it.data:
+                            if st.button(f"♻️ Activar #{it_i['id']} ({it_i['nombre_empleado']})", key=f"react_it_{it_i['id']}", use_container_width=True):
                                 supabase.table("intentos_examen").update({"activo": True}).eq("id", it_i["id"]).execute()
                                 st.rerun()
                     else:
-                        st.info("No hay intentos de examen desactivados.")
+                        st.caption("No hay intentos deshabilitados.")
