@@ -233,7 +233,6 @@ Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown
 def obtener_modelos_ia_disponibles():
     """Obtiene dinámicamente la lista de modelos de IA registrados en la base de datos SQL."""
     try:
-        # Revisa la tabla config_prompts en Supabase
         res = supabase.table("config_prompts").select("modelo_gemini, modelo_claude").execute()
         if res.data:
             modelos_sql = []
@@ -243,7 +242,6 @@ def obtener_modelos_ia_disponibles():
                 if fila.get("modelo_claude"):
                     modelos_sql.append(fila["modelo_claude"])
             
-            # Elimina duplicados manteniendo el orden
             modelos_unicos = list(dict.fromkeys(modelos_sql))
             if modelos_unicos:
                 return modelos_unicos
@@ -251,8 +249,7 @@ def obtener_modelos_ia_disponibles():
     except Exception as err:
         st.warning(f"No se pudieron cargar los modelos desde la base de datos: {err}")
     
-    # Fallback de respaldo por seguridad si falla la consulta SQL
-    return ["gemini-3.1-pro", "gemini-3.6-flash", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
+    return ["gemini-2.5-pro", "gemini-2.5-flash", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
 
 MAPEO_CAMPOS = {
     'q': 'pregunta',
@@ -1244,7 +1241,6 @@ else:
             with tab_admin_analisis:
                 st.subheader("📈 Analítica Global e Inteligencia Artificial")
                 
-                # Cargar configuración desde SQL config_prompts
                 cfg_eval = None
                 try:
                     res_cfg_eval = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
@@ -1254,10 +1250,7 @@ else:
                     cfg_eval = None
 
                 prompt_defecto_eval = cfg_eval.get("prompt_texto") if cfg_eval else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
-                modelo_gemini_defecto = cfg_eval.get("modelo_gemini", "gemini-2.5-pro") if cfg_eval else "gemini-2.5-pro"
-                modelo_claude_defecto = cfg_eval.get("modelo_claude", "claude-3-5-sonnet-20241022") if cfg_eval else "claude-3-5-sonnet-20241022"
 
-                # Consulta de TODOS los datos de intentos_examen en SQL activos
                 res_all_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("activo", True)\
                     .order("fecha_inicio", desc=False).execute()
@@ -1268,9 +1261,6 @@ else:
                     df_all["fecha_inicio_dt"] = pd.to_datetime(df_all["fecha_inicio"], errors='coerce')
                     df_all["anio_int"] = df_all["fecha_inicio_dt"].dt.year
                     
-                    anios_unicos = sorted(list(df_all["anio_int"].dropna().astype(int).unique()), reverse=True)
-                    anio_actual_def = datetime.datetime.now().year
-                    
                     st.markdown("### 📊 Gráficas y Métricas por Empleado (Histórico Completo SQL)")
                     
                     res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
@@ -1280,7 +1270,6 @@ else:
                     emp_seleccionado_nombre = st.selectbox("👤 Selecciona un trabajador para ver sus métricas y evolución:", list(map_emp_id_nombre.keys()))
                     emp_seleccionado_id = map_emp_id_nombre[emp_seleccionado_nombre]
 
-                    # Filtrar intentos del empleado
                     df_emp = df_all[df_all["nombre_empleado"].str.lower() == emp_seleccionado_nombre.lower()]
 
                     if not df_emp.empty:
@@ -1310,32 +1299,29 @@ else:
                         
                         col_m1, col_m2 = st.columns(2)
                         with col_m1:
-                                modelos_actuales = obtener_modelos_ia_disponibles()
-
-                                modelo_ia_eval = st.selectbox(
-                                    "🤖 Seleccionar versión de IA a utilizar:",
-                                    options=modelos_actuales,
-                                    index=0
-                                )
+                            modelos_actuales = obtener_modelos_ia_disponibles()
+                            modelo_ia_eval = st.selectbox(
+                                "🤖 Seleccionar versión de IA a utilizar:",
+                                options=modelos_actuales,
+                                index=0
+                            )
                         with col_m2:
                             st.write("")
                             st.write("")
-                            btn_generar_eval = st.form_submit_button("🚀 Generar Informe de Evaluación por Defecto", use_container_width=True)
+                            btn_generar_eval = st.form_submit_button("🚀 Generar Informe de Evaluación", use_container_width=True)
 
-                    # Generación o ejecución automática si se envía
-                    if btn_generar_eval or "eval_resultado_cache" not in st.session_state:
+                    if btn_generar_eval:
                         with st.spinner("Procesando histórico de exámenes y generando evaluación IA..."):
                             try:
                                 resumen_historico = f"HISTORIAL COMPLETO DE EXÁMENES DE {emp_seleccionado_nombre.upper()}:\n"
                                 for _, row in df_emp.iterrows():
-                                    resumen_historico += f"- Fecha: {row['fecha_inicio'][:10]} | Examen: {row['apartado']} | Nota: {row['nota']}/10 | Aciertos: {row['porcentaje_obtenido']}%\n"
+                                    resumen_historico += f"- Fecha: {str(row['fecha_inicio'])[:10]} | Examen: {row['apartado']} | Nota: {row['nota']}/10 | Aciertos: {row['porcentaje_obtenido']}%\n"
                                 
                                 prompt_completo_eval = f"{prompt_eval_input}\n\n[DATOS DEL TRABAJADOR]:\n{resumen_historico}"
                                 
                                 res_analisis_final = consultar_ia(modelo_ia_eval, prompt_completo_eval)
                                 st.session_state.eval_resultado_cache = res_analisis_final
 
-                                # Almacenar resultado en SQL
                                 supabase.table("analisis_ia_empleados").insert({
                                     "empleado_id": emp_seleccionado_id,
                                     "anio": datetime.datetime.now().year,
@@ -1359,13 +1345,13 @@ else:
                 with tab_sub_nueva:
                     col_cl1, col_cl2 = st.columns([3, 1])
                     with col_cl1:
-                            modelos_actuales = obtener_modelos_ia_disponibles()
-
-                            modelo_ia_eval = st.selectbox(
-                                "🤖 Seleccionar versión de IA a utilizar:",
-                                options=modelos_actuales,
-                                index=0
-                            )
+                        modelos_actuales = obtener_modelos_ia_disponibles()
+                        modelo_ia_eval = st.selectbox(
+                            "🤖 Seleccionar versión de IA a utilizar:",
+                            options=modelos_actuales,
+                            index=0,
+                            key="sel_mod_libre"
+                        )
 
                     with col_cl2:
                         incluir_datos_sql = st.checkbox("Inyectar contexto actual de la BD (Exámenes/Empleados)", value=True)
@@ -1393,15 +1379,14 @@ else:
                             with st.spinner("Procesando consulta con el modelo seleccionado..."):
                                 try:
                                     respuesta_ia = consultar_ia(
-                                        modelo=modelo_gemini_cons,
+                                        modelo=modelo_ia_eval,
                                         prompt=prompt_consulta_libre + contexto_adicional,
                                         sistema="Eres un analista de datos Senior y consultor experto para la plataforma."
                                     )
                                     
-                                    # Guardar la consulta en la BD
                                     registro_consulta = {
                                         "usuario": st.session_state.user_nombre,
-                                        "modelo": modelo_gemini_cons,
+                                        "modelo": modelo_ia_eval,
                                         "prompt": prompt_consulta_libre,
                                         "respuesta": respuesta_ia,
                                         "fecha": datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -1426,12 +1411,9 @@ else:
                     if consultas_lista:
                         modelos_presentes = list(set([c.get("modelo", "Desconocido") for c in consultas_lista]))
                         
-                        # Reordenar los filtros según la prioridad cronológica
-                        #modelos_ordenados_filtro = [m for m in MODELOS_IA_DISPONIBLES if m in modelos_presentes] + [m for m in modelos_presentes if m not in MODELOS_IA_DISPONIBLES]
-                        
-                        col_f1, col_f2 = st.columns(2)
+                        col_f1, _ = st.columns(2)
                         with col_f1:
-                            filtro_modelo = st.selectbox("Filtrar por modelo de IA:", ["Todos"] + modelos_ordenados_filtro, key="filt_mod_consultas")
+                            filtro_modelo = st.selectbox("Filtrar por modelo de IA:", ["Todos"] + modelos_presentes, key="filt_mod_consultas")
                         
                         consultas_filtradas = consultas_lista
                         if filtro_modelo != "Todos":
@@ -1486,9 +1468,8 @@ else:
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Configuración de IA y Modelos (SQL config_prompts)")
-                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude (Mostrados de más reciente a más antiguo).")
+                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude.")
 
-                # Cargar configuración actual
                 config_prompt_actual = None
                 try:
                     res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
@@ -1501,6 +1482,8 @@ else:
                 g_def_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro") if config_prompt_actual else "gemini-2.5-pro"
                 c_def_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022"
 
+                listado_modelos = obtener_modelos_ia_disponibles()
+
                 with st.form("form_config_ia_prompts"):
                     prompt_eval_config = st.text_area(
                         "Prompt por defecto (Informe Profesional de Evaluación IA):",
@@ -1512,14 +1495,14 @@ else:
                     with col_cfg1:
                         modelo_gemini_config = st.selectbox(
                             "Versión por defecto de Gemini:",
-                            options=MODELOS_GEMINI_OPCIONES,
-                            index=MODELOS_GEMINI_OPCIONES.index(g_def_val) if g_def_val in MODELOS_GEMINI_OPCIONES else 0
+                            options=listado_modelos,
+                            index=listado_modelos.index(g_def_val) if g_def_val in listado_modelos else 0
                         )
                     with col_cfg2:
                         modelo_claude_config = st.selectbox(
                             "Versión por defecto de Claude:",
-                            options=MODELOS_CLAUDE_OPCIONES,
-                            index=MODELOS_CLAUDE_OPCIONES.index(c_def_val) if c_def_val in MODELOS_CLAUDE_OPCIONES else 0
+                            options=listado_modelos,
+                            index=listado_modelos.index(c_def_val) if c_def_val in listado_modelos else 0
                         )
 
                     btn_guardar_config = st.form_submit_button("💾 Guardar Configuración en config_prompts", use_container_width=True)
@@ -1779,9 +1762,9 @@ else:
                     modelo_ia_eval = st.selectbox(
                         "🤖 Seleccionar versión de IA a utilizar:",
                         options=modelos_actuales,
-                        index=0
+                        index=0,
+                        key="sel_mod_pdf"
                     )
-
 
                     btn_procesar_manual = st.button("🚀 Procesar y Generar Banco", use_container_width=True)
 
@@ -1797,9 +1780,9 @@ else:
 
                                 prompt_final = prompt_editable + "\n\nTexto del manual:\n" + texto[:12000]
 
-                                with st.spinner(f"Generando banco de preguntas con {modelo_ia_sel}..."):
+                                with st.spinner(f"Generando banco de preguntas con {modelo_ia_eval}..."):
                                     raw_response = consultar_ia(
-                                        modelo=modelo_ia_sel,
+                                        modelo=modelo_ia_eval,
                                         prompt=prompt_final,
                                         sistema="Eres un generador experto de evaluaciones tipo test. Responde ÚNICAMENTE en formato JSON válido."
                                     )
@@ -1814,7 +1797,7 @@ else:
                                         "activo": True
                                     }).execute()
                                     
-                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco mediante {modelo_ia_sel}.")
+                                    st.success(f"✅ Se generaron {len(preguntas_json)} preguntas en el banco mediante {modelo_ia_eval}.")
                                     time.sleep(1.5)
                                     st.rerun()
 
