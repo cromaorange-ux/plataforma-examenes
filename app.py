@@ -232,6 +232,28 @@ Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown
 ]
 """
 
+PROMPT_DEFECTO_EXAMEN = """Genera un conjunto de preguntas tipo test exclusivas para un examen basándote en el documento.
+Asegúrate de incluir al menos dos preguntas por cada tema detectado en el documento.
+Para cada pregunta, asigna por defecto el nivel de dificultad "dificil" y establece el campo "tipo" como "examen".
+Cada pregunta debe incluir la propiedad "tiempo_segundos": 45.
+
+Responde ÚNICAMENTE con un array JSON estructurado exactamente de la siguiente forma (sin envoltorios markdown extraños fuera del json):
+[
+  {
+    "pregunta": "Texto detallado de la pregunta",
+    "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
+    "respuesta_correcta": 0,
+    "pista": "Breve pista aclaratoria",
+    "subindice": "Nombre Exacto del Tema",
+    "dificultad": "dificil",
+    "tipo": "examen",
+    "tiempo_segundos": 45
+  }
+]
+"""
+
+TEXTO_EXAMEN_GLOBAL_INFO = """En el examen global, deben aparecer al menos dos preguntas por tema siendo de nivel difícil por defecto y examen, cada pregunta por defecto son 45 segundos. Da igual el número de preguntas a realizar."""
+
 def obtener_modelos_ia_disponibles():
     """Obtiene dinámicamente la lista de modelos de IA registrados en la base de datos SQL."""
     try:
@@ -395,11 +417,49 @@ def normalizar_pregunta_json(item):
     }
     
 def seleccionar_15_preguntas(banco_completo):
-    sample_size = min(len(banco_completo), NUM_PREGUNTAS_EXAMEN)
-    seleccionadas = random.sample(banco_completo, sample_size)
+    """
+    Selecciona las preguntas organizándolas por tema/subíndice.
+    Muestra mínimo 2 preguntas por tema. Si hay muchos temas y el total supera 15,
+    ajusta a 1 pregunta por tema.
+    """
+    if not banco_completo:
+        return []
+
+    temas_dict = {}
+    for p in banco_completo:
+        sub = str(p.get("subindice", "General")).strip()
+        if sub not in temas_dict:
+            temas_dict[sub] = []
+        temas_dict[sub].append(p)
+
+    num_temas = len(temas_dict)
+    
+    # Determinar cupo por tema
+    if num_temas * 2 > NUM_PREGUNTAS_EXAMEN:
+        cupo_por_tema = 1
+    else:
+        cupo_por_tema = 2
+
+    seleccionadas = []
+    
+    # Extraer preguntas según el cupo
+    for sub, pregs in temas_dict.items():
+        sample_n = min(len(pregs), cupo_por_tema)
+        seleccionadas.extend(random.sample(pregs, sample_n))
+
+    # Si aún no llegamos a 15 y quedan disponibles en el banco, rellenamos
+    if len(seleccionadas) < NUM_PREGUNTAS_EXAMEN and len(banco_completo) > len(seleccionadas):
+        restantes = [p for p in banco_completo if p not in seleccionadas]
+        faltantes = min(NUM_PREGUNTAS_EXAMEN - len(seleccionadas), len(restantes))
+        seleccionadas.extend(random.sample(restantes, faltantes))
+
+    # Si por cupo excedimos 15 (p. ej. muchos temas con cupo 1), ajustamos recortando aleatoriamente
+    if len(seleccionadas) > NUM_PREGUNTAS_EXAMEN:
+        seleccionadas = random.sample(seleccionadas, NUM_PREGUNTAS_EXAMEN)
+
     seleccionadas.sort(key=lambda x: str(x.get("subindice", "General")).lower())
     return seleccionadas
-    
+
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
     _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
@@ -456,6 +516,34 @@ def generar_pdf_resultado(intento):
             story.append(Spacer(1, 6))
     else:
         story.append(Paragraph("<b>¡Examen perfecto! Sin errores registrados.</b>", bold_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
+    if not REPORTLAB_DISPONIBLE:
+        return None
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    story = []
+
+    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#1A365D"), spaceAfter=10)
+    sub_style = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=11, leading=14, textColor=colors.HexColor("#4A5568"), spaceAfter=15)
+    norm_style = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor("#2D3748"))
+
+    story.append(Paragraph("📄 Informe Profesional de Evaluación IA", titulo_style))
+    story.append(Paragraph(f"<b>Trabajador:</b> {empleado_nombre} | <b>Año de Evaluación:</b> {anio}", sub_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#CBD5E0"), spaceAfter=15))
+
+    # Formatear párrafos del informe
+    lineas = texto_informe.split('\n')
+    for linea in lineas:
+        if linea.strip():
+            story.append(Paragraph(linea.strip(), norm_style))
+            story.append(Spacer(1, 6))
 
     doc.build(story)
     buffer.seek(0)
@@ -827,6 +915,17 @@ else:
                 with tab_global:
                     st.info("El Examen Global seleccionará **15 preguntas aleatorias** de entre todos los manuales.")
                     
+                    # Cargar información configurable de la base de datos para el Examen Global
+                    texto_global_bd = TEXTO_EXAMEN_GLOBAL_INFO
+                    try:
+                        res_info_g = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "info_examen_global").limit(1).execute()
+                        if res_info_g.data and res_info_g.data[0].get("prompt_texto"):
+                            texto_global_bd = res_info_g.data[0]["prompt_texto"]
+                    except Exception:
+                        pass
+
+                    st.markdown(f"**Condiciones del Examen Global:**\n> {texto_global_bd}")
+                    
                     ya_hecho_global = "GLOBAL COMPLETO" in dict_realizados
                     permitido_global = autorizaciones_set.__contains__("GLOBAL COMPLETO")
                     bloqueado_global = ya_hecho_global and not permitido_global and not st.session_state.es_croma
@@ -956,6 +1055,40 @@ else:
                             st.markdown("---")
                             st.markdown(f"#### 📊 Estadísticas por Tema/Subíndice para {nombre_apt}")
                             
+                            # Obtener todos los temas posibles del banco del examen actual
+                            banco_actual_m = ex_obj.get("preguntas_json", [])
+                            temas_totales_banco = set()
+                            if isinstance(banco_actual_m, list):
+                                for p_b in banco_actual_m:
+                                    if isinstance(p_b, dict):
+                                        temas_totales_banco.add(str(p_b.get("subindice", "General")).strip())
+
+                            # 1. Gráfica lineal del ÚLTIMO EXAMEN
+                            ultimo_intento = intentos_m[0]
+                            resp_ult = ultimo_intento.get("respuestas_usuario", [])
+                            if resp_ult:
+                                st.markdown("##### 📈 Rendimiento del Último Examen Realizado (Gráfica Lineal)")
+                                df_ult = pd.DataFrame(resp_ult)
+                                if "subindice" not in df_ult.columns:
+                                    df_ult["subindice"] = df_ult.get("categoria", "General")
+                                df_ult["subindice"] = df_ult["subindice"].fillna("General")
+
+                                ult_resumen = df_ult.groupby("subindice").agg(
+                                    Aciertos=('es_correcta', lambda x: sum(x == True)),
+                                    Total=('es_correcta', 'count')
+                                ).reset_index()
+                                ult_resumen["% Aciertos"] = (ult_resumen["Aciertos"] / ult_resumen["Total"] * 100).round(2)
+
+                                # Incluir temas sin preguntas en el último examen con 0%
+                                for t_b in temas_totales_banco:
+                                    if t_b not in ult_resumen["subindice"].values:
+                                        ult_resumen = pd.concat([ult_resumen, pd.DataFrame([{
+                                            "subindice": t_b, "Aciertos": 0, "Total": 0, "% Aciertos": 0.0
+                                        }])], ignore_index=True)
+
+                                st.line_chart(ult_resumen.set_index("subindice")["% Aciertos"], use_container_width=True)
+
+                            # 2. Histórico Global acumulado
                             todas_resp_m = []
                             for it_m in intentos_m:
                                 resp_usr = it_m.get("respuestas_usuario", [])
@@ -963,6 +1096,7 @@ else:
                                     todas_resp_m.extend(resp_usr)
 
                             if todas_resp_m:
+                                st.markdown("##### 📊 Histórico Acumulado por Tema/Subíndice")
                                 df_resp_m = pd.DataFrame(todas_resp_m)
                                 if "subindice" not in df_resp_m.columns:
                                     df_resp_m["subindice"] = df_resp_m.get("categoria", "General")
@@ -974,7 +1108,15 @@ else:
                                     Total=('es_correcta', 'count')
                                 ).reset_index()
 
-                                resumen_cat_m["% Aciertos"] = (resumen_cat_m["Aciertos"] / resumen_cat_m["Total"] * 100).round(2)
+                                # Incluir temas sin preguntas formuladas aún
+                                for t_b in temas_totales_banco:
+                                    if t_b not in resumen_cat_m["subindice"].values:
+                                        resumen_cat_m = pd.concat([resumen_cat_m, pd.DataFrame([{
+                                            "subindice": t_b, "Aciertos": 0, "Fallos_o_Blanco": 0, "Total": 0
+                                        }])], ignore_index=True)
+
+                                resumen_cat_m["% Aciertos"] = (resumen_cat_m["Aciertos"] / resumen_cat_m["Total"].replace(0, 1) * 100).round(2)
+                                resumen_cat_m.loc[resumen_cat_m["Total"] == 0, "% Aciertos"] = 0.0
 
                                 st.bar_chart(
                                     resumen_cat_m.set_index("subindice")[["Aciertos", "Fallos_o_Blanco"]], 
@@ -1085,7 +1227,17 @@ else:
                         .limit(1).execute()
                     
                     if res_mi_an.data:
-                        st.info(res_mi_an.data[0]["analisis_texto"])
+                        txt_eval = res_mi_an.data[0]["analisis_texto"]
+                        st.info(txt_eval)
+                        pdf_eval_usr = generar_pdf_evaluacion_ia(st.session_state.user_nombre, txt_eval, anio_actual_int)
+                        if pdf_eval_usr:
+                            st.download_button(
+                                label="📄 Exportar Informe IA en PDF",
+                                data=pdf_eval_usr,
+                                file_name=f"Informe_Evaluacion_IA_{st.session_state.user_nombre.replace(' ', '_')}_{anio_actual_int}.pdf",
+                                mime="application/pdf",
+                                key="pdf_eval_usr_btn"
+                            )
                     else:
                         st.caption("Aún no hay un informe cualitativo generado para ti en el ciclo actual.")
                 else:
@@ -1343,8 +1495,9 @@ else:
                     res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                     emp_list_select = res_emp_activos_todos.data if res_emp_activos_todos.data else []
                     
-                    # Incluir a todos los trabajadores en el selector
-                    nombres_trabajadores = sorted(list(set([e["nombre"] for e in emp_list_select] + list(df_all["nombre_empleado"].dropna().unique()))))
+                    # Incluir opción de "Todos los trabajadores activos"
+                    nombres_activos_solamente = sorted(list(set([e["nombre"] for e in emp_list_select])))
+                    nombres_trabajadores = ["Todos los trabajadores activos"] + nombres_activos_solamente
                     
                     col_f_emp, col_f_ex = st.columns(2)
                     with col_f_emp:
@@ -1354,7 +1507,11 @@ else:
                         examen_seleccionado_filtro = st.selectbox("📘 Selecciona un examen/manual:", examenes_unicos_hist)
 
                     # Filtro por trabajador, examen y por año
-                    df_emp_tot = df_all[df_all["nombre_empleado"].str.strip().str.lower() == emp_seleccionado_nombre.strip().lower()]
+                    if emp_seleccionado_nombre == "Todos los trabajadores activos":
+                        df_emp_tot = df_all[df_all["nombre_empleado"].isin(nombres_activos_solamente)]
+                    else:
+                        df_emp_tot = df_all[df_all["nombre_empleado"].str.strip().str.lower() == emp_seleccionado_nombre.strip().lower()]
+
                     if examen_seleccionado_filtro != "Todos":
                         df_emp_tot = df_emp_tot[df_emp_tot["apartado"] == examen_seleccionado_filtro]
 
@@ -1383,7 +1540,7 @@ else:
                         st.dataframe(df_resumen_metricas, use_container_width=True, hide_index=True)
                         st.line_chart(df_emp_tot, x="fecha_inicio", y="nota")
                     else:
-                        st.info(f"El trabajador **{emp_seleccionado_nombre}** no registra exámenes para la selección aplicada en el año **{anio_metrica_sel}**.")
+                        st.info(f"No se registran exámenes para la selección aplicada en el año **{anio_metrica_sel}**.")
 
                     st.markdown("---")
                     st.markdown("### 📄 Informe Profesional de Evaluación IA")
@@ -1438,6 +1595,20 @@ else:
                     st.markdown("#### 📝 Resultado de la Evaluación IA:")
                     if st.session_state.eval_resultado_cache:
                         st.info(st.session_state.eval_resultado_cache)
+                        
+                        pdf_bytes_eval = generar_pdf_evaluacion_ia(
+                            emp_seleccionado_nombre, 
+                            st.session_state.eval_resultado_cache, 
+                            anio_metrica_sel
+                        )
+                        if pdf_bytes_eval:
+                            st.download_button(
+                                label="📄 Exportar Informe Profesional IA en PDF",
+                                data=pdf_bytes_eval,
+                                file_name=f"Informe_Evaluacion_IA_{emp_seleccionado_nombre.replace(' ', '_')}_{anio_metrica_sel}.pdf",
+                                mime="application/pdf",
+                                key="btn_download_eval_pdf"
+                            )
                     else:
                         st.caption("🔒 El apartado de evaluación se encuentra desactivado hasta que pulses en 'Generar Informe de Evaluación'.")
 
@@ -1574,6 +1745,78 @@ else:
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
+                st.subheader("⚙️ Gestión de Empleados (Crear / Editar)")
+                
+                tab_emp_crear, tab_emp_editar = st.tabs(["➕ Crear Empleado", "✏️ Editar Empleado Existente"])
+                
+                with tab_emp_crear:
+                    with st.form("form_crear_empleado"):
+                        st.markdown("##### 👤 Nuevo Empleado")
+                        nuevo_nombre = st.text_input("Nombre de Empleado (campo: nombre):*")
+                        nuevo_pass = st.text_input("Clave de Acceso (campo: password_hash):*", type="password")
+                        es_admin_croma_val = st.checkbox("Nivel Administrador (campo: es_admin_croma)", value=False)
+                        activo_val = st.checkbox("Activo (campo: activo)", value=True)
+                        
+                        btn_crear_emp = st.form_submit_button("💾 Guardar Nuevo Empleado")
+                        
+                        if btn_crear_emp:
+                            if not nuevo_nombre.strip() or not nuevo_pass.strip():
+                                st.error("❌ El nombre y la clave de acceso son obligatorios.")
+                            else:
+                                try:
+                                    supabase.table("empleados").insert({
+                                        "nombre": nuevo_nombre.strip(),
+                                        "password_hash": nuevo_pass.strip(),
+                                        "es_admin_croma": es_admin_croma_val,
+                                        "activo": activo_val
+                                    }).execute()
+                                    st.success(f"✅ Empleado '{nuevo_nombre.strip()}' creado correctamente.")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as err_e_c:
+                                    st.error(f"❌ Error al crear el empleado: {err_e_c}")
+
+                with tab_emp_editar:
+                    try:
+                        res_emp_todos_e = supabase.table("empleados").select("*").order("nombre").execute()
+                        todos_emp_edit = res_emp_todos_e.data if res_emp_todos_e.data else []
+                    except Exception:
+                        todos_emp_edit = []
+
+                    if todos_emp_edit:
+                        map_emp_edit = {f"{e['nombre']} (ID: {e['id']})": e for e in todos_emp_edit}
+                        emp_sel_nom_edit = st.selectbox("Selecciona un empleado para editar:", list(map_emp_edit.keys()))
+                        emp_obj_edit = map_emp_edit[emp_sel_nom_edit]
+
+                        with st.form(key=f"form_edit_emp_{emp_obj_edit['id']}"):
+                            st.markdown(f"##### ✏️ Modificar datos de {emp_obj_edit['nombre']}")
+                            edit_nombre = st.text_input("Nombre de Empleado:", value=emp_obj_edit.get("nombre", ""))
+                            edit_pass = st.text_input("Clave de Acceso:", value=emp_obj_edit.get("password_hash", ""), type="password")
+                            edit_es_admin = st.checkbox("Nivel Administrador", value=emp_obj_edit.get("es_admin_croma", False))
+                            edit_activo = st.checkbox("Activo", value=emp_obj_edit.get("activo", True))
+
+                            btn_update_emp = st.form_submit_button("💾 Actualizar Datos del Empleado")
+
+                            if btn_update_emp:
+                                if not edit_nombre.strip() or not edit_pass.strip():
+                                    st.error("❌ El nombre y la clave de acceso son obligatorios.")
+                                else:
+                                    try:
+                                        supabase.table("empleados").update({
+                                            "nombre": edit_nombre.strip(),
+                                            "password_hash": edit_pass.strip(),
+                                            "es_admin_croma": edit_es_admin,
+                                            "activo": edit_activo
+                                        }).eq("id", emp_obj_edit["id"]).execute()
+                                        st.success("✅ Datos del empleado actualizados correctamente.")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    except Exception as err_e_u:
+                                        st.error(f"❌ Error actualizando empleado: {err_e_u}")
+                    else:
+                        st.info("No se encontraron empleados en la base de datos.")
+
+                st.markdown("---")
                 st.subheader("⚙️ Configuración de IA y Modelos (SQL config_prompts)")
                 st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude.")
 
@@ -1585,7 +1828,18 @@ else:
                 except Exception:
                     config_prompt_actual = None
 
+                # Carga del prompt por defecto de examen desde la BD
+                cfg_prompt_examen = None
+                try:
+                    res_cfg_ex = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
+                    if res_cfg_ex.data:
+                        cfg_prompt_examen = res_cfg_ex.data[0]
+                except Exception:
+                    cfg_prompt_examen = None
+
                 p_def_val = config_prompt_actual.get("prompt_texto") if config_prompt_actual else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
+                p_def_ex_val = cfg_prompt_examen.get("prompt_texto") if cfg_prompt_examen else PROMPT_DEFECTO_EXAMEN
+
                 g_def_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro") if config_prompt_actual else "gemini-2.5-pro"
                 c_def_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022"
 
@@ -1600,13 +1854,21 @@ else:
                         g_str = ",".join([m for m in lista_nuevos if "gemini" in m.lower()])
                         c_str = ",".join([m for m in lista_nuevos if "claude" in m.lower()])
                         try:
-                            # Se incluye prompt_texto para asegurar coincidencia con el esquema y evitar error 42P10
-                            supabase.table("config_prompts").upsert({
-                                "nombre": "evaluacion_empleado",
-                                "prompt_texto": p_def_val,
-                                "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
-                                "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
-                            }, on_conflict="nombre").execute()
+                            # Se consultan y actualizan los registros de config_prompts usando update para evitar el error 42P10 de ON CONFLICT
+                            res_c1 = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
+                            if res_c1.data:
+                                supabase.table("config_prompts").update({
+                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
+                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
+                                }).eq("nombre", "evaluacion_empleado").execute()
+                            else:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": "evaluacion_empleado",
+                                    "prompt_texto": p_def_val,
+                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
+                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
+                                }).execute()
+
                             st.success("✅ Lista de modelos actualizada correctamente.")
                             time.sleep(1)
                             st.rerun()
@@ -1618,6 +1880,12 @@ else:
                         "Prompt por defecto (Informe Profesional de Evaluación IA):",
                         value=p_def_val,
                         height=100
+                    )
+
+                    prompt_ex_config = st.text_area(
+                        "Prompt por defecto (Tabla config_prompts para Examen - Cargar Manual):",
+                        value=p_def_ex_val,
+                        height=150
                     )
 
                     col_cfg1, col_cfg2 = st.columns(2)
@@ -1638,18 +1906,84 @@ else:
 
                     if btn_guardar_config:
                         try:
-                            supabase.table("config_prompts").upsert({
-                                "nombre": "evaluacion_empleado",
-                                "prompt_texto": prompt_eval_config.strip(),
-                                "modelo_gemini": modelo_gemini_config,
-                                "modelo_claude": modelo_claude_config
-                            }, on_conflict="nombre").execute()
+                            # 1. Actualizar evaluacion_empleado evadiendo error 42P10
+                            res_cfg1 = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
+                            if res_cfg1.data:
+                                supabase.table("config_prompts").update({
+                                    "prompt_texto": prompt_eval_config.strip(),
+                                    "modelo_gemini": modelo_gemini_config,
+                                    "modelo_claude": modelo_claude_config
+                                }).eq("nombre", "evaluacion_empleado").execute()
+                            else:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": "evaluacion_empleado",
+                                    "prompt_texto": prompt_eval_config.strip(),
+                                    "modelo_gemini": modelo_gemini_config,
+                                    "modelo_claude": modelo_claude_config
+                                }).execute()
+
+                            # 2. Actualizar prompt_examen evadiendo error 42P10
+                            res_cfg2 = supabase.table("config_prompts").select("id").eq("nombre", "prompt_examen").execute()
+                            if res_cfg2.data:
+                                supabase.table("config_prompts").update({
+                                    "prompt_texto": prompt_ex_config.strip(),
+                                    "modelo_gemini": modelo_gemini_config,
+                                    "modelo_claude": modelo_claude_config
+                                }).eq("nombre", "prompt_examen").execute()
+                            else:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": "prompt_examen",
+                                    "prompt_texto": prompt_ex_config.strip(),
+                                    "modelo_gemini": modelo_gemini_config,
+                                    "modelo_claude": modelo_claude_config
+                                }).execute()
 
                             st.success("✅ Configuración de prompts y versiones de IA actualizada en SQL correctamente.")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e_cfg:
                             st.error(f"❌ Error al guardar configuración: {e_cfg}")
+
+                st.markdown("---")
+
+                # CONFIGURACIÓN DEL TEXTO DEL EXAMEN GLOBAL
+                st.subheader("🌐 Configuración del Texto del Examen Global")
+                
+                texto_global_actual = TEXTO_EXAMEN_GLOBAL_INFO
+                try:
+                    res_tg = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "info_examen_global").limit(1).execute()
+                    if res_tg.data and res_tg.data[0].get("prompt_texto"):
+                        texto_global_actual = res_tg.data[0]["prompt_texto"]
+                except Exception:
+                    pass
+
+                with st.form("form_info_examen_global"):
+                    texto_global_input = st.text_area(
+                        "Texto explicativo/normativo para Examen Global (Se guarda en BD para registrar cambios):",
+                        value=texto_global_actual,
+                        height=100
+                    )
+                    btn_save_global_txt = st.form_submit_button("💾 Guardar Texto Examen Global en BD")
+
+                    if btn_save_global_txt:
+                        try:
+                            res_chk_g = supabase.table("config_prompts").select("id").eq("nombre", "info_examen_global").execute()
+                            if res_chk_g.data:
+                                supabase.table("config_prompts").update({
+                                    "prompt_texto": texto_global_input.strip()
+                                }).eq("nombre", "info_examen_global").execute()
+                            else:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": "info_examen_global",
+                                    "prompt_texto": texto_global_input.strip(),
+                                    "modelo_gemini": "gemini-2.5-pro",
+                                    "modelo_claude": "claude-3-5-sonnet-20241022"
+                                }).execute()
+                            st.success("✅ Texto para Examen Global actualizado en la base de datos.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as err_g_txt:
+                            st.error(f"❌ Error guardando texto del Examen Global: {err_g_txt}")
 
                 st.markdown("---")
                 st.subheader("🚫 Control Operativo y Deshabilitación (Año 2026)")
@@ -1885,24 +2219,32 @@ else:
                     archivo_pdf = st.file_uploader("Cargar PDF del Manual", type=["pdf"])
                     nombre_apartado = st.text_input("Nombre del Manual / Apartado (PDF)")
 
-                    # Carga del prompt memorizado en base de datos si existe
-                    prompt_inicial = p_def_val if p_def_val else PROMPT_DEFECTO
+                    # Carga del prompt memorizado de examen de la BD
+                    prompt_inicial = p_def_ex_val if p_def_ex_val else PROMPT_DEFECTO_EXAMEN
 
                     prompt_editable = st.text_area(
-                        "💬 Prompt de Generación (Editable):",
+                        "💬 Prompt de Generación de Examen por defecto (Editable):",
                         value=prompt_inicial,
                         height=200
                     )
 
-                    if st.button("💾 Guardar Prompt Memorizado en config_prompts"):
+                    if st.button("💾 Guardar Prompt Memorizado en config_prompts (prompt_examen)"):
                         try:
-                            supabase.table("config_prompts").upsert({
-                                "nombre": "evaluacion_empleado",
-                                "prompt_texto": prompt_editable.strip(),
-                                "modelo_gemini": g_def_val,
-                                "modelo_claude": c_def_val
-                            }, on_conflict="nombre").execute()
-                            st.success("✅ Prompt guardado y memorizado en la base de datos.")
+                            res_chk_ex = supabase.table("config_prompts").select("id").eq("nombre", "prompt_examen").execute()
+                            if res_chk_ex.data:
+                                supabase.table("config_prompts").update({
+                                    "prompt_texto": prompt_editable.strip(),
+                                    "modelo_gemini": g_def_val,
+                                    "modelo_claude": c_def_val
+                                }).eq("nombre", "prompt_examen").execute()
+                            else:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": "prompt_examen",
+                                    "prompt_texto": prompt_editable.strip(),
+                                    "modelo_gemini": g_def_val,
+                                    "modelo_claude": c_def_val
+                                }).execute()
+                            st.success("✅ Prompt de Examen guardado y memorizado en la base de datos.")
                         except Exception as e_p_sav:
                             st.error(f"Error memorizando el prompt: {e_p_sav}")
 
