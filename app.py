@@ -1476,7 +1476,7 @@ else:
                     )
                     
                     modelos_ia_opciones = obtener_modelos_ia_disponibles()
-                    modelo_cargador_sel = st.selectbox("🤖 Modelo de IA a utilizar:", opciones=modelos_ia_opciones, index=0)
+                    modelo_cargador_sel = st.selectbox("🤖 Modelo de IA a utilizar:", options=modelos_ia_opciones, index=0)
                     
                     btn_procesar_manual = st.form_submit_button("🚀 Procesar Documento y Guardar Examen", use_container_width=True)
 
