@@ -1774,13 +1774,13 @@ else:
                         height=200
                     )
 
-                        modelos_actuales = obtener_modelos_ia_disponibles()
+                    modelos_actuales = obtener_modelos_ia_disponibles()
 
-                        modelo_ia_eval = st.selectbox(
-                            "🤖 Seleccionar versión de IA a utilizar:",
-                            options=modelos_actuales,
-                            index=0
-                        )
+                    modelo_ia_eval = st.selectbox(
+                        "🤖 Seleccionar versión de IA a utilizar:",
+                        options=modelos_actuales,
+                        index=0
+                    )
 
 
                     btn_procesar_manual = st.button("🚀 Procesar y Generar Banco", use_container_width=True)
