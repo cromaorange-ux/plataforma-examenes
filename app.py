@@ -68,7 +68,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label {
-        background-color: #FFFFFF !important;
+        background-color: #FF11FF !important;
         padding: 14px 18px !important;
         border-radius: 8px !important;
         border: 2px solid #E2E8F0 !important;
@@ -95,7 +95,7 @@ st.markdown("""
         margin-bottom: 20px;
         line-height: 1.3;
         padding: 18px;
-        background-color: #FFFF00;
+        background-color: #111FFF;
         border-left: 6px solid #2B6CB0;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
@@ -114,7 +114,7 @@ st.markdown("""
     }
 
     .user-card {
-        background-color: #FFFFF1 !important;
+        background-color: #FFF11F !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
@@ -139,7 +139,7 @@ st.markdown("""
     /* Estilización de Botones en línea con motor.html */
     .stButton > button {
         background-color: #2B6CB0 !important;
-        color: #FFFFFF !important;
+        color: #FFF111 !important;
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
