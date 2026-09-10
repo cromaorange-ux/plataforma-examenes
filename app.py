@@ -43,7 +43,7 @@ st.markdown("""
     :root {
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
-        --background-color: #F7FAFC;
+        --background-color: #000000; /*probado
         --card-bg: #FFFFFF;
         --text-color: #2D3748;
         --border-radius: 12px;
@@ -115,7 +115,7 @@ st.markdown("""
 
     .user-card {
         background-color: #FFFFFF !important;
-        border: 1px solid #000000;
+        border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
         text-align: center;
