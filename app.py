@@ -43,7 +43,7 @@ st.markdown("""
     :root {
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
-        --background-color: #F7FAFC;
+        --background-color: #000000; # color de fondo amarillo F7FAFC
         --card-bg: #FFFFFF;
         --text-color: #2D3748;
         --border-radius: 12px;
