@@ -177,7 +177,7 @@ if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
         claude_client = None
 
 # ---------------------------------------------------------
-# FUNCIONES AUXILIARES DE TIEMPO Y CONFIGURACIÓN SQL
+# FUNCIONES AUXILIARES DE CONFIGURACIÓN Y SQL
 # ---------------------------------------------------------
 def obtener_tiempo_pregunta_config():
     try:
@@ -205,6 +205,36 @@ def guardar_tiempo_pregunta_config(nuevos_segundos):
         return True
     except Exception as e:
         st.error(f"Error al guardar tiempo de pregunta: {e}")
+        return False
+
+def obtener_num_preguntas_config(tipo_examen="global"):
+    nombre_key = f"num_preguntas_{tipo_examen}"
+    try:
+        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", nombre_key).limit(1).execute()
+        if res.data and res.data[0].get("prompt_texto"):
+            return int(res.data[0]["prompt_texto"])
+    except Exception:
+        pass
+    return 15
+
+def guardar_num_preguntas_config(tipo_examen, cantidad):
+    nombre_key = f"num_preguntas_{tipo_examen}"
+    try:
+        res = supabase.table("config_prompts").select("id").eq("nombre", nombre_key).execute()
+        if res.data:
+            supabase.table("config_prompts").update({
+                "prompt_texto": str(cantidad)
+            }).eq("nombre", nombre_key).execute()
+        else:
+            supabase.table("config_prompts").insert({
+                "nombre": nombre_key,
+                "prompt_texto": str(cantidad),
+                "modelo_gemini": "gemini-2.5-pro",
+                "modelo_claude": "claude-3-5-sonnet-20241022"
+            }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar el número de preguntas para {tipo_examen}: {e}")
         return False
 
 # ---------------------------------------------------------
@@ -248,10 +278,6 @@ if "apartado_actual" not in st.session_state:
     st.session_state.apartado_actual = ""
 if "sobrepaso_tiempo_global" not in st.session_state:
     st.session_state.sobrepaso_tiempo_global = False
-if "num_preguntas_global" not in st.session_state:
-    st.session_state.num_preguntas_global = 15
-if "num_preguntas_manual" not in st.session_state:
-    st.session_state.num_preguntas_manual = 15
 
 if "comodines_restantes" not in st.session_state:
     st.session_state.comodines_restantes = 3
@@ -977,15 +1003,8 @@ else:
                 tab_global, tab_manual = st.tabs(["🌐 Examen Global", "📘 Examen por Manual"])
                 
                 with tab_global:
-                    st.number_input(
-                        "Número de preguntas para el Examen Global:",
-                        min_value=1,
-                        max_value=100,
-                        value=st.session_state.num_preguntas_global,
-                        step=1,
-                        key="num_preguntas_global"
-                    )
-                    st.info(f"El Examen Global seleccionará **{st.session_state.num_preguntas_global} preguntas aleatorias** de entre todos los manuales.")
+                    num_p_global = obtener_num_preguntas_config("global")
+                    st.info(f"El Examen Global seleccionará **{num_p_global} preguntas aleatorias** de entre todos los manuales.")
                     
                     texto_global_bd = TEXTO_EXAMEN_GLOBAL_INFO
                     try:
@@ -1036,7 +1055,7 @@ else:
                                                 "tipo": "teorica"
                                             })
                         
-                        preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_global, st.session_state.num_preguntas_global)
+                        preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_global, num_p_global)
                         
                         st.session_state.examen_id = None
                         st.session_state.apartado_actual = "GLOBAL COMPLETO"
@@ -1056,14 +1075,8 @@ else:
 
                 with tab_manual:
                     st.subheader("Selecciona el Manual para la Evaluación")
-                    st.number_input(
-                        "Número de preguntas para el Examen por Manual:",
-                        min_value=1,
-                        max_value=100,
-                        value=st.session_state.num_preguntas_manual,
-                        step=1,
-                        key="num_preguntas_manual"
-                    )
+                    num_p_manual = obtener_num_preguntas_config("manual")
+                    
                     manual_nombres = [ex['apartado'] for ex in examenes_disponibles]
                     manual_sel_nom = st.selectbox("Selecciona un manual:", manual_nombres, key="sel_manual_eval")
                     ex_obj = next((ex for ex in examenes_disponibles if ex['apartado'] == manual_sel_nom), None)
@@ -1071,7 +1084,7 @@ else:
                     if ex_obj:
                         nombre_apt = ex_obj['apartado']
                         num_p_totales = len(ex_obj.get("preguntas_json", [])) if isinstance(ex_obj.get("preguntas_json"), list) else 0
-                        st.info(f"📊 **Información del Manual:** Se han generado un total de **{num_p_totales} preguntas** para este examen.")
+                        st.info(f"📊 **Información del Manual:** Se han generado un total de **{num_p_totales} preguntas** para este manual. En el examen se presentarán **{num_p_manual} preguntas**.")
 
                         ya_hecho_manual = nombre_apt in dict_realizados
                         permitido_manual = autorizaciones_set.__contains__(nombre_apt)
@@ -1111,7 +1124,7 @@ else:
                                                 "tipo": "teorica"
                                             })
                             
-                            preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_manual, st.session_state.num_preguntas_manual)
+                            preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_manual, num_p_manual)
                             
                             st.session_state.examen_id = ex_obj["id"]
                             st.session_state.apartado_actual = nombre_apt
@@ -1936,23 +1949,53 @@ else:
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
-                st.subheader("⏱️ Configuración del Tiempo por Pregunta (Base de Datos)")
+                st.subheader("⚙️ Configuración Global de Parámetros de Examen (Base de Datos)")
+                st.caption("Solo los administradores registrados pueden modificar estos valores. Se sincronizan directamente en la base de datos Supabase.")
                 
                 tiempo_actual_db = obtener_tiempo_pregunta_config()
-                with st.form("form_tiempo_pregunta"):
+                num_p_global_actual = obtener_num_preguntas_config("global")
+                num_p_manual_actual = obtener_num_preguntas_config("manual")
+
+                with st.form("form_config_examenes"):
+                    st.markdown("##### ⏱️ Configuración del Tiempo por Pregunta")
                     nuevo_tiempo_inp = st.number_input(
                         "Tiempo asignado por pregunta (segundos):",
                         min_value=5,
                         max_value=300,
                         value=tiempo_actual_db,
                         step=5,
-                        help="Por defecto son 45 segundos. Este cambio se sincroniza directamente en la base de datos."
+                        help="Tiempo por defecto para responder cada pregunta."
                     )
-                    btn_save_tiempo = st.form_submit_button("💾 Guardar Tiempo en Base de Datos")
                     
-                    if btn_save_tiempo:
-                        if guardar_tiempo_pregunta_config(nuevo_tiempo_inp):
-                            st.success(f"✅ Tiempo por pregunta actualizado a {nuevo_tiempo_inp} segundos.")
+                    st.markdown("---")
+                    st.markdown("##### 🔢 Cantidad de Preguntas por Modalidad")
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        nuevo_num_global = st.number_input(
+                            "Número de preguntas para Examen Global:",
+                            min_value=1,
+                            max_value=100,
+                            value=num_p_global_actual,
+                            step=1
+                        )
+                    with col_p2:
+                        nuevo_num_manual = st.number_input(
+                            "Número de preguntas para Examen por Manual:",
+                            min_value=1,
+                            max_value=100,
+                            value=num_p_manual_actual,
+                            step=1
+                        )
+
+                    btn_save_config = st.form_submit_button("💾 Guardar Configuración de Exámenes")
+                    
+                    if btn_save_config:
+                        ok_tiempo = guardar_tiempo_pregunta_config(nuevo_tiempo_inp)
+                        ok_global = guardar_num_preguntas_config("global", nuevo_num_global)
+                        ok_manual = guardar_num_preguntas_config("manual", nuevo_num_manual)
+                        
+                        if ok_tiempo and ok_global and ok_manual:
+                            st.success("✅ Configuración de exámenes actualizada correctamente en la base de datos.")
                             time.sleep(1)
                             st.rerun()
 
