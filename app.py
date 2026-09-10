@@ -84,7 +84,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label:hover {
-        background-color: #EDF2F7 !important;
+        background-color: #000000 !important; /* prueba#EDF2F7
         border-color: #2B6CB0 !important;
     }
 
@@ -540,7 +540,7 @@ def generar_pdf_resultado(intento):
     ]
     t = Table(data_res, colWidths=[150, 350])
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#000000")), #prueba
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F7FAFC")), #prueba F7FAFC
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
         ('PADDING', (0,0), (-1,-1), 6),
     ]))
