@@ -223,12 +223,18 @@ if "tiempo_inicio_pregunta" not in st.session_state:
     st.session_state.tiempo_inicio_pregunta = None
 if "tiempo_inicio_examen" not in st.session_state:
     st.session_state.tiempo_inicio_examen = None
+if "tiempo_inicio_revision" not in st.session_state:
+    st.session_state.tiempo_inicio_revision = None
 if "examen_id" not in st.session_state:
     st.session_state.examen_id = None
 if "apartado_actual" not in st.session_state:
     st.session_state.apartado_actual = ""
 if "sobrepaso_tiempo_global" not in st.session_state:
     st.session_state.sobrepaso_tiempo_global = False
+if "num_preguntas_global" not in st.session_state:
+    st.session_state.num_preguntas_global = 15
+if "num_preguntas_manual" not in st.session_state:
+    st.session_state.num_preguntas_manual = 15
 
 if "comodines_restantes" not in st.session_state:
     st.session_state.comodines_restantes = 3
@@ -444,7 +450,7 @@ def normalizar_pregunta_json(item):
         "tipo": item_normalizado.get("tipo", "teorica")
     }
     
-def seleccionar_15_preguntas(banco_completo):
+def seleccionar_15_preguntas(banco_completo, num_preguntas=15):
     if not banco_completo:
         return []
 
@@ -457,7 +463,7 @@ def seleccionar_15_preguntas(banco_completo):
 
     num_temas = len(temas_dict)
     
-    if num_temas * 2 > NUM_PREGUNTAS_EXAMEN:
+    if num_temas * 2 > num_preguntas:
         cupo_por_tema = 1
     else:
         cupo_por_tema = 2
@@ -468,13 +474,13 @@ def seleccionar_15_preguntas(banco_completo):
         sample_n = min(len(pregs), cupo_por_tema)
         seleccionadas.extend(random.sample(pregs, sample_n))
 
-    if len(seleccionadas) < NUM_PREGUNTAS_EXAMEN and len(banco_completo) > len(seleccionadas):
+    if len(seleccionadas) < num_preguntas and len(banco_completo) > len(seleccionadas):
         restantes = [p for p in banco_completo if p not in seleccionadas]
-        faltantes = min(NUM_PREGUNTAS_EXAMEN - len(seleccionadas), len(restantes))
+        faltantes = min(num_preguntas - len(seleccionadas), len(restantes))
         seleccionadas.extend(random.sample(restantes, faltantes))
 
-    if len(seleccionadas) > NUM_PREGUNTAS_EXAMEN:
-        seleccionadas = random.sample(seleccionadas, NUM_PREGUNTAS_EXAMEN)
+    if len(seleccionadas) > num_preguntas:
+        seleccionadas = random.sample(seleccionadas, num_preguntas)
 
     seleccionadas.sort(key=lambda x: str(x.get("subindice", "General")).lower())
     return seleccionadas
@@ -568,367 +574,6 @@ def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
     return buffer.getvalue()
 
 # ---------------------------------------------------------
-# GENERACIÓN Y RENDERIZADO MOTOR HTML (VERSIÓN 1)
-# ---------------------------------------------------------
-def registrar_intento_version1(respuestas_usuario, apartado, examen_id):
-    if not respuestas_usuario:
-        return False, "No se recibieron respuestas."
-        
-    total_p = len(respuestas_usuario)
-    correctas = sum(1 for r in respuestas_usuario if r.get("es_correcta"))
-    porcentaje = round((correctas / total_p) * 100, 2)
-    nota_final = round((correctas / total_p) * 10, 2)
-    
-    duracion_total = total_p * TIEMPO_LIMITE_PREGUNTA
-    tiempo_limite_total = duracion_total
-    tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    tiempo_ini_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    
-    try:
-        id_examen_validado = int(examen_id) if examen_id and str(examen_id).isdigit() and int(examen_id) > 0 else None
-
-        registro_intento = {
-            "empleado_id": st.session_state.user_id,
-            "nombre_empleado": st.session_state.user_nombre,
-            "examen_id": id_examen_validado,
-            "apartado": apartado,
-            "nota": nota_final,
-            "porcentaje_obtenido": porcentaje,
-            "respuestas_usuario": respuestas_usuario,
-            "fecha_inicio": tiempo_ini_examen,
-            "fecha_fin": tiempo_fin_examen,
-            "tiempo_total_segundos": duracion_total,
-            "tiempo_limite": tiempo_limite_total,
-            "sobrepasado_tiempo": False,
-            "activo": True
-        }
-        
-        supabase.table("intentos_examen").insert(registro_intento).execute()
-
-        try:
-            supabase.table("autorizaciones_examen").delete()\
-                .eq("empleado_id", st.session_state.user_id)\
-                .eq("apartado", apartado).execute()
-        except Exception:
-            pass
-            
-        return True, f"Nota final: {nota_final}/10 ({porcentaje}%)"
-    except Exception as e:
-        return False, str(e)
-
-def renderizar_motor_html(preguntas_seleccionadas, apartado, examen_id, tiempo_segundos_por_pregunta):
-    json_preguntas = json.dumps(preguntas_seleccionadas, ensure_ascii=False)
-    num_preguntas = len(preguntas_seleccionadas)
-    tiempo_total_examen = num_preguntas * tiempo_segundos_por_pregunta
-    
-    html_code = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background-color: #F7FAFC;
-                color: #2D3748;
-                margin: 0;
-                padding: 20px;
-            }}
-            .card {{
-                background: #FFFFFF;
-                border-radius: 12px;
-                padding: 24px;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-                max-width: 800px;
-                margin: 0 auto;
-            }}
-            .header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-bottom: 2px solid #EDF2F7;
-                padding-bottom: 12px;
-                margin-bottom: 20px;
-            }}
-            .timers-container {{
-                text-align: right;
-            }}
-            .timer {{
-                font-size: 18px;
-                font-weight: bold;
-                color: #E53E3E;
-                background: #FFF5F5;
-                padding: 4px 12px;
-                border-radius: 15px;
-                border: 1px solid #FEB2B2;
-                display: inline-block;
-                margin-left: 5px;
-            }}
-            .timer-total {{
-                font-size: 14px;
-                font-weight: 600;
-                color: #2B6CB0;
-                background: #EBF8FF;
-                padding: 4px 10px;
-                border-radius: 12px;
-                border: 1px solid #90CDF4;
-                display: inline-block;
-            }}
-            .meta-info {{
-                margin-bottom: 10px;
-                font-size: 14px;
-                color: #4A5568;
-            }}
-            .categoria-tag {{
-                background: #EDF2F7;
-                color: #2D3748;
-                padding: 3px 8px;
-                border-radius: 4px;
-                font-weight: 600;
-                margin-right: 8px;
-            }}
-            .pregunta {{
-                font-size: 20px;
-                font-weight: 600;
-                color: #1A365D;
-                margin-bottom: 20px;
-            }}
-            .opcion-btn {{
-                display: block;
-                width: 100%;
-                text-align: left;
-                background: #FFFFFF;
-                border: 2px solid #CBD5E0;
-                border-radius: 8px;
-                padding: 12px 18px;
-                margin-bottom: 10px;
-                font-size: 16px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.2s;
-            }}
-            .opcion-btn:hover {{
-                background: #EDF2F7;
-                border-color: #2B6CB0;
-            }}
-            .opcion-btn.selected {{
-                background: #EBF8FF;
-                border-color: #3182CE;
-                color: #2B6CB0;
-            }}
-            .difficulty-tag {{
-                font-size: 12px;
-                text-transform: uppercase;
-                background: #E2E8F0;
-                padding: 2px 8px;
-                border-radius: 4px;
-                font-weight: bold;
-            }}
-            .nav-btns {{
-                display: flex;
-                justify-content: space-between;
-                margin-top: 20px;
-            }}
-            .btn {{
-                background: #2B6CB0;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-                cursor: pointer;
-            }}
-            .btn:disabled {{
-                background: #A0AEC0;
-                cursor: not-allowed;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="card" id="examen-card">
-            <div class="header">
-                <div>
-                    <span id="p-index" style="font-weight: bold; font-size: 18px;">Pregunta 1</span>
-                    <span id="p-difficulty" class="difficulty-tag">difícil</span>
-                </div>
-                <div class="timers-container">
-                    <div class="timer-total" id="timer-total-display">Tiempo Total: 00:00</div>
-                    <div class="timer" id="timer-display">{tiempo_segundos_por_pregunta}s</div>
-                </div>
-            </div>
-            
-            <div class="meta-info">
-                <span>📂 Categoría/Tema: </span><span id="p-categoria" class="categoria-tag">General</span>
-            </div>
-
-            <div class="pregunta" id="pregunta-texto">Cargando...</div>
-            <div id="opciones-container"></div>
-            
-            <div class="nav-btns">
-                <button class="btn" id="btn-pista" onclick="mostrarPista()">💡 Pedir Pista (<span id="comodines-count">3</span> le quedan)</button>
-                <button class="btn" id="btn-sig" onclick="siguientePregunta()">Siguiente ➔</button>
-            </div>
-            <div id="pista-text" style="margin-top: 15px; font-style: italic; color: #4A5568; display: none;"></div>
-        </div>
-
-        <script>
-            const bancoPreguntas = {json_preguntas};
-            const tiempoPorPregunta = {tiempo_segundos_por_pregunta};
-            let tiempoGlobalRestante = {tiempo_total_examen};
-            let currentIndex = 0;
-            let timerInterval;
-            let globalTimerInterval;
-            let tiempoRestante = tiempoPorPregunta;
-            let respuestasUsuario = [];
-            let comodinesRestantes = 3;
-            let opcionSeleccionada = null;
-
-            function formatTime(seconds) {{
-                const m = Math.floor(seconds / 60);
-                const s = seconds % 60;
-                return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-            }}
-
-            function startGlobalTimer() {{
-                globalTimerInterval = setInterval(() => {{
-                    tiempoGlobalRestante--;
-                    document.getElementById("timer-total-display").innerText = "Tiempo Total: " + formatTime(Math.max(0, tiempoGlobalRestante));
-                    if (tiempoGlobalRestante <= 0) {{
-                        clearInterval(globalTimerInterval);
-                        finalizarExamen();
-                    }}
-                }}, 1000);
-            }}
-
-            function renderPregunta() {{
-                clearInterval(timerInterval);
-                tiempoRestante = tiempoPorPregunta;
-                opcionSeleccionada = null;
-                document.getElementById("timer-display").innerText = tiempoRestante + "s";
-                document.getElementById("pista-text").style.display = "none";
-                
-                if (currentIndex >= bancoPreguntas.length) {{
-                    finalizarExamen();
-                    return;
-                }}
-
-                const p = bancoPreguntas[currentIndex];
-                document.getElementById("p-index").innerText = "Pregunta " + (currentIndex + 1) + " de " + bancoPreguntas.length;
-                document.getElementById("p-difficulty").innerText = p.dificultad || "difícil";
-                document.getElementById("p-categoria").innerText = p.subindice || p.categoria || "General";
-                document.getElementById("pregunta-texto").innerText = p.pregunta;
-                document.getElementById("comodines-count").innerText = comodinesRestantes;
-
-                const container = document.getElementById("opciones-container");
-                container.innerHTML = "";
-
-                p.opciones_barajadas.forEach((op) => {{
-                    const btn = document.createElement("button");
-                    btn.className = "opcion-btn";
-                    btn.innerText = op;
-                    btn.onclick = () => seleccionarOpcion(op, btn);
-                    container.appendChild(btn);
-                }});
-
-                timerInterval = setInterval(() => {{
-                    tiempoRestante--;
-                    document.getElementById("timer-display").innerText = tiempoRestante + "s";
-                    if (tiempoRestante <= 0) {{
-                        clearInterval(timerInterval);
-                        siguientePregunta();
-                    }}
-                }}, 1000);
-            }}
-
-            function seleccionarOpcion(op, element) {{
-                opcionSeleccionada = op;
-                const buttons = document.querySelectorAll(".opcion-btn");
-                buttons.forEach(b => b.classList.remove("selected"));
-                element.classList.add("selected");
-            }}
-
-            function mostrarPista() {{
-                if (comodinesRestantes <= 0) {{
-                    alert("Has agotado todos tus comodines disponibles.");
-                    return;
-                }}
-                const p = bancoPreguntas[currentIndex];
-                const pt = document.getElementById("pista-text");
-                pt.innerText = "💡 Pista: " + (p.pista || "Analiza detenidamente las opciones.");
-                pt.style.display = "block";
-                comodinesRestantes--;
-                document.getElementById("comodines-count").innerText = comodinesRestantes;
-            }}
-
-            function siguientePregunta() {{
-                const p = bancoPreguntas[currentIndex];
-                const optFinal = opcionSeleccionada || "En blanco (Tiempo Agotado)";
-                const esCorr = (optFinal === p.respuesta_correcta_texto);
-                
-                respuestasUsuario.push({{
-                    idx_pregunta: currentIndex,
-                    pregunta: p.pregunta,
-                    subindice: p.subindice || "General",
-                    opcion_elegida: optFinal,
-                    respuesta_correcta_texto: p.respuesta_correcta_texto,
-                    opciones_posibles: p.opciones_barajadas,
-                    es_correcta: esCorr,
-                    dificultad: p.dificultad || "difícil"
-                }});
-
-                currentIndex++;
-                renderPregunta();
-            }}
-
-            function finalizarExamen() {{
-                clearInterval(timerInterval);
-                clearInterval(globalTimerInterval);
-                document.getElementById("examen-card").innerHTML = "<h2>Examen Finalizado</h2><p>Procesando y registrando resultados...</p>";
-                
-                const dataToSend = {{
-                    respuestas: respuestasUsuario,
-                    apartado: '{apartado}',
-                    examen_id: '{examen_id}'
-                }};
-
-                const url = new URL(window.location.href);
-                url.searchParams.set('v1_data', JSON.stringify(dataToSend));
-                window.location.href = url.toString();
-            }}
-
-            startGlobalTimer();
-            renderPregunta();
-        </script>
-    </body>
-    </html>
-    """
-    st.components.v1.html(html_code, height=600, scrolling=True)
-
-# ---------------------------------------------------------
-# PROCESAMIENTO DE DATOS ENVIADOS DESDE VERSIÓN 1 (HTML)
-# ---------------------------------------------------------
-query_params = st.query_params
-if "v1_data" in query_params:
-    try:
-        data_v1 = json.loads(query_params["v1_data"])
-        st.query_params.clear()
-        
-        ok_v1, msg_v1 = registrar_intento_version1(
-            data_v1.get("respuestas", []),
-            data_v1.get("apartado", ""),
-            data_v1.get("examen_id")
-        )
-        if ok_v1:
-            st.success(f"🎉 Examen finalizado y registrado correctamente en SQL: {msg_v1}")
-        else:
-            st.error(f"❌ Error al registrar los resultados en SQL: {msg_v1}")
-        time.sleep(2)
-        st.rerun()
-    except Exception as e_v1:
-        st.error(f"Error al procesar la respuesta de la Versión 1: {e_v1}")
-        st.query_params.clear()
-
-# ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN
 # ---------------------------------------------------------
 @st.dialog("🔒 Confirmar Contraseña")
@@ -1005,8 +650,19 @@ else:
     
     # MODO REVISIÓN PREVIA A FINALIZAR
     if st.session_state.modo_revision:
+        if st.session_state.tiempo_inicio_revision is None:
+            st.session_state.tiempo_inicio_revision = time.time()
+            
+        tiempo_revision_transcurrido = int(time.time() - st.session_state.tiempo_inicio_revision)
+        tiempo_revision_restante = 300 - tiempo_revision_transcurrido
+        
         st.subheader("🔍 Revisión de Examen previa a la entrega final")
         st.info("Revisa tus respuestas e indica si deseas modificar alguna antes de la entrega definitiva.")
+
+        if tiempo_revision_restante > 0:
+            st.warning(f"⏱️ Tiempo restante de revisión: **{tiempo_revision_restante // 60:02d}:{tiempo_revision_restante % 60:02d} minutos**. Si se agota, el examen se finalizará automáticamente.")
+        else:
+            st.error("⏰ ¡Tiempo de revisión agotado (5 minutos)! Finalizando el examen automáticamente...")
 
         for i, p_item in enumerate(st.session_state.preguntas_seleccionadas):
             resp_actual = next((r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == i), None)
@@ -1019,7 +675,7 @@ else:
                 st.write(f"**Pregunta {i+1}:** {p_item['pregunta']}")
                 st.caption(f"Categoría/Tema: **{p_item.get('subindice', 'General')}** | Respuesta actual: **{texto_resp}** | ⏱️ Tiempo restante: **{t_restante} s** | Dificultad: **{p_item.get('dificultad', 'dificil')}**")
             with c2:
-                btn_bloqueado = (t_restante <= 0)
+                btn_bloqueado = (t_restante <= 0 or tiempo_revision_restante <= 0)
                 if st.button("Modificar", key=f"mod_rev_{i}", disabled=btn_bloqueado, use_container_width=True):
                     st.session_state.indice_pregunta = i
                     st.session_state.modo_revision = False
@@ -1030,7 +686,7 @@ else:
                     st.caption("🔒 Tiempo agotado")
             st.write("---")
 
-        if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
+        def finalizar_examen_revision():
             total_p = len(st.session_state.preguntas_seleccionadas)
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
             porcentaje = round((correctas / total_p) * 100, 2)
@@ -1081,8 +737,19 @@ else:
                 
             st.session_state.examen_activo = False
             st.session_state.modo_revision = False
+            st.session_state.tiempo_inicio_revision = None
+
+        if tiempo_revision_restante <= 0:
+            finalizar_examen_revision()
             if st.button("Volver al Inicio", use_container_width=True):
                 st.rerun()
+        else:
+            if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
+                finalizar_examen_revision()
+                if st.button("Volver al Inicio", use_container_width=True):
+                    st.rerun()
+            time.sleep(1)
+            st.rerun()
 
     # CUESTIONARIO ACTIVO (VERSIÓN 2 CORREGIDA)
     elif st.session_state.examen_activo:
@@ -1290,19 +957,19 @@ else:
 
             if examenes_disponibles:
                 st.subheader("📋 Seleccionar Modalidad")
-                
-                version_examen_sel = st.radio(
-                    "🔧 Selecciona la versión del motor de examen:",
-                    options=["Versión 1 (Documento motor.html adaptado)", "Versión 2 (Flujo app.py nativo)"],
-                    index=1,
-                    horizontal=True,
-                    key="radio_version_examen"
-                )
 
-                tab_global, tab_manual = st.tabs(["🌐 Examen Global (15 preguntas aleatorias)", "📘 Examen por Manual (15 preguntas)"])
+                tab_global, tab_manual = st.tabs(["🌐 Examen Global", "📘 Examen por Manual"])
                 
                 with tab_global:
-                    st.info("El Examen Global seleccionará **15 preguntas aleatorias** de entre todos los manuales.")
+                    st.number_input(
+                        "Número de preguntas para el Examen Global:",
+                        min_value=1,
+                        max_value=100,
+                        value=st.session_state.num_preguntas_global,
+                        step=1,
+                        key="num_preguntas_global"
+                    )
+                    st.info(f"El Examen Global seleccionará **{st.session_state.num_preguntas_global} preguntas aleatorias** de entre todos los manuales.")
                     
                     texto_global_bd = TEXTO_EXAMEN_GLOBAL_INFO
                     try:
@@ -1353,29 +1020,34 @@ else:
                                                 "tipo": "teorica"
                                             })
                         
-                        preguntas_preparadas = seleccionar_15_preguntas(banco_global)
+                        preguntas_preparadas = seleccionar_15_preguntas(banco_global, st.session_state.num_preguntas_global)
                         
-                        if "Versión 1" in version_examen_sel:
-                            st.markdown("### 🚀 Examen Global - Versión 1 (motor.html)")
-                            renderizar_motor_html(preguntas_preparadas, "GLOBAL COMPLETO", None, TIEMPO_LIMITE_PREGUNTA)
-                        else:
-                            st.session_state.examen_id = None
-                            st.session_state.apartado_actual = "GLOBAL COMPLETO"
-                            st.session_state.preguntas_seleccionadas = preguntas_preparadas
-                            st.session_state.indice_pregunta = 0
-                            st.session_state.respuestas_detalle = []
-                            st.session_state.tiempos_restantes_preguntas = {}
-                            st.session_state.modificando_desde_revision = False
-                            st.session_state.tiempo_inicio_examen = time.time()
-                            st.session_state.tiempo_inicio_pregunta = None
-                            st.session_state.comodines_restantes = 3
-                            st.session_state.pistas_activadas = set()
-                            st.session_state.sobrepaso_tiempo_global = False
-                            st.session_state.examen_activo = True
-                            st.rerun()
+                        st.session_state.examen_id = None
+                        st.session_state.apartado_actual = "GLOBAL COMPLETO"
+                        st.session_state.preguntas_seleccionadas = preguntas_preparadas
+                        st.session_state.indice_pregunta = 0
+                        st.session_state.respuestas_detalle = []
+                        st.session_state.tiempos_restantes_preguntas = {}
+                        st.session_state.modificando_desde_revision = False
+                        st.session_state.tiempo_inicio_examen = time.time()
+                        st.session_state.tiempo_inicio_pregunta = None
+                        st.session_state.tiempo_inicio_revision = None
+                        st.session_state.comodines_restantes = 3
+                        st.session_state.pistas_activadas = set()
+                        st.session_state.sobrepaso_tiempo_global = False
+                        st.session_state.examen_activo = True
+                        st.rerun()
 
                 with tab_manual:
                     st.subheader("Selecciona el Manual para la Evaluación")
+                    st.number_input(
+                        "Número de preguntas para el Examen por Manual:",
+                        min_value=1,
+                        max_value=100,
+                        value=st.session_state.num_preguntas_manual,
+                        step=1,
+                        key="num_preguntas_manual"
+                    )
                     manual_nombres = [ex['apartado'] for ex in examenes_disponibles]
                     manual_sel_nom = st.selectbox("Selecciona un manual:", manual_nombres, key="sel_manual_eval")
                     ex_obj = next((ex for ex in examenes_disponibles if ex['apartado'] == manual_sel_nom), None)
@@ -1423,26 +1095,23 @@ else:
                                                 "tipo": "teorica"
                                             })
                             
-                            preguntas_preparadas = seleccionar_15_preguntas(banco_manual)
+                            preguntas_preparadas = seleccionar_15_preguntas(banco_manual, st.session_state.num_preguntas_manual)
                             
-                            if "Versión 1" in version_examen_sel:
-                                st.markdown(f"### 🚀 Examen de {nombre_apt} - Versión 1 (motor.html)")
-                                renderizar_motor_html(preguntas_preparadas, nombre_apt, ex_obj["id"], TIEMPO_LIMITE_PREGUNTA)
-                            else:
-                                st.session_state.examen_id = ex_obj["id"]
-                                st.session_state.apartado_actual = nombre_apt
-                                st.session_state.preguntas_seleccionadas = preguntas_preparadas
-                                st.session_state.indice_pregunta = 0
-                                st.session_state.respuestas_detalle = []
-                                st.session_state.tiempos_restantes_preguntas = {}
-                                st.session_state.modificando_desde_revision = False
-                                st.session_state.tiempo_inicio_examen = time.time()
-                                st.session_state.tiempo_inicio_pregunta = None
-                                st.session_state.comodines_restantes = 3
-                                st.session_state.pistas_activadas = set()
-                                st.session_state.sobrepaso_tiempo_global = False
-                                st.session_state.examen_activo = True
-                                st.rerun()
+                            st.session_state.examen_id = ex_obj["id"]
+                            st.session_state.apartado_actual = nombre_apt
+                            st.session_state.preguntas_seleccionadas = preguntas_preparadas
+                            st.session_state.indice_pregunta = 0
+                            st.session_state.respuestas_detalle = []
+                            st.session_state.tiempos_restantes_preguntas = {}
+                            st.session_state.modificando_desde_revision = False
+                            st.session_state.tiempo_inicio_examen = time.time()
+                            st.session_state.tiempo_inicio_pregunta = None
+                            st.session_state.tiempo_inicio_revision = None
+                            st.session_state.comodines_restantes = 3
+                            st.session_state.pistas_activadas = set()
+                            st.session_state.sobrepaso_tiempo_global = False
+                            st.session_state.examen_activo = True
+                            st.rerun()
 
                         # Estadísticas históricas por subíndices
                         res_intentos_m = supabase.table("intentos_examen").select("*")\
@@ -2351,38 +2020,8 @@ else:
 
                 config_prompt_actual = None
                 try:
-                    res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
+                    res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
                     if res_cfg_db.data:
                         config_prompt_actual = res_cfg_db.data[0]
                 except Exception:
                     config_prompt_actual = None
-
-                with st.form("form_config_prompts_models"):
-                    prompt_texto_val = config_prompt_actual.get("prompt_texto", PROMPT_DEFECTO) if config_prompt_actual else PROMPT_DEFECTO
-                    gemini_modelos_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro, gemini-2.5-flash") if config_prompt_actual else "gemini-2.5-pro, gemini-2.5-flash"
-                    claude_modelos_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
-
-                    txt_prompt_cfg = st.text_area("Prompt Base para Evaluaciones IA:", value=prompt_texto_val, height=120)
-                    txt_gemini_cfg = st.text_input("Modelos Gemini disponibles (separados por coma):", value=gemini_modelos_val)
-                    txt_claude_cfg = st.text_input("Modelos Claude disponibles (separados por coma):", value=claude_modelos_val)
-
-                    btn_guardar_cfg = st.form_submit_button("💾 Guardar Configuración de Prompts e IA")
-
-                    if btn_guardar_cfg:
-                        try:
-                            datos_cfg_update = {
-                                "nombre": "evaluacion_empleado",
-                                "prompt_texto": txt_prompt_cfg.strip(),
-                                "modelo_gemini": txt_gemini_cfg.strip(),
-                                "modelo_claude": txt_claude_cfg.strip()
-                            }
-                            if config_prompt_actual:
-                                supabase.table("config_prompts").update(datos_cfg_update).eq("id", config_prompt_actual["id"]).execute()
-                            else:
-                                supabase.table("config_prompts").insert(datos_cfg_update).execute()
-
-                            st.success("✅ Configuración de Prompts e IA guardada correctamente.")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as err_cfg_save:
-                            st.error(f"❌ Error al guardar la configuración: {err_cfg_save}")
