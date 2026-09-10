@@ -37,6 +37,16 @@ st.set_page_config(page_title="Evaluaciones CROMA", layout="wide")
 
 st.markdown("""
     <style>
+    /* Estilos para legibilidad de las pestañas (Tabs) */
+    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+        color: var(--ink) !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+    }
+
+    g.stTabs [data-baseweb="tab"][aria-selected="true"] [data-testid="stMarkdownContainer"] p {
+        color: var(--accent) !important;
+    }
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
@@ -271,7 +281,8 @@ else:
                 df = pd.DataFrame(intentos_data)
                 
                 # Normalización de Fechas
-                df["fecha_dt"] = pd.to_datetime(df["fecha_inicio"])
+                df["fecha_dt"] = pd.to_datetime(df["fecha_inicio"], errors="coerce")
+                df = df.dropna(subset=["fecha_dt"])  # Opcional: descarta filas sin fecha válida
                 df["fecha_formateada"] = df["fecha_dt"].dt.strftime("%d-%m-%Y")
 
                 # 1. GRÁFICA DE BARRAS: HISTÓRICO ACUMULADO POR TEMA/SUBÍNDICE (Barras Horizontales)
