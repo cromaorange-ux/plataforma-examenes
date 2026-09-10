@@ -44,7 +44,7 @@ st.markdown("""
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
         --background-color: #F7FAFC;
-        --card-bg: #FFFFFF;
+        --card-bg: #000000;
         --text-color: #2D3748;
         --border-radius: 12px;
     }
@@ -72,7 +72,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label {
-        background-color: #FFFFFF !important;
+        background-color: #000000 !important;
         padding: 14px 18px !important;
         border-radius: 8px !important;
         border: 2px solid #E2E8F0 !important;
@@ -99,7 +99,7 @@ st.markdown("""
         margin-bottom: 20px;
         line-height: 1.3;
         padding: 18px;
-        background-color: #FFFFFF;
+        background-color: #000000;
         border-left: 6px solid #2B6CB0;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
@@ -118,7 +118,7 @@ st.markdown("""
     }
 
     .user-card {
-        background-color: #FFFFFF !important;
+        background-color: #000000 !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
@@ -143,7 +143,7 @@ st.markdown("""
     /* Estilización de Botones en línea con motor.html */
     .stButton > button {
         background-color: #2B6CB0 !important;
-        color: #FFFFFF !important;
+        color: #000000 !important;
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
@@ -156,6 +156,7 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+    }
 
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
