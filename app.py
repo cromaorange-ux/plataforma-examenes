@@ -30,7 +30,7 @@ except ImportError:
     REPORTLAB_DISPONIBLE = False
 
 # ---------------------------------------------------------
-# CONFIGURACIÓN PÁGINA Y ESTILOS HTML / CSS
+# CONFIGURACIÓN PÁGINA Y ESTILOS HTML / CSS (SINCRONIZADO CON MOTOR.HTML)
 # ---------------------------------------------------------
 st.set_page_config(page_title="Plataforma de Exámenes", layout="wide")
 
@@ -136,6 +136,7 @@ st.markdown("""
         margin: 0 !important;
     }
 
+    /* Estilización de Botones en línea con motor.html */
     .stButton > button {
         background-color: #2B6CB0 !important;
         color: #FFFFFF !important;
@@ -466,7 +467,7 @@ def normalizar_pregunta_json(item):
         "tipo": item_normalizado.get("tipo", "teorica")
     }
     
-def seleccionar_preguntas_equilibradas(banco_completo, num_preguntas=15):
+def seleccionar_15_preguntas(banco_completo, num_preguntas=15):
     if not banco_completo:
         return []
 
@@ -480,7 +481,7 @@ def seleccionar_preguntas_equilibradas(banco_completo, num_preguntas=15):
     num_temas = len(temas_dict)
     
     if num_temas * 2 > num_preguntas:
-        cupo_por_tema = max(1, num_preguntas // num_temas)
+        cupo_por_tema = 1
     else:
         cupo_por_tema = 2
 
@@ -1036,7 +1037,7 @@ else:
                                                 "tipo": "teorica"
                                             })
                         
-                        preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_global, st.session_state.num_preguntas_global)
+                        preguntas_preparadas = seleccionar_15_preguntas(banco_global, st.session_state.num_preguntas_global)
                         
                         st.session_state.examen_id = None
                         st.session_state.apartado_actual = "GLOBAL COMPLETO"
@@ -1111,7 +1112,7 @@ else:
                                                 "tipo": "teorica"
                                             })
                             
-                            preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_manual, st.session_state.num_preguntas_manual)
+                            preguntas_preparadas = seleccionar_15_preguntas(banco_manual, st.session_state.num_preguntas_manual)
                             
                             st.session_state.examen_id = ex_obj["id"]
                             st.session_state.apartado_actual = nombre_apt
@@ -1263,6 +1264,7 @@ else:
                             
                             status_box.write("⚙️ Normalizando preguntas y comprobando formato JSON...")
                             
+                            # Limpieza del bloque JSON devuelto por la IA
                             txt_json = res_ia_raw.strip()
                             if "```json" in txt_json:
                                 txt_json = txt_json.split("```json")[1].split("```")[0].strip()
