@@ -45,13 +45,12 @@ st.markdown("""
         --secondary-color: #2B6CB0;
         --background-color: #F7FAFC;
         --card-bg: #FFFFFF;
-        --text-color: #000000;
+        --text-color: #2D3748;
         --border-radius: 12px;
     }
 
-    /* Forzar texto negro global por defecto en toda la app */
-    .stApp, .stApp p, .stApp span, .stApp label, .stApp div, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
-        color: #000000 !important;
+    .stApp {
+        background-color: #F7FAFC !important;
     }
 
     .block-container {
@@ -65,7 +64,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #000000 !important;
+        color: #2D3748 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -84,7 +83,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #000000 !important;
+        color: #2D3748 !important;
         font-weight: 600 !important;
     }
 
@@ -96,7 +95,7 @@ st.markdown("""
     .pregunta-titulo {
         font-size: 22px !important;
         font-weight: 700 !important;
-        color: #000000 !important;
+        color: #1A365D;
         margin-bottom: 20px;
         line-height: 1.3;
         padding: 18px;
@@ -111,13 +110,11 @@ st.markdown("""
         max-width: none !important;
         overflow: visible !important;
         text-overflow: clip !important;
-        color: #000000 !important;
     }
     
     div[data-baseweb="popover"] li {
         white-space: normal !important;
         word-break: break-word !important;
-        color: #000000 !important;
     }
 
     .user-card {
@@ -131,14 +128,14 @@ st.markdown("""
     }
 
     .user-card h3 {
-        color: #000000 !important;
+        color: #1A365D !important;
         font-weight: 700 !important;
         font-size: 20px !important;
         margin-bottom: 5px !important;
     }
 
     .user-card p {
-        color: #000000 !important;
+        color: #4A5568 !important;
         font-size: 14px !important;
         margin: 0 !important;
     }
@@ -146,7 +143,7 @@ st.markdown("""
     /* Estilización de Botones en línea con motor.html */
     .stButton > button {
         background-color: #2B6CB0 !important;
-        color: #FFFFFF !important; /* Mantiene texto blanco sobre fondo azul de botones */
+        color: #FFFFFF !important;
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
@@ -1156,29 +1153,6 @@ else:
                                     if isinstance(p_b, dict):
                                         temas_totales_banco.add(str(p_b.get("subindice", "General")).strip())
 
-                            ultimo_intento = intentos_m[0]
-                            resp_ult = ultimo_intento.get("respuestas_usuario", [])
-                            if resp_ult:
-                                st.markdown("##### 📈 Rendimiento del Último Examen Realizado (Gráfica Lineal)")
-                                df_ult = pd.DataFrame(resp_ult)
-                                if "subindice" not in df_ult.columns:
-                                    df_ult["subindice"] = df_ult.get("categoria", "General")
-                                df_ult["subindice"] = df_ult["subindice"].fillna("General")
-
-                                ult_resumen = df_ult.groupby("subindice").agg(
-                                    Aciertos=('es_correcta', lambda x: sum(x == True)),
-                                    Total=('es_correcta', 'count')
-                                ).reset_index()
-                                ult_resumen["% Aciertos"] = (ult_resumen["Aciertos"] / ult_resumen["Total"] * 100).round(2)
-
-                                for t_b in temas_totales_banco:
-                                    if t_b not in ult_resumen["subindice"].values:
-                                        ult_resumen = pd.concat([ult_resumen, pd.DataFrame([{
-                                            "subindice": t_b, "Aciertos": 0, "Total": 0, "% Aciertos": 0.0
-                                        }])], ignore_index=True)
-
-                                st.line_chart(ult_resumen.set_index("subindice")["% Aciertos"], use_container_width=True)
-
                             todas_resp_m = []
                             for it_m in intentos_m:
                                 resp_usr = it_m.get("respuestas_usuario", [])
@@ -1207,9 +1181,11 @@ else:
                                 resumen_cat_m["% Aciertos"] = (resumen_cat_m["Aciertos"] / resumen_cat_m["Total"].replace(0, 1) * 100).round(2)
                                 resumen_cat_m.loc[resumen_cat_m["Total"] == 0, "% Aciertos"] = 0.0
 
+                                # Renderizado como gráfica horizontal de barras
                                 st.bar_chart(
                                     resumen_cat_m.set_index("subindice")[["Aciertos", "Fallos_o_Blanco"]], 
-                                    use_container_width=True
+                                    use_container_width=True,
+                                    horizontal=True
                                 )
                                 st.dataframe(resumen_cat_m, use_container_width=True, hide_index=True)
             else:
@@ -1353,7 +1329,8 @@ else:
                                 st.markdown("#### 📊 Desglose de Aciertos por Categoría / Tema")
                                 st.bar_chart(
                                     resumen_cat.set_index("subindice")[["Aciertos", "Fallos_o_Blanco"]], 
-                                    use_container_width=True
+                                    use_container_width=True,
+                                    horizontal=True
                                 )
 
                                 st.dataframe(
@@ -1708,9 +1685,9 @@ else:
                         examen_seleccionado_filtro = st.selectbox("📘 Selecciona un examen/manual:", examenes_unicos_hist)
 
                     if emp_seleccionado_nombre == "Todos los trabajadores activos":
-                        df_emp_tot = df_all[df_all["nombre_empleado"].isin(nombres_activos_solamente)]
+                        df_emp_tot = df_all[df_all["nombre_empleado"].isin(nombres_activos_solamente)].copy()
                     else:
-                        df_emp_tot = df_all[df_all["nombre_empleado"].str.strip().str.lower() == emp_seleccionado_nombre.strip().lower()]
+                        df_emp_tot = df_all[df_all["nombre_empleado"].str.strip().str.lower() == emp_seleccionado_nombre.strip().lower()].copy()
 
                     if examen_seleccionado_filtro != "Todos":
                         df_emp_tot = df_emp_tot[df_emp_tot["apartado"] == examen_seleccionado_filtro]
@@ -1738,7 +1715,13 @@ else:
                         }])
 
                         st.dataframe(df_resumen_metricas, use_container_width=True, hide_index=True)
-                        st.line_chart(df_emp_tot, x="fecha_inicio", y="nota")
+                        
+                        # Formatear la etiqueta del eje X como "Nombre (DD-MM-YYYY)"
+                        df_emp_tot["fecha_formateada"] = pd.to_datetime(df_emp_tot["fecha_inicio"]).dt.strftime('%d-%m-%Y')
+                        df_emp_tot["etiqueta_eje_x"] = df_emp_tot["nombre_empleado"].astype(str) + " (" + df_emp_tot["fecha_formateada"].astype(str) + ")"
+                        
+                        # Gráfica tipo columna
+                        st.bar_chart(df_emp_tot.set_index("etiqueta_eje_x")["nota"], use_container_width=True)
                     else:
                         st.info(f"No se registran exámenes para la selección aplicada en el año **{anio_metrica_sel}**.")
 
@@ -2039,12 +2022,67 @@ else:
 
                 st.markdown("---")
                 st.subheader("⚙️ Configuración de IA y Modelos (SQL config_prompts)")
-                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude.")
+                st.caption("Administra las plantillas de prompts por defecto y los modelos predeterminados de Gemini y Claude directamente en Supabase.")
 
-                config_prompt_actual = None
                 try:
-                    res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
-                    if res_cfg_db.data:
-                        config_prompt_actual = res_cfg_db.data[0]
-                except Exception:
-                    config_prompt_actual = None
+                    res_all_prompts = supabase.table("config_prompts").select("*").order("id").execute()
+                    prompts_db_list = res_all_prompts.data if res_all_prompts.data else []
+                except Exception as e_prompts:
+                    prompts_db_list = []
+                    st.error(f"Error cargando registros de config_prompts: {e_prompts}")
+
+                if prompts_db_list:
+                    map_p_cfg = {f"#{p['id']} - {p.get('nombre') or 'Sin Nombre'}": p for p in prompts_db_list}
+                    p_sel_key = st.selectbox("Selecciona el registro de prompt a editar:", list(map_p_cfg.keys()))
+                    p_obj_sel = map_p_cfg[p_sel_key]
+
+                    with st.form(key=f"form_prompt_cfg_{p_obj_sel['id']}"):
+                        nombre_prompt_val = st.text_input("Nombre / Clave del Prompt:*", value=p_obj_sel.get("nombre", ""))
+                        texto_prompt_val = st.text_area("Texto del Prompt / Configuración:*", value=p_obj_sel.get("prompt_texto", ""), height=200)
+                        modelos_gemini_val = st.text_input("Modelos Gemini (separados por coma):", value=p_obj_sel.get("modelo_gemini", ""))
+                        modelos_claude_val = st.text_input("Modelos Claude (separados por coma):", value=p_obj_sel.get("modelo_claude", ""))
+
+                        btn_save_prompt = st.form_submit_button("💾 Guardar Cambios en config_prompts", use_container_width=True)
+
+                        if btn_save_prompt:
+                            if not nombre_prompt_val.strip():
+                                st.error("❌ El nombre del prompt es obligatorio.")
+                            else:
+                                try:
+                                    supabase.table("config_prompts").update({
+                                        "nombre": nombre_prompt_val.strip(),
+                                        "prompt_texto": texto_prompt_val,
+                                        "modelo_gemini": modelos_gemini_val.strip(),
+                                        "modelo_claude": modelos_claude_val.strip()
+                                    }).eq("id", p_obj_sel["id"]).execute()
+                                    st.success("✅ Configuración de prompt guardada exitosamente.")
+                                    time.sleep(1)
+                                    st.rerun()
+                                mexc:
+                                    st.error(f"❌ Error al guardar en la base de datos: {mexc}")
+
+                st.markdown("##### ➕ Crear Nuevo Registro en config_prompts")
+                with st.form("form_nuevo_prompt_cfg"):
+                    nuevo_p_nombre = st.text_input("Nombre del Prompt (ej: prompt_examen, evaluacion_empleado, info_examen_global):*")
+                    nuevo_p_texto = st.text_area("Texto del Prompt:*", height=150)
+                    nuevo_p_gemini = st.text_input("Modelos Gemini por defecto:", value="gemini-2.5-pro, gemini-2.5-flash")
+                    nuevo_p_claude = st.text_input("Modelos Claude por defecto:", value="claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022")
+
+                    btn_crear_p_cfg = st.form_submit_button("➕ Insertar Registro de Prompt")
+
+                    if btn_crear_p_cfg:
+                        if not nuevo_p_nombre.strip():
+                            st.error("❌ Indica un nombre válido para el registro.")
+                        else:
+                            try:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": nuevo_p_nombre.strip(),
+                                    "prompt_texto": nuevo_p_texto,
+                                    "modelo_gemini": nuevo_p_gemini.strip(),
+                                    "modelo_claude": nuevo_p_claude.strip()
+                                }).execute()
+                                st.success("✅ Registro añadido correctamente.")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as err_ins_p:
+                                st.error(f"❌ Error al insertar prompt: {err_ins_p}")
