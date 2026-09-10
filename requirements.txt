@@ -1,7 +1,8 @@
 streamlit
+pandas
+plotly
 supabase
 google-genai
 pypdf
-pandas
-openpyxl
 reportlab
+anthropic
