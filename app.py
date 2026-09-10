@@ -44,7 +44,7 @@ st.markdown("""
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
         --background-color: #F7FAFC;
-        --card-bg: #FFFFFF;
+        --card-bg: #00000;
         --text-color: #2D3748;
         --border-radius: 12px;
     }
