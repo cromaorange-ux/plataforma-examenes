@@ -2058,7 +2058,7 @@ else:
                                     st.success("✅ Configuración de prompt guardada exitosamente.")
                                     time.sleep(1)
                                     st.rerun()
-                                mexc:
+                                except Exception as e:
                                     st.error(f"❌ Error al guardar en la base de datos: {mexc}")
 
                 st.markdown("##### ➕ Crear Nuevo Registro en config_prompts")
