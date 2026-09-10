@@ -156,7 +156,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-    }
 
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
