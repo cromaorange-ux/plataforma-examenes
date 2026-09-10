@@ -43,7 +43,7 @@ st.markdown("""
     :root {
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
-        --background-color: #000000; /*probado
+        --background-color: #F7FAFC; /*probado es el fondo
         --card-bg: #FFFFFF;
         --text-color: #2D3748;
         --border-radius: 12px;
@@ -540,7 +540,7 @@ def generar_pdf_resultado(intento):
     ]
     t = Table(data_res, colWidths=[150, 350])
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F7FAFC")),
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#000000")), #prueba
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
         ('PADDING', (0,0), (-1,-1), 6),
     ]))
