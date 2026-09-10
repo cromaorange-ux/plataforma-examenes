@@ -43,7 +43,7 @@ st.markdown("""
     :root {
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
-        --background-color: #000000;
+        --background-color: #F7FAFC;
         --card-bg: #FFFFFF;
         --text-color: #2D3748;
         --border-radius: 12px;
@@ -71,7 +71,7 @@ st.markdown("""
         background-color: #FFFFFF !important;
         padding: 14px 18px !important;
         border-radius: 8px !important;
-        border: 2px solid #E2E8F0 !important;
+        border: 2px solid #000000 !important;
         transition: all 0.2s ease-in-out;
         width: 100%;
         margin-bottom: 8px !important;
