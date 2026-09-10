@@ -44,9 +44,14 @@ st.markdown("""
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
         --background-color: #F7FAFC;
-        --card-bg: #fffff;
-        --text-color: #2D3748;
+        --card-bg: #FFFFFF;
+        --text-color: #000000;
         --border-radius: 12px;
+    }
+
+    /* Forzar texto negro global por defecto en toda la app */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+        color: #000000 !important;
     }
 
     .block-container {
@@ -60,7 +65,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #2D3748 !important;
+        color: #000000 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -68,7 +73,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label {
-        background-color: #FF11FF !important;
+        background-color: #FFFFFF !important;
         padding: 14px 18px !important;
         border-radius: 8px !important;
         border: 2px solid #E2E8F0 !important;
@@ -79,7 +84,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #2D3748 !important;
+        color: #000000 !important;
         font-weight: 600 !important;
     }
 
@@ -91,11 +96,11 @@ st.markdown("""
     .pregunta-titulo {
         font-size: 22px !important;
         font-weight: 700 !important;
-        color: #1A365D;
+        color: #000000 !important;
         margin-bottom: 20px;
         line-height: 1.3;
         padding: 18px;
-        background-color: #111FFF;
+        background-color: #FFFFFF;
         border-left: 6px solid #2B6CB0;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
@@ -106,15 +111,17 @@ st.markdown("""
         max-width: none !important;
         overflow: visible !important;
         text-overflow: clip !important;
+        color: #000000 !important;
     }
     
     div[data-baseweb="popover"] li {
         white-space: normal !important;
         word-break: break-word !important;
+        color: #000000 !important;
     }
 
     .user-card {
-        background-color: #FFF11F !important;
+        background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
@@ -124,14 +131,14 @@ st.markdown("""
     }
 
     .user-card h3 {
-        color: #1A365D !important;
+        color: #000000 !important;
         font-weight: 700 !important;
         font-size: 20px !important;
         margin-bottom: 5px !important;
     }
 
     .user-card p {
-        color: #4A5568 !important;
+        color: #000000 !important;
         font-size: 14px !important;
         margin: 0 !important;
     }
@@ -139,7 +146,7 @@ st.markdown("""
     /* Estilización de Botones en línea con motor.html */
     .stButton > button {
         background-color: #2B6CB0 !important;
-        color: #FFF111 !important;
+        color: #FFFFFF !important; /* Mantiene texto blanco sobre fondo azul de botones */
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
