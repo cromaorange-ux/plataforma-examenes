@@ -189,27 +189,27 @@ def obtener_tiempo_pregunta_config():
 
 def guardar_tiempo_pregunta_config(nuevo_tiempo):
     try:
-        res = supabase.table("config_prompts").select("id").eq("nombre", "tiempo_pregunta").execute()
-        if res.data:
-            supabase.table("config_prompts").update({"prompt_texto": str(nuevo_tiempo)}).eq("nombre", "tiempo_pregunta").execute()
-        else:
-            supabase.table("config_prompts").insert({"nombre": "tiempo_pregunta", "prompt_texto": str(nuevo_tiempo)}).execute()
+        supabase.table("config_prompts").upsert({
+            "nombre": "tiempo_pregunta",
+            "prompt_texto": str(nuevo_tiempo)
+        }).execute()
         return True
     except Exception as e:
         st.error(f"Error al guardar tiempo por pregunta: {e}")
         return False
 
-def obtener_num_preguntas_config(tipo="global"):
+def guardar_num_preguntas_config(tipo, cantidad):
     clave_nombre = f"num_preguntas_{tipo}"
-    defecto = 15
     try:
-        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", clave_nombre).limit(1).execute()
-        if res.data and res.data[0].get("prompt_texto"):
-            return int(res.data[0]["prompt_texto"])
-    except Exception:
-        pass
-    return defecto
-
+        supabase.table("config_prompts").upsert({
+            "nombre": clave_nombre,
+            "prompt_texto": str(cantidad)
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar número de preguntas ({tipo}): {e}")
+        return False
+        
 def guardar_num_preguntas_config(tipo, cantidad):
     clave_nombre = f"num_preguntas_{tipo}"
     try:
