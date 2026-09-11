@@ -201,7 +201,7 @@ def guardar_tiempo_pregunta_config(nuevo_tiempo):
 
 def obtener_num_preguntas_config(tipo="global"):
     clave_nombre = f"num_preguntas_{tipo}"
-    defecto = 15 if tipo == "global" else 15
+    defecto = 15
     try:
         res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", clave_nombre).limit(1).execute()
         if res.data and res.data[0].get("prompt_texto"):
@@ -292,6 +292,8 @@ if "intento_auditado_id_sel" not in st.session_state:
     st.session_state.intento_auditado_id_sel = None
 if "eval_resultado_cache" not in st.session_state:
     st.session_state.eval_resultado_cache = None
+if "examen_finalizado" not in st.session_state:
+    st.session_state.examen_finalizado = False
 
 TIEMPO_LIMITE_PREGUNTA = obtener_tiempo_pregunta_config()
 UMBRAL_APROBADO_PORCENTAJE = 70.0
@@ -514,7 +516,7 @@ def seleccionar_preguntas_equilibradas(banco_completo, num_preguntas=15):
 
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
-    _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
+    _, ultimo_dia = calendar.monthrange(ahora.year, me := ahora.month)
     return ultimo_dia - ahora.day + 1
 
 def generar_pdf_resultado(intento):
@@ -671,9 +673,56 @@ else:
             st.session_state.autenticado = False
             st.session_state.examen_activo = False
             st.session_state.modo_revision = False
+            st.session_state.examen_finalizado = False
             st.rerun()
         
     st.markdown("---")
+
+    def guardar_intento_en_bd():
+        if st.session_state.examen_finalizado:
+            return
+        total_p = len(st.session_state.preguntas_seleccionadas)
+        correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
+        porcentaje = round((correctas / total_p) * 100, 2)
+        nota_final = round((correctas / total_p) * 10, 2)
+        
+        duracion_total = int(time.time() - (st.session_state.tiempo_inicio_examen or time.time()))
+        tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
+        tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        tiempo_ini_examen = datetime.datetime.fromtimestamp(st.session_state.tiempo_inicio_examen, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if st.session_state.tiempo_inicio_examen else tiempo_fin_examen
+        
+        try:
+            id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) and st.session_state.examen_id > 0 else None
+
+            registro_intento = {
+                "empleado_id": st.session_state.user_id,
+                "nombre_empleado": st.session_state.user_nombre,
+                "examen_id": id_examen_validado,
+                "apartado": st.session_state.apartado_actual,
+                "nota": nota_final,
+                "porcentaje_obtenido": porcentaje,
+                "respuestas_usuario": st.session_state.respuestas_detalle,
+                "fecha_inicio": tiempo_ini_examen,
+                "fecha_fin": tiempo_fin_examen,
+                "tiempo_total_segundos": duracion_total,
+                "tiempo_limite": tiempo_limite_total,
+                "sobrepasado_tiempo": st.session_state.sobrepaso_tiempo_global,
+                "activo": True
+            }
+            
+            supabase.table("intentos_examen").insert(registro_intento).execute()
+
+            try:
+                supabase.table("autorizaciones_examen").delete()\
+                    .eq("empleado_id", st.session_state.user_id)\
+                    .eq("apartado", st.session_state.apartado_actual).execute()
+            except Exception:
+                pass
+            
+            st.session_state.examen_finalizado = True
+
+        except Exception as e:
+            st.error(f"Error guardando intento: {e}")
     
     # MODO REVISIÓN PREVIA A FINALIZAR
     if st.session_state.modo_revision:
@@ -684,99 +733,62 @@ else:
         tiempo_revision_restante = 300 - tiempo_revision_transcurrido
         
         st.subheader("🔍 Revisión de Examen previa a la entrega final")
-        st.info("Revisa tus respuestas e indica si deseas modificar alguna antes de la entrega definitiva.")
+        
+        if not st.session_state.examen_finalizado:
+            st.info("Revisa tus respuestas e indica si deseas modificar alguna antes de la entrega definitiva.")
 
-        if tiempo_revision_restante > 0:
-            st.warning(f"⏱️ Tiempo restante de revisión: **{tiempo_revision_restante // 60:02d}:{tiempo_revision_restante % 60:02d} minutos**. Si se agota, el examen se finalizará automáticamente.")
-        else:
-            st.error("⏰ ¡Tiempo de revisión agotado (5 minutos)! Finalizando el examen automáticamente...")
+            if tiempo_revision_restante > 0:
+                st.warning(f"⏱️ Tiempo restante de revisión: **{tiempo_revision_restante // 60:02d}:{tiempo_revision_restante % 60:02d} minutos**. Si se agota, el examen se finalizará automáticamente.")
+            else:
+                st.error("⏰ ¡Tiempo de revisión agotado (5 minutos)! Finalizando el examen automáticamente...")
 
-        for i, p_item in enumerate(st.session_state.preguntas_seleccionadas):
-            resp_actual = next((r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == i), None)
-            texto_resp = resp_actual["opcion_elegida"] if resp_actual else "En blanco (Sin responder)"
-            
-            t_restante = st.session_state.tiempos_restantes_preguntas.get(i, TIEMPO_LIMITE_PREGUNTA)
-            
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.write(f"**Pregunta {i+1}:** {p_item['pregunta']}")
-                st.caption(f"Categoría/Tema: **{p_item.get('subindice', 'General')}** | Respuesta actual: **{texto_resp}** | ⏱️ Tiempo restante: **{t_restante} s** | Dificultad: **{p_item.get('dificultad', 'dificil')}**")
-            with c2:
-                btn_bloqueado = (t_restante <= 0 or tiempo_revision_restante <= 0)
-                if st.button("Modificar", key=f"mod_rev_{i}", disabled=btn_bloqueado, use_container_width=True):
-                    st.session_state.indice_pregunta = i
-                    st.session_state.modo_revision = False
-                    st.session_state.modificando_desde_revision = True
-                    st.session_state.tiempo_inicio_pregunta = time.time()
+            for i, p_item in enumerate(st.session_state.preguntas_seleccionadas):
+                resp_actual = next((r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == i), None)
+                texto_resp = resp_actual["opcion_elegida"] if resp_actual else "En blanco (Sin responder)"
+                
+                t_restante = st.session_state.tiempos_restantes_preguntas.get(i, TIEMPO_LIMITE_PREGUNTA)
+                
+                c1, c2 = st.columns([4, 1])
+                with c1:
+                    st.write(f"**Pregunta {i+1}:** {p_item['pregunta']}")
+                    st.caption(f"Categoría/Tema: **{p_item.get('subindice', 'General')}** | Respuesta actual: **{texto_resp}** | ⏱️ Tiempo restante: **{t_restante} s** | Dificultad: **{p_item.get('dificultad', 'dificil')}**")
+                with c2:
+                    btn_bloqueado = (t_restante <= 0 or tiempo_revision_restante <= 0)
+                    if st.button("Modificar", key=f"mod_rev_{i}", disabled=btn_bloqueado, use_container_width=True):
+                        st.session_state.indice_pregunta = i
+                        st.session_state.modo_revision = False
+                        st.session_state.modificando_desde_revision = True
+                        st.session_state.tiempo_inicio_pregunta = time.time()
+                        st.rerun()
+                    if btn_bloqueado:
+                        st.caption("🔒 Tiempo agotado")
+                st.write("---")
+
+            if tiempo_revision_restante <= 0:
+                guardar_intento_en_bd()
+                st.rerun()
+            else:
+                if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
+                    guardar_intento_en_bd()
                     st.rerun()
-                if btn_bloqueado:
-                    st.caption("🔒 Tiempo agotado")
-            st.write("---")
-
-        def finalizar_examen_revision():
+        else:
             total_p = len(st.session_state.preguntas_seleccionadas)
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
             porcentaje = round((correctas / total_p) * 100, 2)
             nota_final = round((correctas / total_p) * 10, 2)
-            
             estado_evaluacion = obtener_estado_evaluacion(porcentaje, st.session_state.sobrepaso_tiempo_global)
-            
-            duracion_total = int(time.time() - st.session_state.tiempo_inicio_examen)
-            tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
-            tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            tiempo_ini_examen = datetime.datetime.fromtimestamp(st.session_state.tiempo_inicio_examen, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            
-            try:
-                id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) and st.session_state.examen_id > 0 else None
 
-                registro_intento = {
-                    "empleado_id": st.session_state.user_id,
-                    "nombre_empleado": st.session_state.user_nombre,
-                    "examen_id": id_examen_validado,
-                    "apartado": st.session_state.apartado_actual,
-                    "nota": nota_final,
-                    "porcentaje_obtenido": porcentaje,
-                    "respuestas_usuario": st.session_state.respuestas_detalle,
-                    "fecha_inicio": tiempo_ini_examen,
-                    "fecha_fin": tiempo_fin_examen,
-                    "tiempo_total_segundos": duracion_total,
-                    "tiempo_limite": tiempo_limite_total,
-                    "sobrepasado_tiempo": st.session_state.sobrepaso_tiempo_global,
-                    "activo": True
-                }
-                
-                supabase.table("intentos_examen").insert(registro_intento).execute()
+            if "APROBADO" in estado_evaluacion:
+                st.success(f"🎉 Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
+            else:
+                st.error(f"❌ Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
 
-                try:
-                    supabase.table("autorizaciones_examen").delete()\
-                        .eq("empleado_id", st.session_state.user_id)\
-                        .eq("apartado", st.session_state.apartado_actual).execute()
-                except Exception:
-                    pass
-                
-                if "APROBADO" in estado_evaluacion:
-                    st.success(f"🎉 Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
-                else:
-                    st.error(f"❌ Examen completado — Nota: **{nota_final} / 10** ({porcentaje}%) | **{estado_evaluacion}**")
-
-            except Exception as e:
-                st.error(f"Error guardando intento: {e}")
-                
-            st.session_state.examen_activo = False
-            st.session_state.modo_revision = False
-            st.session_state.tiempo_inicio_revision = None
-
-        if tiempo_revision_restante <= 0:
-            finalizar_examen_revision()
             if st.button("Volver al Inicio", use_container_width=True):
+                st.session_state.examen_activo = False
+                st.session_state.modo_revision = False
+                st.session_state.examen_finalizado = False
+                st.session_state.tiempo_inicio_revision = None
                 st.rerun()
-        else:
-            if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
-                finalizar_examen_revision()
-                if st.button("Volver al Inicio", use_container_width=True):
-                    st.rerun()
-            time.sleep(1)
-            st.rerun()
 
     # CUESTIONARIO ACTIVO
     elif st.session_state.examen_activo:
@@ -895,10 +907,6 @@ else:
 
             if tiempo_restante <= 0:
                 registrar_respuesta_pregunta(eleccion)
-
-            if tiempo_restante > 0:
-                time.sleep(1)
-                st.rerun()
 
         else:
             st.session_state.modo_revision = True
@@ -1054,6 +1062,7 @@ else:
                         st.session_state.comodines_restantes = 3
                         st.session_state.pistas_activadas = set()
                         st.session_state.sobrepaso_tiempo_global = False
+                        st.session_state.examen_finalizado = False
                         st.session_state.examen_activo = True
                         st.rerun()
 
@@ -1123,6 +1132,7 @@ else:
                             st.session_state.comodines_restantes = 3
                             st.session_state.pistas_activadas = set()
                             st.session_state.sobrepaso_tiempo_global = False
+                            st.session_state.examen_finalizado = False
                             st.session_state.examen_activo = True
                             st.rerun()
 
@@ -1607,19 +1617,18 @@ else:
 
                         col_exp_a, col_exp_b = st.columns(2)
                         with col_exp_a:
-                            if st.button("📊 Generar Excel de este Examen", use_container_width=True):
-                                df_export = pd.DataFrame([examen_sel])
-                                buffer = io.BytesIO()
-                                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                                    df_export.to_excel(writer, index=False, sheet_name="Examen")
-                                
-                                st.download_button(
-                                    label="📥 Descargar Excel",
-                                    data=buffer.getvalue(),
-                                    file_name=f"examen_{examen_sel['id']}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    use_container_width=True
-                                )
+                            df_export = pd.DataFrame([examen_sel])
+                            buffer_excel = io.BytesIO()
+                            with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                                df_export.to_excel(writer, index=False, sheet_name="Examen")
+                            
+                            st.download_button(
+                                label="📥 Descargar Excel de este Examen",
+                                data=buffer_excel.getvalue(),
+                                file_name=f"examen_{examen_sel['id']}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
 
                         with col_exp_b:
                             pdf_bytes = generar_pdf_resultado(examen_sel)
