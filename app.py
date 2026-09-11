@@ -2110,7 +2110,7 @@ else:
                                     st.success(f"✅ Empleado '{nuevo_nombre.strip()}' creado correctamente.")
                                     time.sleep(1)
                                     st.rerun()
-                                me:
+                                except Exception as err_e_c:
                                     st.error(f"❌ Error al crear el empleado: {err_e_c}")
 
                 with tab_emp_editar:
