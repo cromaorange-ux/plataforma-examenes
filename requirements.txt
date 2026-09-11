@@ -6,3 +6,5 @@ google-genai
 pypdf
 reportlab
 anthropic
+pandas
+openpyxl
