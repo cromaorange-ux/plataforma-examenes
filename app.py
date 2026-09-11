@@ -187,29 +187,28 @@ def obtener_tiempo_pregunta_config():
         pass
     return 45
 
+def obtener_num_preguntas_config(tipo):
+    clave_nombre = f"num_preguntas_{tipo}"
+    try:
+        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", clave_nombre).limit(1).execute()
+        if res.data and res.data[0].get("prompt_texto"):
+            return int(res.data[0]["prompt_texto"])
+    except Exception:
+        pass
+    return 15 if tipo == "global" else 10
+
 def guardar_tiempo_pregunta_config(nuevo_tiempo):
     try:
-        supabase.table("config_prompts").upsert({
-            "nombre": "tiempo_pregunta",
-            "prompt_texto": str(nuevo_tiempo)
-        }).execute()
+        res = supabase.table("config_prompts").select("id").eq("nombre", "tiempo_pregunta").execute()
+        if res.data:
+            supabase.table("config_prompts").update({"prompt_texto": str(nuevo_tiempo)}).eq("nombre", "tiempo_pregunta").execute()
+        else:
+            supabase.table("config_prompts").insert({"nombre": "tiempo_pregunta", "prompt_texto": str(nuevo_tiempo)}).execute()
         return True
     except Exception as e:
         st.error(f"Error al guardar tiempo por pregunta: {e}")
         return False
 
-def guardar_num_preguntas_config(tipo, cantidad):
-    clave_nombre = f"num_preguntas_{tipo}"
-    try:
-        supabase.table("config_prompts").upsert({
-            "nombre": clave_nombre,
-            "prompt_texto": str(cantidad)
-        }).execute()
-        return True
-    except Exception as e:
-        st.error(f"Error al guardar número de preguntas ({tipo}): {e}")
-        return False
-        
 def guardar_num_preguntas_config(tipo, cantidad):
     clave_nombre = f"num_preguntas_{tipo}"
     try:
@@ -936,7 +935,7 @@ else:
         # TAB: REALIZAR EXAMEN
         with tab_examenes:
             ahora = datetime.datetime.now(datetime.timezone.utc)
-            primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            primer_dia_mes = datetime.datetime(ahora.year, me := ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
             user_intentos = []
             try:
@@ -1728,6 +1727,7 @@ else:
                                 try:
                                     supabase.table("intentos_examen").insert(registro_nuevo).execute()
                                     registros_insertados += 1
+                                me:
                                 except Exception as err_ins:
                                     st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
                                     errores_import += 1
