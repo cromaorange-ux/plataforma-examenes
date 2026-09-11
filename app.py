@@ -179,63 +179,181 @@ if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES DE CONFIGURACIÓN Y SQL
 # ---------------------------------------------------------
-def obtener_tiempo_pregunta_config():
-    try:
-        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "tiempo_pregunta_segundos").limit(1).execute()
-        if res.data and res.data[0].get("prompt_texto"):
-            return int(res.data[0]["prompt_texto"])
-    except Exception:
-        pass
-    return 45
+# ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
+        if st.session_state.es_croma and tab_admin_gestion:
+            with tab_admin_gestion:
+                st.subheader("⏱️ Configuración del Tiempo por Pregunta (Base de Datos)")
+                
+                tiempo_actual_db = obtener_tiempo_pregunta_config()
+                with st.form("form_tiempo_pregunta"):
+                    nuevo_tiempo_inp = st.number_input(
+                        "Tiempo asignado por pregunta (segundos):",
+                        min_value=5,
+                        max_value=300,
+                        value=tiempo_actual_db,
+                        step=5,
+                        help="Por defecto son 45 segundos. Este cambio se sincroniza directamente en la base de datos."
+                    )
+                    btn_save_tiempo = st.form_submit_button("💾 Guardar Tiempo en Base de Datos")
+                    
+                    if btn_save_tiempo:
+                        if guardar_tiempo_pregunta_config(nuevo_tiempo_inp):
+                            st.success(f"✅ Tiempo por pregunta actualizado a {nuevo_tiempo_inp} segundos.")
+                            time.sleep(1)
+                            st.rerun()
 
-def guardar_tiempo_pregunta_config(nuevos_segundos):
-    try:
-        res = supabase.table("config_prompts").select("id").eq("nombre", "tiempo_pregunta_segundos").execute()
-        if res.data:
-            supabase.table("config_prompts").update({
-                "prompt_texto": str(nuevos_segundos)
-            }).eq("nombre", "tiempo_pregunta_segundos").execute()
-        else:
-            supabase.table("config_prompts").insert({
-                "nombre": "tiempo_pregunta_segundos",
-                "prompt_texto": str(nuevos_segundos),
-                "modelo_gemini": "gemini-2.5-pro",
-                "modelo_claude": "claude-3-5-sonnet-20241022"
-            }).execute()
-        return True
-    except Exception as e:
-        st.error(f"Error al guardar tiempo de pregunta: {e}")
-        return False
+                st.markdown("---")
+                st.subheader("⚙️ Gestión de Empleados (Crear / Editar)")
+                
+                tab_emp_crear, tab_emp_editar = st.tabs(["➕ Crear Empleado", "✏️ Editar Empleado Existente"])
+                
+                with tab_emp_crear:
+                    with st.form("form_crear_empleado"):
+                        st.markdown("##### 👤 Nuevo Empleado")
+                        nuevo_nombre = st.text_input("Nombre de Empleado (campo: nombre):*")
+                        nuevo_pass = st.text_input("Clave de Acceso (campo: password_hash):*", type="password")
+                        es_admin_croma_val = st.checkbox("Nivel Administrador (campo: es_admin_croma)", value=False)
+                        activo_val = st.checkbox("Activo (campo: activo)", value=True)
+                        
+                        btn_crear_emp = st.form_submit_button("💾 Guardar Nuevo Empleado")
+                        
+                        if btn_crear_emp:
+                            if not nuevo_nombre.strip() or not nuevo_pass.strip():
+                                st.error("❌ El nombre y la clave de acceso son obligatorios.")
+                            else:
+                                try:
+                                    supabase.table("empleados").insert({
+                                        "nombre": nuevo_nombre.strip(),
+                                        "password_hash": nuevo_pass.strip(),
+                                        "es_admin_croma": es_admin_croma_val,
+                                        "activo": activo_val
+                                    }).execute()
+                                    st.success(f"✅ Empleado '{nuevo_nombre.strip()}' creado correctamente.")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as err_e_c:
+                                    st.error(f"❌ Error al crear el empleado: {err_e_c}")
 
-def obtener_num_preguntas_config(tipo_examen="global"):
-    nombre_key = f"num_preguntas_{tipo_examen}"
-    try:
-        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", nombre_key).limit(1).execute()
-        if res.data and res.data[0].get("prompt_texto"):
-            return int(res.data[0]["prompt_texto"])
-    except Exception:
-        pass
-    return 15
+                with tab_emp_editar:
+                    try:
+                        res_emp_todos_e = supabase.table("empleados").select("*").order("nombre").execute()
+                        todos_emp_edit = res_emp_todos_e.data if res_emp_todos_e.data else []
+                    except Exception:
+                        todos_emp_edit = []
 
-def guardar_num_preguntas_config(tipo_examen, cantidad):
-    nombre_key = f"num_preguntas_{tipo_examen}"
-    try:
-        res = supabase.table("config_prompts").select("id").eq("nombre", nombre_key).execute()
-        if res.data:
-            supabase.table("config_prompts").update({
-                "prompt_texto": str(cantidad)
-            }).eq("nombre", nombre_key).execute()
-        else:
-            supabase.table("config_prompts").insert({
-                "nombre": nombre_key,
-                "prompt_texto": str(cantidad),
-                "modelo_gemini": "gemini-2.5-pro",
-                "modelo_claude": "claude-3-5-sonnet-20241022"
-            }).execute()
-        return True
-    except Exception as e:
-        st.error(f"Error al guardar el número de preguntas para {tipo_examen}: {e}")
-        return False
+                    if todos_emp_edit:
+                        map_emp_edit = {f"{e['nombre']} (ID: {e['id']})": e for e in todos_emp_edit}
+                        emp_sel_nom_edit = st.selectbox("Selecciona un empleado para editar:", list(map_emp_edit.keys()))
+                        emp_obj_edit = map_emp_edit[emp_sel_nom_edit]
+
+                        with st.form(key=f"form_edit_emp_{emp_obj_edit['id']}"):
+                            st.markdown(f"##### ✏️ Modificar datos de {emp_obj_edit['nombre']}")
+                            edit_nombre = st.text_input("Nombre de Empleado:", value=emp_obj_edit.get("nombre", ""))
+                            edit_pass = st.text_input("Clave de Acceso:", value=emp_obj_edit.get("password_hash", ""), type="password")
+                            edit_es_admin = st.checkbox("Nivel Administrador", value=emp_obj_edit.get("es_admin_croma", False))
+                            edit_activo = st.checkbox("Activo", value=emp_obj_edit.get("activo", True))
+
+                            btn_update_emp = st.form_submit_button("💾 Actualizar Datos del Empleado")
+
+                            if btn_update_emp:
+                                if not edit_nombre.strip() or not edit_pass.strip():
+                                    st.error("❌ El nombre y la clave de acceso son obligatorios.")
+                                else:
+                                    try:
+                                        supabase.table("empleados").update({
+                                            "nombre": edit_nombre.strip(),
+                                            "password_hash": edit_pass.strip(),
+                                            "es_admin_croma": edit_es_admin,
+                                            "activo": edit_activo
+                                        }).eq("id", emp_obj_edit["id"]).execute()
+                                        st.success("✅ Datos del empleado actualizados correctamente.")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    except Exception as err_e_u:
+                                        st.error(f"❌ Error actualizando empleado: {err_e_u}")
+                    else:
+                        st.info("No se encontraron empleados en la base de datos.")
+
+                st.markdown("---")
+                st.subheader("⚙️ Configuración de IA y Modelos (SQL config_prompts)")
+                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude.")
+
+                config_prompt_actual = None
+                try:
+                    res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
+                    if res_cfg_db.data:
+                        config_prompt_actual = res_cfg_db.data[0]
+                except Exception:
+                    config_prompt_actual = None
+
+                cfg_prompt_examen = None
+                try:
+                    res_cfg_ex = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
+                    if res_cfg_ex.data:
+                        cfg_prompt_examen = res_cfg_ex.data[0]
+                except Exception:
+                    cfg_prompt_examen = None
+
+                p_def_val = config_prompt_actual.get("prompt_texto") if config_prompt_actual else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
+                p_def_ex_val = cfg_prompt_examen.get("prompt_texto") if cfg_prompt_examen else PROMPT_DEFECTO_EXAMEN
+
+                g_def_val = config_prompt_actual.get("modelo_gemini", "gemini-2.5-pro") if config_prompt_actual else "gemini-2.5-pro"
+                c_def_val = config_prompt_actual.get("modelo_claude", "claude-3-5-sonnet-20241022") if config_prompt_actual else "claude-3-5-sonnet-20241022"
+
+                listado_modelos = obtener_modelos_ia_disponibles()
+
+                with st.expander("🛠️ Editar Lista Global de Modelos de IA"):
+                    st.write("Agrega o edita las versiones de los modelos registradas en la base de datos (separadas por comas):")
+                    nuevos_modelos_str = st.text_area("Modelos disponibles:", value=", ".join(listado_modelos))
+                    if st.button("💾 Actualizar Lista de Modelos IA"):
+                        lista_nuevos = [m.strip() for m in nuevos_modelos_str.split(",") if m.strip()]
+                        g_str = ",".join([m for m in lista_nuevos if "gemini" in m.lower()])
+                        c_str = ",".join([m for m in lista_nuevos if "claude" in m.lower()])
+                        try:
+                            res_c1 = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
+                            if res_c1.data:
+                                supabase.table("config_prompts").update({
+                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
+                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
+                                }).eq("nombre", "evaluacion_empleado").execute()
+                            else:
+                                supabase.table("config_prompts").insert({
+                                    "nombre": "evaluacion_empleado",
+                                    "prompt_texto": p_def_val,
+                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
+                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
+                                }).execute()
+
+                            st.success("✅ Lista de modelos actualizada correctamente.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e_mod:
+                            st.error(f"Error actualizando lista de modelos: {e_mod}")
+
+                with st.form("form_config_ia_prompts"):
+                    prompt_eval_config = st.text_area("Prompt por defecto para Evaluación de Empleados:", value=p_def_val, height=100)
+                    prompt_exam_config = st.text_area("Prompt por defecto para Generación de Exámenes:", value=p_def_ex_val, height=150)
+                    
+                    btn_save_cfg_prompts = st.form_submit_button("💾 Guardar Configuración de Prompts")
+                    if btn_save_cfg_prompts:
+                        try:
+                            res_ev = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
+                            if res_ev.data:
+                                supabase.table("config_prompts").update({"prompt_texto": prompt_eval_config}).eq("nombre", "evaluacion_empleado").execute()
+                            else:
+                                supabase.table("config_prompts").insert({"nombre": "evaluacion_empleado", "prompt_texto": prompt_eval_config}).execute()
+
+                            res_ex = supabase.table("config_prompts").select("id").eq("nombre", "prompt_examen").execute()
+                            if res_ex.data:
+                                supabase.table("config_prompts").update({"prompt_texto": prompt_exam_config}).eq("nombre", "prompt_examen").execute()
+                            else:
+                                supabase.table("config_prompts").insert({"nombre": "prompt_examen", "prompt_texto": prompt_exam_config}).execute()
+
+                            st.success("✅ Prompts por defecto actualizados.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e_pr:
+                            st.error(f"Error al guardar prompts: {e_pr}")
 
 # ---------------------------------------------------------
 # ESTADO DE LA SESIÓN
@@ -614,6 +732,109 @@ def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
+                # IMPORTAR INTENTOS DESDE CSV
+                st.subheader("📥 Importar Registro de Exámenes (CSV)")
+                archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
+                
+                if archivo_csv_import is not None:
+                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos", use_container_width=True):
+                        try:
+                            try:
+                                df_csv = pd.read_csv(archivo_csv_import, sep=';')
+                                if len(df_csv.columns) <= 1:
+                                    archivo_csv_import.seek(0)
+                                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
+                            except Exception:
+                                archivo_csv_import.seek(0)
+                                df_csv = pd.read_csv(archivo_csv_import, sep=',')
+
+                            res_emp_all = supabase.table("empleados").select("id, nombre").execute()
+                            map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
+
+                            registros_insertados = 0
+                            errores_import = 0
+
+                            for idx_row, row in df_csv.iterrows():
+                                nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
+                                emp_id = map_empleados.get(nombre_emp.lower(), None)
+                                
+                                resp_raw = row.get("respuestas_usuario", "[]")
+                                if isinstance(resp_raw, str):
+                                    try:
+                                        resp_json = json.loads(resp_raw)
+                                    except Exception:
+                                        resp_json = []
+                                elif isinstance(resp_raw, list):
+                                    resp_json = resp_raw
+                                else:
+                                    resp_json = []
+
+                                minutos_val = row.get("minutes")
+                                if not pd.isna(minutos_val) and minutos_val is not None:
+                                    t_limite = int(minutos_val) * 60
+                                else:
+                                    t_limite = int(row.get("tiempo_limite") or row.get("tiempo_limite_segundos") or 0)
+
+                                fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
+                                fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
+
+                                sobrepasado = False
+                                duracion_seg = 0
+                                if fecha_inicio_clean and fecha_fin_clean:
+                                    try:
+                                        dt_ini = pd.to_datetime(fecha_inicio_clean)
+                                        dt_fin = pd.to_datetime(fecha_fin_clean)
+                                        duracion_seg = int((dt_fin - dt_ini).total_seconds())
+                                        if t_limite > 0 and duracion_seg > t_limite:
+                                            sobrepasado = True
+                                    except Exception:
+                                        pass
+
+                                # Mapeo correcto del porcentaje de aciertos en la posición 7 (porcentaje_obtenido)
+                                if len(row) >= 8 and not pd.isna(row.iloc[7]):
+                                    porcentaje_val = float(row.iloc[7])
+                                else:
+                                    porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
+
+                                nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
+
+                                if sobrepasado:
+                                    nota_val = 0.0
+                                    porcentaje_val = 0.0
+
+                                registro_nuevo = {
+                                    "empleado_id": emp_id,
+                                    "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
+                                    "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
+                                    "fecha_inicio": fecha_inicio_clean,
+                                    "fecha_fin": fecha_fin_clean,
+                                    "tiempo_total_segundos": duracion_seg if duracion_seg > 0 else int(row.get("tiempo_total_segundos", 0)),
+                                    "tiempo_limite": t_limite,
+                                    "porcentaje_obtenido": porcentaje_val,
+                                    "nota": nota_val,
+                                    "respuestas_usuario": resp_json,
+                                    "sobrepasado_tiempo": sobrepasado,
+                                    "activo": True
+                                }
+
+                                try:
+                                    supabase.table("intentos_examen").insert(registro_nuevo).execute()
+                                    registros_insertados += 1
+                                except Exception as err_ins:
+                                    st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
+                                    errores_import += 1
+
+                            if registros_insertados > 0:
+                                st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
+                                time.sleep(1.5)
+                                st.rerun()
+
+                        except Exception as e_csv:
+                            st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
+
+                st.markdown("---")
+
 
 # ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN
