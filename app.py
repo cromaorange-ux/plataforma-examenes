@@ -180,9 +180,9 @@ if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
 # ---------------------------------------------------------
 def obtener_tiempo_pregunta_config():
     try:
-        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "tiempo_pregunta").limit(1).execute()
-        if res.data and res.data[0].get("prompt_texto"):
-            return int(res.data[0]["prompt_texto"])
+        res = supabase.table("config_tiempos_preguntas").select("tiempos_segundos").order("id", desc=True).limit(1).execute()
+        if res.data and res.data[0].get("tiempos_segundos") is not None:
+            return int(res.data[0]["tiempos_segundos"])
     except Exception:
         pass
     return 45
@@ -190,20 +190,27 @@ def obtener_tiempo_pregunta_config():
 def obtener_num_preguntas_config(tipo):
     clave_nombre = f"num_preguntas_{tipo}"
     try:
-        res = supabase.table("config_prompts").select("prompt_texto").eq("nombre", clave_nombre).limit(1).execute()
-        if res.data and res.data[0].get("prompt_texto"):
-            return int(res.data[0]["prompt_texto"])
+        res = supabase.table("config_prompts").select("valor").eq("nombre", clave_nombre).limit(1).execute()
+        if res.data and res.data[0].get("valor") is not None:
+            return int(res.data[0]["valor"])
     except Exception:
         pass
     return 15 if tipo == "global" else 10
 
 def guardar_tiempo_pregunta_config(nuevo_tiempo):
     try:
-        res = supabase.table("config_prompts").select("id").eq("nombre", "tiempo_pregunta").execute()
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        res = supabase.table("config_tiempos_preguntas").select("id").order("id", desc=True).limit(1).execute()
         if res.data:
-            supabase.table("config_prompts").update({"prompt_texto": str(nuevo_tiempo)}).eq("nombre", "tiempo_pregunta").execute()
+            supabase.table("config_tiempos_preguntas").update({
+                "tiempos_segundos": int(nuevo_tiempo),
+                "updated_at": now_iso
+            }).eq("id", res.data[0]["id"]).execute()
         else:
-            supabase.table("config_prompts").insert({"nombre": "tiempo_pregunta", "prompt_texto": str(nuevo_tiempo)}).execute()
+            supabase.table("config_tiempos_preguntas").insert({
+                "tiempos_segundos": int(nuevo_tiempo),
+                "updated_at": now_iso
+            }).execute()
         return True
     except Exception as e:
         st.error(f"Error al guardar tiempo por pregunta: {e}")
@@ -214,9 +221,9 @@ def guardar_num_preguntas_config(tipo, cantidad):
     try:
         res = supabase.table("config_prompts").select("id").eq("nombre", clave_nombre).execute()
         if res.data:
-            supabase.table("config_prompts").update({"prompt_texto": str(cantidad)}).eq("nombre", clave_nombre).execute()
+            supabase.table("config_prompts").update({"valor": str(cantidad)}).eq("nombre", clave_nombre).execute()
         else:
-            supabase.table("config_prompts").insert({"nombre": clave_nombre, "prompt_texto": str(cantidad)}).execute()
+            supabase.table("config_prompts").insert({"nombre": clave_nombre, "valor": str(cantidad)}).execute()
         return True
     except Exception as e:
         st.error(f"Error al guardar número de preguntas ({tipo}): {e}")
@@ -224,14 +231,13 @@ def guardar_num_preguntas_config(tipo, cantidad):
 
 def obtener_modelos_ia_disponibles():
     try:
-        res = supabase.table("config_prompts").select("modelo_gemini, modelo_claude").execute()
+        res = supabase.table("config_prompts").select("modelo_gemini, modelo_claude, modelo_openai").execute()
         if res.data:
             modelos_sql = []
             for fila in res.data:
-                if fila.get("modelo_gemini"):
-                    modelos_sql.extend([m.strip() for m in fila["modelo_gemini"].split(",") if m.strip()])
-                if fila.get("modelo_claude"):
-                    modelos_sql.extend([m.strip() for m in fila["modelo_claude"].split(",") if m.strip()])
+                for col in ["modelo_gemini", "modelo_claude", "modelo_openai"]:
+                    if fila.get(col):
+                        modelos_sql.extend([m.strip() for m in fila[col].split(",") if m.strip()])
             
             modelos_unicos = list(dict.fromkeys(modelos_sql))
             if modelos_unicos:
@@ -999,9 +1005,9 @@ else:
                     
                     texto_global_bd = TEXTO_EXAMEN_GLOBAL_INFO
                     try:
-                        res_info_g = supabase.table("config_prompts").select("prompt_texto").eq("nombre", "info_examen_global").limit(1).execute()
-                        if res_info_g.data and res_info_g.data[0].get("prompt_texto"):
-                            texto_global_bd = res_info_g.data[0]["prompt_texto"]
+                        res_info_g = supabase.table("config_prompts").select("valor").eq("nombre", "info_examen_global").limit(1).execute()
+                        if res_info_g.data and res_info_g.data[0].get("valor"):
+                            texto_global_bd = res_info_g.data[0]["valor"]
                     except Exception:
                         pass
 
@@ -1225,7 +1231,7 @@ else:
                 except Exception:
                     cfg_prompt_ex = None
 
-                prompt_defecto_cargador = cfg_prompt_ex.get("prompt_texto") if cfg_prompt_ex else PROMPT_DEFECTO_EXAMEN
+                prompt_defecto_cargador = cfg_prompt_ex.get("valor") if cfg_prompt_ex and cfg_prompt_ex.get("valor") else PROMPT_DEFECTO_EXAMEN
 
                 with st.form("form_cargar_manual", clear_on_submit=False):
                     nombre_apartado = st.text_input("📘 Nombre del Manual/Apartado (Ej. Manual Seguridad 2026):*")
@@ -1771,7 +1777,7 @@ else:
                 except Exception:
                     cfg_eval = None
 
-                prompt_defecto_eval = cfg_eval.get("prompt_texto") if cfg_eval else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
+                prompt_defecto_eval = cfg_eval.get("valor") if cfg_eval and cfg_eval.get("valor") else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
 
                 res_all_intentos = supabase.table("intentos_examen").select("*")\
                     .eq("activo", True)\
@@ -2046,19 +2052,26 @@ else:
                 num_p_global_actual = obtener_num_preguntas_config("global")
                 num_p_manual_actual = obtener_num_preguntas_config("manual")
 
-                with st.form("form_config_examenes"):
-                    st.markdown("##### ⏱️ Configuración del Tiempo por Pregunta")
+                with st.form("form_config_tiempos"):
+                    st.markdown("##### ⏱️ Configuración del Tiempo por Pregunta (config_tiempos_preguntas)")
                     nuevo_tiempo_inp = st.number_input(
                         "Tiempo asignado por pregunta (segundos):",
                         min_value=5,
                         max_value=300,
                         value=tiempo_actual_db,
                         step=5,
-                        help="Tiempo por defecto para responder cada pregunta."
+                        help="Graba en config_tiempos_preguntas (columna tiempos_segundos int y updated_at timestamptz)."
                     )
-                    
-                    st.markdown("---")
-                    st.markdown("##### 🔢 Cantidad de Preguntas por Modalidad")
+                    btn_save_tiempos = st.form_submit_button("💾 Guardar Tiempo por Pregunta")
+
+                    if btn_save_tiempos:
+                        if guardar_tiempo_pregunta_config(nuevo_tiempo_inp):
+                            st.success("✅ Tiempo asignado por pregunta actualizado correctamente.")
+                            time.sleep(1)
+                            st.rerun()
+
+                with st.form("form_config_num_preguntas"):
+                    st.markdown("##### 🔢 Cantidad de Preguntas por Modalidad (config_prompts)")
                     col_p1, col_p2 = st.columns(2)
                     with col_p1:
                         nuevo_num_global = st.number_input(
@@ -2077,15 +2090,14 @@ else:
                             step=1
                         )
 
-                    btn_save_config = st.form_submit_button("💾 Guardar Configuración de Exámenes")
+                    btn_save_num_preg = st.form_submit_button("💾 Guardar Número de Preguntas")
                     
-                    if btn_save_config:
-                        ok_tiempo = guardar_tiempo_pregunta_config(nuevo_tiempo_inp)
+                    if btn_save_num_preg:
                         ok_global = guardar_num_preguntas_config("global", nuevo_num_global)
                         ok_manual = guardar_num_preguntas_config("manual", nuevo_num_manual)
                         
-                        if ok_tiempo and ok_global and ok_manual:
-                            st.success("✅ Configuración de exámenes actualizada correctamente en la base de datos.")
+                        if ok_global and ok_manual:
+                            st.success("✅ Número de preguntas por modalidad actualizado correctamente en la columna 'valor'.")
                             time.sleep(1)
                             st.rerun()
 
@@ -2163,26 +2175,17 @@ else:
 
                 st.markdown("---")
                 st.subheader("⚙️ Configuración de IA y Modelos (SQL config_prompts)")
-                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini y Claude.")
+                st.caption("Administra la plantilla por defecto y los modelos predeterminados de Gemini, Claude y OpenAI.")
 
-                config_prompt_actual = None
+                cfg_defecto = None
                 try:
-                    res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
+                    res_cfg_db = supabase.table("config_prompts").select("*").eq("nombre", "plantilla_defecto").limit(1).execute()
                     if res_cfg_db.data:
-                        config_prompt_actual = res_cfg_db.data[0]
+                        cfg_defecto = res_cfg_db.data[0]
                 except Exception:
-                    config_prompt_actual = None
+                    cfg_defecto = None
 
-                cfg_prompt_examen = None
-                try:
-                    res_cfg_ex = supabase.table("config_prompts").select("*").eq("nombre", "prompt_examen").limit(1).execute()
-                    if res_cfg_ex.data:
-                        cfg_prompt_examen = res_cfg_ex.data[0]
-                except Exception:
-                    cfg_prompt_examen = None
-
-                p_def_val = config_prompt_actual.get("prompt_texto") if config_prompt_actual else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
-                p_def_ex_val = cfg_prompt_examen.get("prompt_texto") if cfg_prompt_examen else PROMPT_DEFECTO_EXAMEN
+                p_def_val = cfg_defecto.get("valor") if cfg_defecto and cfg_defecto.get("valor") else PROMPT_DEFECTO_EXAMEN
 
                 listado_modelos = obtener_modelos_ia_disponibles()
 
@@ -2193,20 +2196,22 @@ else:
                         lista_nuevos = [m.strip() for m in nuevos_modelos_str.split(",") if m.strip()]
                         g_str = ",".join([m for m in lista_nuevos if "gemini" in m.lower()])
                         c_str = ",".join([m for m in lista_nuevos if "claude" in m.lower()])
+                        o_str = ",".join([m for m in lista_nuevos if "gpt" in m.lower() or "openai" in m.lower()])
                         try:
-                            res_c1 = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
+                            res_c1 = supabase.table("config_prompts").select("id").eq("nombre", "plantilla_defecto").execute()
+                            datos_modelos = {
+                                "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
+                                "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022",
+                                "modelo_openai": o_str
+                            }
                             if res_c1.data:
-                                supabase.table("config_prompts").update({
-                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
-                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
-                                }).eq("nombre", "evaluacion_empleado").execute()
+                                supabase.table("config_prompts").update(datos_modelos).eq("nombre", "plantilla_defecto").execute()
                             else:
-                                supabase.table("config_prompts").insert({
-                                    "nombre": "evaluacion_empleado",
-                                    "prompt_texto": p_def_val,
-                                    "modelo_gemini": g_str if g_str else "gemini-2.5-pro",
-                                    "modelo_claude": c_str if c_str else "claude-3-5-sonnet-20241022"
-                                }).execute()
+                                datos_modelos.update({
+                                    "nombre": "plantilla_defecto",
+                                    "valor": p_def_val
+                                })
+                                supabase.table("config_prompts").insert(datos_modelos).execute()
 
                             st.success("✅ Lista de modelos actualizada correctamente.")
                             time.sleep(1)
@@ -2215,26 +2220,19 @@ else:
                             st.error(f"Error actualizando lista de modelos: {e_mod}")
 
                 with st.form("form_config_ia_prompts"):
-                    prompt_eval_config = st.text_area("Prompt por defecto para Evaluación de Empleados:", value=p_def_val, height=100)
-                    prompt_exam_config = st.text_area("Prompt por defecto para Generación de Exámenes:", value=p_def_ex_val, height=150)
+                    prompt_plantilla_config = st.text_area("Plantilla por defecto (plantilla_defecto):", value=p_def_val, height=150)
                     
                     btn_save_cfg_prompts = st.form_submit_button("💾 Guardar Configuración de Prompts")
                     if btn_save_cfg_prompts:
                         try:
-                            res_ev = supabase.table("config_prompts").select("id").eq("nombre", "evaluacion_empleado").execute()
-                            if res_ev.data:
-                                supabase.table("config_prompts").update({"prompt_texto": prompt_eval_config}).eq("nombre", "evaluacion_empleado").execute()
+                            res_def = supabase.table("config_prompts").select("id").eq("nombre", "plantilla_defecto").execute()
+                            if res_def.data:
+                                supabase.table("config_prompts").update({"valor": prompt_plantilla_config}).eq("nombre", "plantilla_defecto").execute()
                             else:
-                                supabase.table("config_prompts").insert({"nombre": "evaluacion_empleado", "prompt_texto": prompt_eval_config}).execute()
+                                supabase.table("config_prompts").insert({"nombre": "plantilla_defecto", "valor": prompt_plantilla_config}).execute()
 
-                            res_ex = supabase.table("config_prompts").select("id").eq("nombre", "prompt_examen").execute()
-                            if res_ex.data:
-                                supabase.table("config_prompts").update({"prompt_texto": prompt_exam_config}).eq("nombre", "prompt_examen").execute()
-                            else:
-                                supabase.table("config_prompts").insert({"nombre": "prompt_examen", "prompt_texto": prompt_exam_config}).execute()
-
-                            st.success("✅ Prompts por defecto actualizados.")
+                            st.success("✅ Configuración de plantilla_defecto actualizada en la base de datos.")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e_pr:
-                            st.error(f"Error al guardar prompts: {e_pr}")
+                        except Exception as e_prm:
+                            st.error(f"Error al guardar configuración de plantilla por defecto: {e_prm}")
