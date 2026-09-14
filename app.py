@@ -1727,7 +1727,6 @@ else:
                                 try:
                                     supabase.table("intentos_examen").insert(registro_nuevo).execute()
                                     registros_insertados += 1
-                                me:
                                 except Exception as err_ins:
                                     st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
                                     errores_import += 1
