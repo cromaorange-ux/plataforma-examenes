@@ -315,9 +315,9 @@ if "examen_finalizado" not in st.session_state:
 TIEMPO_LIMITE_PREGUNTA = obtener_tiempo_pregunta_config()
 UMBRAL_APROBADO_PORCENTAJE = 70.0
 
-PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test basadas en el documento. El documento esta separado por temas, cada tema el texto descriptivo, se encuentra en un tamaño más grande que el anterior. Siendo la pagina 2 donde comienza.
+PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test por cada temática/sección basadas en el documento. 
 
-Requisitos strictly para el JSON:
+Requisitos estrictos para el JSON:
 1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
 2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
 3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
@@ -336,15 +336,14 @@ Responde ÚNICAMENTE con un array JSON estructurado así (sin marcas de markdown
 ]
 """
 
-PROMPT_DEFECTO_EXAMEN = f"""Genera un conjunto de preguntas tipo test exclusivas para un examen basándote en el documento.
-Asegúrate de incluir al menos dos preguntas por cada tema detectado en el documento.
+PROMPT_DEFECTO_EXAMEN = f"""Genera un banco de EXACTAMENTE 50 preguntas tipo test por cada temática detectada en el documento.
 Para cada pregunta, asigna por defecto el nivel de dificultad "dificil" y establece el campo "tipo" como "examen".
 Cada pregunta debe incluir la propiedad "tiempo_segundos": {TIEMPO_LIMITE_PREGUNTA}.
 
 Responde ÚNICAMENTE con un array JSON estructurado exactamente de la siguiente forma (sin envoltorios markdown extraños fuera del json):
 [
   {{
-    "pregunta": "Texto detailed de la pregunta",
+    "pregunta": "Texto detallado de la pregunta",
     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
     "respuesta_correcta": 0,
     "pista": "Breve pista aclaratoria",
@@ -356,7 +355,7 @@ Responde ÚNICAMENTE con un array JSON estructurado exactamente de la siguiente 
 ]
 """
 
-TEXTO_EXAMEN_GLOBAL_INFO = f"""En el examen global, deben aparecer al menos dos preguntas por tema siendo de nivel difícil por defecto y examen, cada pregunta por defecto son {TIEMPO_LIMITE_PREGUNTA} segundos. Da igual el número de preguntas a realizar."""
+TEXTO_EXAMEN_GLOBAL_INFO = f"""En el examen global, se incluirán exactamente 15 preguntas distribuidas equitativamente entre las distintas temáticas. Se aplicará un tiempo máximo por pregunta de {TIEMPO_LIMITE_PREGUNTA} segundos."""
 
 MAPEO_CAMPOS = {
     'q': 'pregunta',
@@ -508,11 +507,7 @@ def seleccionar_preguntas_equilibradas(banco_completo, num_preguntas=15):
         temas_dict[sub].append(p)
 
     num_temas = len(temas_dict)
-    
-    if num_temas * 2 > num_preguntas:
-        cupo_por_tema = max(1, num_preguntas // num_temas)
-    else:
-        cupo_por_tema = 2
+    cupo_por_tema = max(1, num_preguntas // num_temas) if num_temas > 0 else 1
 
     seleccionadas = []
     
@@ -658,9 +653,17 @@ def renderizar_temporizador_realtime(idx):
     tiempo_transcurrido = int(time.time() - st.session_state.tiempo_inicio_pregunta)
     tiempo_restante = max(0, tiempo_base - tiempo_transcurrido)
     
+    # Temporizador General del Examen
+    if st.session_state.tiempo_inicio_examen:
+        total_p = len(st.session_state.preguntas_seleccionadas)
+        tiempo_total_limite = total_p * TIEMPO_LIMITE_PREGUNTA
+        tiempo_transcurrido_examen = int(time.time() - st.session_state.tiempo_inicio_examen)
+        tiempo_restante_examen = max(0, tiempo_total_limite - tiempo_transcurrido_examen)
+        st.info(f"⏳ **Tiempo total restante del examen:** {tiempo_restante_examen // 60:02d}:{tiempo_restante_examen % 60:02d} minutos")
+
     st.progress(tiempo_restante / TIEMPO_LIMITE_PREGUNTA)
     if tiempo_restante > 0:
-        st.caption(f"⏱️ Tiempo restante en tiempo real: **{tiempo_restante} segundos**")
+        st.caption(f"⏱️ Tiempo restante en esta pregunta: **{tiempo_restante} segundos**")
     else:
         st.warning("⏰ ¡Tiempo agotado en esta pregunta! Se registrará la casilla marcada.")
 
@@ -1026,8 +1029,8 @@ else:
                 tab_global, tab_manual = st.tabs(["🌐 Examen Global", "📘 Examen por Manual"])
                 
                 with tab_global:
-                    num_p_global = obtener_num_preguntas_config("global")
-                    st.info(f"El Examen Global seleccionará **{num_p_global} preguntas aleatorias** de entre todos los manuales.")
+                    num_p_global = 15
+                    st.info(f"El Examen Global seleccionará exactamente **{num_p_global} preguntas aleatorias** distribuidas equitativamente entre los manuales.")
                     
                     texto_global_bd = TEXTO_EXAMEN_GLOBAL_INFO
                     try:
@@ -1099,7 +1102,7 @@ else:
 
                 with tab_manual:
                     st.subheader("Selecciona el Manual para la Evaluación")
-                    num_p_manual = obtener_num_preguntas_config("manual")
+                    num_p_manual = 10
                     
                     manual_nombres = [ex['apartado'] for ex in examenes_disponibles]
                     manual_sel_nom = st.selectbox("Selecciona un manual:", manual_nombres, key="sel_manual_eval")
@@ -1108,7 +1111,7 @@ else:
                     if ex_obj:
                         nombre_apt = ex_obj['apartado']
                         num_p_totales = len(ex_obj.get("preguntas_json", [])) if isinstance(ex_obj.get("preguntas_json"), list) else 0
-                        st.info(f"📊 **Información del Manual:** Se han generado un total de **{num_p_totales} preguntas** para este manual. En el examen se presentarán **{num_p_manual} preguntas**.")
+                        st.info(f"📊 **Información del Manual:** Se han generado un banco de **{num_p_totales} preguntas**. En el examen se presentarás exactamente **{num_p_manual} preguntas**.")
 
                         ya_hecho_manual = nombre_apt in dict_realizados
                         permitido_manual = autorizaciones_set.__contains__(nombre_apt)
@@ -1878,7 +1881,7 @@ else:
                 st.subheader("🤖 Consultas Libres de Inteligencia Artificial")
                 
                 modelos_disponibles_c = obtener_modelos_ia_disponibles()
-                mod_c_sel = st.selectbox("Selecciona modelo IA para consulta directa:", opciones=modelos_disponibles_c)
+                mod_c_sel = st.selectbox("Selecciona modelo IA para consulta directa:", options=modelos_disponibles_c)
                 
                 prompt_directo = st.text_area("Escribe tu consulta o requerimiento para el modelo IA:", height=150)
                 
@@ -1921,7 +1924,6 @@ else:
                                 st.error("❌ Todos los campos son obligatorios.")
                             else:
                                 try:
-                                    # Se inserta sin enviar id para evitar violar la restricción unique constraint de la pkey
                                     nuevo_reg = {
                                         "nombre": nom_nuevo.strip(),
                                         "password_hash": pwd_nuevo.strip(),
@@ -2040,8 +2042,8 @@ else:
                     
                     with st.form("form_cfg_tiempos"):
                         n_tiempo = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA)
-                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=obtener_num_preguntas_config("global"))
-                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=obtener_num_preguntas_config("manual"))
+                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=15)
+                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=10)
                         
                         btn_save_cfg = st.form_submit_button("Guardar Parámetros")
                         if btn_save_cfg:
