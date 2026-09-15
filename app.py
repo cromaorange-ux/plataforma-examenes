@@ -135,6 +135,35 @@ st.markdown("""
         margin: 0 !important;
     }
 
+    /* Card para Examen por Manual */
+    .manual-card {
+        background-color: #FFFFFF !important;
+        border: 1px solid #E2E8F0;
+        border-top: 5px solid #2B6CB0;
+        border-radius: var(--border-radius);
+        padding: 20px;
+        text-align: left;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        margin-bottom: 15px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    .manual-card h4 {
+        color: #1A365D !important;
+        font-weight: 700 !important;
+        font-size: 18px !important;
+        margin-bottom: 8px !important;
+    }
+
+    .manual-card p {
+        color: #4A5568 !important;
+        font-size: 13px !important;
+        margin-bottom: 12px !important;
+    }
+
     .stButton > button {
         background-color: #2B6CB0 !important;
         color: #FFFFFF !important;
@@ -955,7 +984,7 @@ else:
                 "📝 Realizar Examen",
                 "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
-                "📥 Exportación examenes e Importación datos",
+                "📥 Exportación Exámenes e Importación Datos",
                 "📈 Analítica e IA",
                 "🤖 Consultas Gemini / IA",
                 "⚙️ Gestión y Configuración"
@@ -1101,87 +1130,97 @@ else:
                         st.rerun()
 
                 with tab_manual:
-                    st.subheader("Selecciona el Manual para la Evaluación")
+                    st.subheader("📘 Manuales y Exámenes Disponibles")
                     num_p_manual = 10
                     
-                    manual_nombres = [ex['apartado'] for ex in examenes_disponibles]
-                    manual_sel_nom = st.selectbox("Selecciona un manual:", manual_nombres, key="sel_manual_eval")
-                    ex_obj = next((ex for ex in examenes_disponibles if ex['apartado'] == manual_sel_nom), None)
-                    
-                    if ex_obj:
+                    # Renderizado de cards estructuradas por manual
+                    cols = st.columns(3)
+                    for idx_ex, ex_obj in enumerate(examenes_disponibles):
                         nombre_apt = ex_obj['apartado']
                         num_p_totales = len(ex_obj.get("preguntas_json", [])) if isinstance(ex_obj.get("preguntas_json"), list) else 0
-                        st.info(f"📊 **Información del Manual:** Se han generado un banco de **{num_p_totales} preguntas**. En el examen se presentarás exactamente **{num_p_manual} preguntas**.")
 
                         ya_hecho_manual = nombre_apt in dict_realizados
                         permitido_manual = autorizaciones_set.__contains__(nombre_apt)
                         bloqueado_manual = ya_hecho_manual and not permitido_manual and not st.session_state.es_croma
 
-                        if ya_hecho_manual:
-                            info_m = dict_realizados[nombre_apt]
-                            est_txt = obtener_estado_evaluacion(info_m['porcentaje'])
-                            st.warning(f"⚠️ **REALIZADO ESTE MES** — Nota previa: **{info_m['nota']} / 10** | **{est_txt}**")
-                            if permitido_manual:
-                                st.success("🔓 **El administrador te ha habilitado un nuevo intento para este examen.**")
-                            elif not st.session_state.es_croma:
-                                st.error("🔒 Requiere autorización del administrador para repetirlo este mes.")
-                        
-                        if st.button(f"Iniciar Examen de {nombre_apt}", key=f"btn_manual_{ex_obj['id']}", disabled=bloqueado_manual, use_container_width=True):
-                            banco = ex_obj.get("preguntas_json", [])
-                            banco_manual = []
-                            
-                            if isinstance(banco, list):
-                                for p in banco:
-                                    if isinstance(p, dict):
-                                        idx_c = p.get("respuesta_correcta", 0)
-                                        opciones = p.get("opciones", [])
-                                        if isinstance(idx_c, int) and 0 <= idx_c < len(opciones):
-                                            texto_c = opciones[idx_c]
-                                            opciones_shuffled = opciones.copy()
-                                            random.shuffle(opciones_shuffled)
-                                            
-                                            banco_manual.append({
-                                                "apartado": nombre_apt,
-                                                "subindice": p.get("subindice", "General"),
-                                                "pregunta": p.get("pregunta", ""),
-                                                "opciones_barajadas": opciones_shuffled,
-                                                "respuesta_correcta_texto": texto_c,
-                                                "pista": p.get("pista", "Revisa la documentación técnica."),
-                                                "dificultad": p.get("dificultad", "dificil"),
-                                                "tipo": "teorica"
-                                            })
-                            
-                            preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_manual, num_p_manual)
-                            
-                            st.session_state.examen_id = ex_obj["id"]
-                            st.session_state.apartado_actual = nombre_apt
-                            st.session_state.preguntas_seleccionadas = preguntas_preparadas
-                            st.session_state.indice_pregunta = 0
-                            st.session_state.respuestas_detalle = []
-                            st.session_state.tiempos_restantes_preguntas = {}
-                            st.session_state.modificando_desde_revision = False
-                            st.session_state.tiempo_inicio_examen = time.time()
-                            st.session_state.tiempo_inicio_pregunta = None
-                            st.session_state.tiempo_inicio_revision = None
-                            st.session_state.comodines_restantes = 3
-                            st.session_state.pistas_activadas = set()
-                            st.session_state.sobrepaso_tiempo_global = False
-                            st.session_state.examen_finalizado = False
-                            st.session_state.examen_activo = True
-                            st.rerun()
+                        with cols[idx_ex % 3]:
+                            st.markdown(f"""
+                            <div class="manual-card">
+                                <div>
+                                    <h4>📘 {nombre_apt}</h4>
+                                    <p><b>Banco de preguntas:</b> {num_p_totales} totales<br>
+                                    <b>Preguntas en examen:</b> {num_p_manual}</p>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
 
+                            if ya_hecho_manual:
+                                info_m = dict_realizados[nombre_apt]
+                                est_txt = obtener_estado_evaluacion(info_m['porcentaje'])
+                                st.caption(f"⚠️ **Realizado este mes:** {info_m['nota']}/10 ({est_txt})")
+
+                            if st.button(f"Iniciar Examen", key=f"btn_card_manual_{ex_obj['id']}", disabled=bloqueado_manual, use_container_width=True):
+                                banco = ex_obj.get("preguntas_json", [])
+                                banco_manual = []
+                                
+                                if isinstance(banco, list):
+                                    for p in banco:
+                                        if isinstance(p, dict):
+                                            idx_c = p.get("respuesta_correcta", 0)
+                                            opciones = p.get("opciones", [])
+                                            if isinstance(idx_c, int) and 0 <= idx_c < len(opciones):
+                                                texto_c = opciones[idx_c]
+                                                opciones_shuffled = opciones.copy()
+                                                random.shuffle(opciones_shuffled)
+                                                
+                                                banco_manual.append({
+                                                    "apartado": nombre_apt,
+                                                    "subindice": p.get("subindice", "General"),
+                                                    "pregunta": p.get("pregunta", ""),
+                                                    "opciones_barajadas": opciones_shuffled,
+                                                    "respuesta_correcta_texto": texto_c,
+                                                    "pista": p.get("pista", "Revisa la documentación técnica."),
+                                                    "dificultad": p.get("dificultad", "dificil"),
+                                                    "tipo": "teorica"
+                                                })
+                                
+                                preguntas_preparadas = seleccionar_preguntas_equilibradas(banco_manual, num_p_manual)
+                                
+                                st.session_state.examen_id = ex_obj["id"]
+                                st.session_state.apartado_actual = nombre_apt
+                                st.session_state.preguntas_seleccionadas = preguntas_preparadas
+                                st.session_state.indice_pregunta = 0
+                                st.session_state.respuestas_detalle = []
+                                st.session_state.tiempos_restantes_preguntas = {}
+                                st.session_state.modificando_desde_revision = False
+                                st.session_state.tiempo_inicio_examen = time.time()
+                                st.session_state.tiempo_inicio_pregunta = None
+                                st.session_state.tiempo_inicio_revision = None
+                                st.session_state.comodines_restantes = 3
+                                st.session_state.pistas_activadas = set()
+                                st.session_state.sobrepaso_tiempo_global = False
+                                st.session_state.examen_finalizado = False
+                                st.session_state.examen_activo = True
+                                st.rerun()
+
+                    # Estadísticas de soporte técnico
+                    manual_nombres = [ex['apartado'] for ex in examenes_disponibles]
+                    st.markdown("---")
+                    st.subheader("📊 Histórico del Trabajador por Manual")
+                    manual_sel_nom = st.selectbox("Selecciona un manual para ver tu histórico:", manual_nombres, key="sel_manual_eval_stats")
+                    ex_obj_stats = next((ex for ex in examenes_disponibles if ex['apartado'] == manual_sel_nom), None)
+                    
+                    if ex_obj_stats:
+                        nombre_apt_stat = ex_obj_stats['apartado']
                         res_intentos_m = supabase.table("intentos_examen").select("*")\
                             .eq("empleado_id", st.session_state.user_id)\
-                            .eq("apartado", nombre_apt)\
+                            .eq("apartado", nombre_apt_stat)\
                             .eq("activo", True)\
                             .order("fecha_inicio", desc=True).execute()
                         intentos_m = res_intentos_m.data if res_intentos_m.data else []
 
                         if intentos_m:
-                            st.markdown("---")
-                            st.markdown(f"#### 📊 Estadísticas por Tema/Subíndice para {nombre_apt}")
-                            
-                            banco_actual_m = ex_obj.get("preguntas_json", [])
+                            banco_actual_m = ex_obj_stats.get("preguntas_json", [])
                             temas_totales_banco = set()
                             if isinstance(banco_actual_m, list):
                                 for p_b in banco_actual_m:
@@ -1630,7 +1669,7 @@ else:
         # ADMIN CROMA - EXPORTACIÓN E INFORMES
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
-                st.subheader("📥 Exportación examenes e Importación datos")
+                st.subheader("📥 Exportación Exámenes e Importación Datos")
                 
                 res_todos = supabase.table("intentos_examen").select("*")\
                     .eq("activo", True)\
@@ -1829,8 +1868,6 @@ else:
 
                 st.markdown("---")
 
-
-        
         # ADMIN CROMA - ANALÍTICA E IA
         if st.session_state.es_croma and tab_admin_analisis:
             with tab_admin_analisis:
@@ -1855,6 +1892,7 @@ else:
 
                 st.markdown("---")
 
+                # PROMPT MODIFICABLE DESDE CONFIG_PROMPTS
                 cfg_eval = None
                 try:
                     res_cfg_eval = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
@@ -1863,72 +1901,81 @@ else:
                 except Exception:
                     cfg_eval = None
 
-                prompt_defecto_eval = cfg_eval.get("valor") if cfg_eval and cfg_eval.get("valor") else "Analiza a este trabajador y da tu opinión como profesional de su evolución en los exámenes realizados, este año, y años anteriores."
+                prompt_defecto_eval = cfg_eval.get("valor") if cfg_eval and cfg_eval.get("valor") else "Analiza a los usuarios seleccionados y da una valoración como profesional en evaluaciones de sus resultados."
 
-                res_all_intentos = supabase.table("intentos_examen").select("*")\
-                    .eq("activo", True)\
-                    .order("fecha_inicio", desc=False).execute()
-                data_intentos_val = res_all_intentos.data if res_all_intentos.data else []
+                st.markdown("### 🤖 Evaluación Múltiple e Informe de Trabajadores")
+                
+                # Cargar lista de empleados para selección múltiple
+                res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
+                emp_list_select = res_emp_activos_todos.data if res_emp_activos_todos.data else []
+                nombres_activos = sorted([e["nombre"] for e in emp_list_select])
 
-                if data_intentos_val:
-                    df_all = pd.DataFrame(data_intentos_val)
-                    df_all["fecha_inicio_dt"] = pd.to_datetime(df_all["fecha_inicio"], errors='coerce')
-                    df_all["anio_int"] = df_all["fecha_inicio_dt"].dt.year
-                    
-                    anios_m_disponibles = sorted(list(df_all["anio_int"].dropna().astype(int).unique()), reverse=True)
-                    anio_metrica_sel = st.selectbox("📅 Selecciona el año de consulta para métricas:", anios_m_disponibles)
-                    
-                    st.markdown("### 📊 Gráficas y Métricas por Empleado (Histórico Completo SQL)")
-                    
-                    res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
-                    emp_list_select = res_emp_activos_todos.data if res_emp_activos_todos.data else []
-                    
-                    nombres_activos_solamente = sorted(list(set([e["nombre"] for e in emp_list_select])))
-                    nombres_trabajadores = ["Todos los trabajadores activos"] + nombres_activos_solamente
-                    
-                    col_f_emp, col_f_ex = st.columns(2)
-                    with col_f_emp:
-                        emp_seleccionado_nombre = st.selectbox("👤 Selecciona un trabajador:", nombres_trabajadores)
-                    with col_f_ex:
-                        examenes_unicos_hist = ["Todos"] + sorted(list(df_all["apartado"].dropna().unique()))
-                        examen_seleccionado_filtro = st.selectbox("📘 Selecciona un examen/manual:", examenes_unicos_hist)
+                # Selección Múltiple de Empleados
+                empleados_sel = st.multiselect("👥 Selecciona uno o varios empleados a analizar:", options=nombres_activos, default=nombres_activos[:1] if nombres_activos else [])
+                
+                # Selección Múltiple de Exámenes / Manuales
+                res_all_examenes = supabase.table("examenes").select("apartado").eq("activo", True).execute()
+                examenes_unicos = sorted(list(set([ex["apartado"] for ex in (res_all_examenes.data or [])])))
+                examenes_sel = st.multiselect("📘 Selecciona exámenes para restringir el estudio (Opcional):", options=examenes_unicos, default=examenes_unicos)
 
-                    if emp_seleccionado_nombre == "Todos los trabajadores activos":
-                        df_emp_tot = df_all[df_all["nombre_empleado"].isin(nombres_activos_solamente)]
+                # Selección Múltiple de IAs
+                modelos_ia_opciones = obtener_modelos_ia_disponibles()
+                modelos_estudio_sel = st.multiselect("🤖 Selecciona una o múltiples IAs para generar el estudio:", options=modelos_ia_opciones, default=[modelos_ia_opciones[0]] if modelos_ia_opciones else [])
+
+                # Prompt modificable con opción de guardar en SQL
+                prompt_estudio_input = st.text_area("💬 Prompt de evaluación (Modificable y editable):", value=prompt_defecto_eval, height=120)
+                guardar_prompt_eval_check = st.checkbox("💾 Guardar cambios de este prompt en la base de datos (SQL)", key="chk_save_prompt_eval")
+
+                if st.button("🚀 Generar Informe Cualitativo Múltiple", use_container_width=True):
+                    if not empleados_sel:
+                        st.error("❌ Por favor selecciona al menos un empleado.")
+                    elif not modelos_estudio_sel:
+                        st.error("❌ Por favor selecciona al menos un modelo de IA.")
                     else:
-                        df_emp_tot = df_all[df_all["nombre_empleado"].str.strip().str.lower() == emp_seleccionado_nombre.strip().lower()]
+                        if guardar_prompt_eval_check:
+                            guardar_prompt_config("evaluacion_empleado", prompt_estudio_input)
 
-                    if examen_seleccionado_filtro != "Todos":
-                        df_emp_tot = df_emp_tot[df_emp_tot["apartado"] == examen_seleccionado_filtro]
+                        with st.spinner("🔍 Extrayendo datos desde SQL y procesando con las IAs..."):
+                            try:
+                                query = supabase.table("intentos_examen").select("*").eq("activo", True).in_("nombre_empleado", empleados_sel)
+                                if examenes_sel:
+                                    query = query.in_("apartado", examenes_sel)
+                                res_intentos_sql = query.execute()
+                                datos_intentos = res_intentos_sql.data if res_intentos_sql.data else []
 
-                    df_emp_anio = df_emp_tot[df_emp_tot["anio_int"] == anio_metrica_sel]
+                                if not datos_intentos:
+                                    st.warning("No se encontraron registros en SQL para la combinación de empleados y exámenes seleccionados.")
+                                else:
+                                    resumen_contexto = json.dumps(datos_intentos, indent=2, ensure_ascii=False)
+                                    prompt_completo = f"{prompt_estudio_input}\n\n[DATOS HISTÓRICOS EXTRAÍDOS DE SQL]:\n{resumen_contexto[:35000]}"
 
-                    if not df_emp_anio.empty:
-                        total_ex = len(df_emp_anio)
-                        nota_media = round(df_emp_anio["nota"].mean(), 2)
-                        porcentaje_medio = round(nota_media * 10, 2)
-                        nota_max = round(df_emp_anio["nota"].max(), 2)
+                                    for mod in modelos_estudio_sel:
+                                        st.markdown(f"#### 🧠 Informe Generado por Modelo: `{mod}`")
+                                        resp_ia = consultar_ia(mod, prompt_completo, sistema="Eres un experto profesional en psicometría y evaluación del rendimiento académico/laboral.")
+                                        st.info(resp_ia)
+                                        
+                                        pdf_exp = generar_pdf_evaluacion_ia(", ".join(empleados_sel), resp_ia, datetime.datetime.now().year)
+                                        if pdf_exp:
+                                            st.download_button(
+                                                label=f"📄 Descargar Informe PDF ({mod})",
+                                                data=pdf_exp,
+                                                file_name=f"Informe_IA_{mod}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                                                mime="application/pdf",
+                                                key=f"pdf_btn_{mod}"
+                                            )
+                            except Exception as e_est:
+                                st.error(f"Error generando el estudio con la IA: {e_est}")
 
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Exámenes Realizados", total_ex)
-                        m2.metric("Nota Media", f"{nota_media} / 10")
-                        m3.metric("% Aciertos Promedio", f"{porcentaje_medio}%")
-                        m4.metric("Nota Máxima", f"{nota_max} / 10")
-
-                        st.markdown("#### 📈 Evolución Histórica de Notas")
-                        df_chart = df_emp_tot.copy()
-                        df_chart["fecha_corta"] = df_chart["fecha_inicio"].str[:10]
-                        st.line_chart(df_chart.set_index("fecha_corta")["nota"])
-
-        # ADMIN CROMA - CONSULTAS GEMINI / IA
+        # ADMIN CROMA - CONSULTAS GEMINI / IA Y SQL
         if st.session_state.es_croma and tab_admin_claude:
             with tab_admin_claude:
-                st.subheader("🤖 Consultas Libres de Inteligencia Artificial")
+                st.subheader("🤖 Consultas Libres de IA sobre la Base de Datos SQL")
                 
                 modelos_disponibles_c = obtener_modelos_ia_disponibles()
                 mod_c_sel = st.selectbox("Selecciona modelo IA para consulta directa:", options=modelos_disponibles_c)
                 
-                prompt_directo = st.text_area("Escribe tu consulta o requerimiento para el modelo IA:", height=150)
+                incluir_contexto_sql = st.checkbox("📊 Incluir contexto estructurado de la base de datos SQL (Empleados e Intentos)", value=True)
+                prompt_directo = st.text_area("Escribe tu consulta o requerimiento para el modelo IA:", height=150, placeholder="Ejemplo: ¿Cuál es el examen con menor porcentaje de aprobados acumulado?")
                 
                 if st.button("Enviar Consulta a IA", use_container_width=True):
                     if not prompt_directo.strip():
@@ -1936,7 +1983,14 @@ else:
                     else:
                         with st.spinner("Procesando consulta con la IA..."):
                             try:
-                                respuesta_ia = consultar_ia(mod_c_sel, prompt_directo)
+                                prompt_final_q = prompt_directo
+                                if incluir_contexto_sql:
+                                    res_intentos_sql = supabase.table("intentos_examen").select("id, nombre_empleado, apartado, nota, porcentaje_obtenido, fecha_inicio, sobrepasado_tiempo").eq("activo", True).limit(200).execute()
+                                    datos_contexto = res_intentos_sql.data if res_intentos_sql.data else []
+                                    
+                                    prompt_final_q = f"Basándote en los datos reales extraídos de la base de datos SQL:\n\n[REGISTROS SQL DE EXÁMENES]:\n{json.dumps(datos_contexto, ensure_ascii=False)}\n\n[PREGUNTA DEL USUARIO]:\n{prompt_directo}"
+
+                                respuesta_ia = consultar_ia(mod_c_sel, prompt_final_q)
                                 st.markdown("### 📝 Respuesta del Modelo:")
                                 st.write(respuesta_ia)
                             except Exception as e_ia:
