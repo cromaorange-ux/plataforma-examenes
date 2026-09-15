@@ -694,7 +694,7 @@ def renderizar_temporizador_realtime(idx):
     if tiempo_restante > 0:
         st.caption(f"⏱️ Tiempo restante en esta pregunta: **{tiempo_restante} segundos**")
     else:
-        st.warning("⏰ ¡Tiempo agotado en esta pregunta! Se registrará la casilla marcada.")
+        st.warning("⏰ ¡Tiempo agotado en esta pregunta! La selección ha quedado bloqueada.")
 
 # ---------------------------------------------------------
 # MÓDULO 1: AUTENTICACIÓN
@@ -797,7 +797,7 @@ else:
             st.session_state.tiempo_inicio_revision = time.time()
             
         tiempo_revision_transcurrido = int(time.time() - st.session_state.tiempo_inicio_revision)
-        tiempo_revision_restante = 300 - tiempo_revision_transcurrido
+        tiempo_revision_restante = max(0, 300 - tiempo_revision_transcurrido)
         
         st.subheader("🔍 Revisión de Examen previa a la entrega final")
         
@@ -1874,9 +1874,9 @@ else:
                 st.subheader("📈 Analítica Global e Inteligencia Artificial")
                 
                 try:
-                    res_m_counts = supabase.table("examenes").select("id, apartado, preguntas_json, activo").execute()
+                    res_m_counts = supabase.table("examenes").select("id, apartado, preguntas_json, activo").eq("activo", True).execute()
                     if res_m_counts.data:
-                        st.markdown("### 📊 Conteo de Preguntas Generadas por Examen/Manual")
+                        st.markdown("### 📊 Conteo de Preguntas Generadas por Examen/Manual (Solo Activos)")
                         data_counts = []
                         for ex_m in res_m_counts.data:
                             preg_list = ex_m.get("preguntas_json", [])
@@ -1884,7 +1884,7 @@ else:
                                 "ID": ex_m.get("id"),
                                 "Manual / Examen": ex_m.get("apartado"),
                                 "Preguntas Generadas": len(preg_list) if isinstance(preg_list, list) else 0,
-                                "Estado": "Activo" if ex_m.get("activo") else "Deshabilitado"
+                                "Estado": "Activo"
                             })
                         st.dataframe(pd.DataFrame(data_counts), use_container_width=True, hide_index=True)
                 except Exception as e_cnt:
