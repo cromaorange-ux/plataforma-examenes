@@ -955,7 +955,7 @@ else:
                 "📝 Realizar Examen",
                 "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
-                "📥 Exportación e Informes",
+                "📥 Exportación examenes e Importación datos",
                 "📈 Analítica e IA",
                 "🤖 Consultas Gemini / IA",
                 "⚙️ Gestión y Configuración"
@@ -1630,7 +1630,7 @@ else:
         # ADMIN CROMA - EXPORTACIÓN E INFORMES
         if st.session_state.es_croma and tab_admin_export:
             with tab_admin_export:
-                st.subheader("📥 Exportación e Informes")
+                st.subheader("📥 Exportación examenes e Importación datos")
                 
                 res_todos = supabase.table("intentos_examen").select("*")\
                     .eq("activo", True)\
