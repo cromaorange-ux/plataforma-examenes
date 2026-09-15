@@ -2003,6 +2003,51 @@ else:
                     except Exception as err_g_man:
                         st.error(f"Error al cargar manuales: {err_g_man}")
 
+                # CARGA DIRECTA Y UNIFICACIÓN DE JSON
+                st.subheader("📄 Cargar Banco de Preguntas desde JSON (Soporta múltiples archivos)")
+                nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
+                archivos_json = st.file_uploader("Seleccionar uno o varios archivos JSON con preguntas", type=["json"], accept_multiple_files=True)
+
+                if st.button("🚀 Subir y Unificar Preguntas a Supabase"):
+                    if archivos_json and nombre_apartado_json:
+                        try:
+                            contenido_validado_unificado = []
+                            
+                            for f_json in archivos_json:
+                                raw_json = json.load(f_json)
+                                
+                                if isinstance(raw_json, dict):
+                                    array_preguntas = raw_json.get("bank", raw_json.get("preguntas", []))
+                                elif isinstance(raw_json, list):
+                                    array_preguntas = raw_json
+                                else:
+                                    array_preguntas = []
+
+                                if isinstance(array_preguntas, list):
+                                    for p in array_preguntas:
+                                        preg_normalizada = normalizar_pregunta_json(p)
+                                        if preg_normalizada:
+                                            contenido_validado_unificado.append(preg_normalizada)
+
+                            if contenido_validado_unificado:
+                                supabase.table("examenes").insert({
+                                    "apartado": nombre_apartado_json,
+                                    "preguntas_json": contenido_validado_unificado,
+                                    "activo": True
+                                }).execute()
+                                
+                                st.success(f"✅ ¡Se unificaron y cargaron {len(contenido_validado_unificado)} preguntas en un solo registro SQL correctamente!")
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.error("❌ Los archivos JSON subidos no contienen preguntas válidas.")
+                        except Exception as e:
+                            st.error(f"❌ Error al procesar y unificar los JSON: {e}")
+
+                st.markdown("---")
+
+
+                
                 # GESTIÓN DE EXÁMENES E INTENTOS
                 with tab_g_ex:
                     st.markdown("### 📝 Estado de Intentos de Exámenes")
