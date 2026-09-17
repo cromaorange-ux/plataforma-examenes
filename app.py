@@ -994,13 +994,12 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos). Tiempo configurado por pregunta: **{TIEMPO_LIMITE_PREGUNTA} segundos**.")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_claude, tab_admin_gestion = st.tabs([
+            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen",
                 "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación Exámenes e Importación Datos",
                 "📈 Analítica e IA",
-                "🤖 Consultas Gemini / IA",
                 "⚙️ Gestión y Configuración"
             ])
         else:
@@ -2101,29 +2100,6 @@ else:
                                 except Exception as err_save_sql:
                                     st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
 
-        # ADMIN CROMA - CONSULTAS LIBRES A LA IA
-        if st.session_state.es_croma and tab_admin_claude:
-            with tab_admin_claude:
-                st.subheader("🤖 Consultas Libres a Gemini / Modelos de IA")
-                st.info("Utiliza esta sección para interactuar directamente con la IA de forma libre.")
-
-                modelos_ia_opciones = obtener_modelos_ia_disponibles()
-                mod_libre_sel = st.selectbox("Selecciona el modelo de IA:", modelos_ia_opciones, key="sel_mod_libre")
-                
-                prompt_libre = st.text_area("Escribe tu consulta o prompt:", height=150, key="txt_prompt_libre")
-
-                if st.button("Enviar Consulta a la IA", use_container_width=True, key="btn_send_libre"):
-                    if not prompt_libre.strip():
-                        st.error("❌ Escribe una consulta antes de enviar.")
-                    else:
-                        with st.spinner(f"Consultando {mod_libre_sel}..."):
-                            try:
-                                resp_libre = consultar_ia(mod_libre_sel, prompt_libre)
-                                st.markdown("### 💬 Respuesta de la IA:")
-                                st.write(resp_libre)
-                            except Exception as err_l:
-                                st.error(f"Error procesando la consulta: {err_l}")
-
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
@@ -2263,19 +2239,41 @@ else:
                 with tab_g_cfg:
                     st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
                     
-                    num_p_g_actual = obtener_num_preguntas_config("global")
-                    num_p_m_actual = obtener_num_preguntas_config("manual")
-
                     with st.form("form_cfg_tiempos"):
                         n_tiempo = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA)
-                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=num_p_g_actual)
-                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=num_p_m_actual)
+                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=15)
+                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=10)
                         
                         btn_save_cfg = st.form_submit_button("Guardar Parámetros")
                         if btn_save_cfg:
                             guardar_tiempo_pregunta_config(n_tiempo)
                             guardar_num_preguntas_config("global", n_p_global)
                             guardar_num_preguntas_config("manual", n_p_manual)
-                            st.success("✅ Parámetros de configuración actualizados.")
+                            st.success("✅ Configuración de tiempos y preguntas guardada exitosamente.")
                             time.sleep(1)
                             st.rerun()
+
+                    st.markdown("---")
+                    st.markdown("### 💬 Edición y Actualización de Prompts del Sistema")
+                    
+                    try:
+                        res_prompts_db = supabase.table("config_prompts").select("*").execute()
+                        prompts_data = res_prompts_db.data if res_prompts_db.data else []
+                        
+                        if prompts_data:
+                            dict_p = {p["nombre"]: p.get("valor", "") for p in prompts_data if p.get("nombre")}
+                            
+                            p_sel_nombre = st.selectbox("Selecciona el prompt a editar:", list(dict_p.keys()), key="sel_prompt_edit_mng")
+                            p_valor_actual = dict_p[p_sel_nombre]
+                            
+                            with st.form("form_edit_prompt_db"):
+                                nuevo_p_valor = st.text_area("Contenido del Prompt:", value=p_valor_actual, height=200)
+                                if st.form_submit_button("Guardar Prompt en SQL"):
+                                    if guardar_prompt_config(p_sel_nombre, nuevo_p_valor):
+                                        st.success(f"✅ Prompt '{p_sel_nombre}' actualizado correctamente.")
+                                        time.sleep(1)
+                                        st.rerun()
+                        else:
+                            st.info("No hay prompts registrados en la base de datos.")
+                    except Exception as err_p_mng:
+                        st.error(f"Error al cargar configuración de prompts: {err_p_mng}")
