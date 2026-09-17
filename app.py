@@ -339,6 +339,8 @@ if "eval_resultado_cache" not in st.session_state:
     st.session_state.eval_resultado_cache = None
 if "examen_finalizado" not in st.session_state:
     st.session_state.examen_finalizado = False
+if "mostrar_analisis_ia_exp" not in st.session_state:
+    st.session_state.mostrar_analisis_ia_exp = False
 
 TIEMPO_LIMITE_PREGUNTA = obtener_tiempo_pregunta_config()
 UMBRAL_APROBADO_PORCENTAJE = 70.0
@@ -1745,6 +1747,67 @@ else:
                                     mime="application/pdf",
                                     use_container_width=True
                                 )
+
+                st.markdown("---")
+                
+                # ---------------------------------------------------------
+                # INFORME DE EVALUACIÓN IA (SQL) - ADMINISTRADOR
+                # ---------------------------------------------------------
+                st.subheader("📄 Consulta de Informe de Análisis IA por Empleado (SQL)")
+                
+                try:
+                    res_emp_act_exp = supabase.table("empleados").select("id, nombre").eq("activo", True).order("nombre", desc=False).execute()
+                    list_emp_exp = res_emp_act_exp.data if res_emp_act_exp.data else []
+                except Exception:
+                    list_emp_exp = []
+
+                if list_emp_exp:
+                    dict_emp_exp = {e["nombre"]: e["id"] for e in list_emp_exp}
+                    col_ia_a, col_ia_b = st.columns(2)
+                    
+                    with col_ia_a:
+                        emp_exp_sel_nom = st.selectbox("👥 Seleccionar Empleado:", list(dict_emp_exp.keys()), key="exp_ia_emp_nom")
+                    with col_ia_b:
+                        anio_defecto = datetime.datetime.now().year
+                        anio_exp_ia = st.number_input("📅 Seleccionar Año:", min_value=2020, max_value=2030, value=anio_defecto, key="exp_ia_anio_num")
+
+                    emp_exp_id_val = dict_emp_exp[emp_exp_sel_nom]
+
+                    res_an_sql = supabase.table("analisis_ia_empleados").select("*")\
+                        .eq("empleado_id", emp_exp_id_val)\
+                        .eq("anio", int(anio_exp_ia))\
+                        .order("fecha_generacion", desc=True)\
+                        .execute()
+
+                    if res_an_sql.data:
+                        informes_disponibles = res_an_sql.data
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("👁️ Mostrar Análisis IA", use_container_width=True, key="btn_toggle_ia_show"):
+                                st.session_state.mostrar_analisis_ia_exp = not st.session_state.mostrar_analisis_ia_exp
+
+                        informe_principal = informes_disponibles[0]
+                        txt_analisis = informe_principal.get("analisis_texto", "")
+
+                        with col_btn2:
+                            pdf_bytes_ia = generar_pdf_evaluacion_ia(emp_exp_sel_nom, txt_analisis, anio_exp_ia)
+                            if pdf_bytes_ia:
+                                st.download_button(
+                                    label="📄 Descargar PDF del Análisis IA",
+                                    data=pdf_bytes_ia,
+                                    file_name=f"Analisis_IA_{emp_exp_sel_nom.replace(' ', '_')}_{anio_exp_ia}.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True,
+                                    key="btn_download_pdf_ia_admin"
+                                )
+
+                        if st.session_state.mostrar_analisis_ia_exp:
+                            st.info(f"**Análisis de Evaluación IA de {emp_exp_sel_nom} ({anio_exp_ia}):**\n\n{txt_analisis}")
+                    else:
+                        st.warning(f"⚠️ No se encontró ningún informe de Análisis IA generado en SQL para **{emp_exp_sel_nom}** en el año **{anio_exp_ia}**.")
+                else:
+                    st.warning("No se pudieron cargar los empleados para consultar los informes de IA.")
 
                 st.markdown("---")
                 st.subheader("📥 Importar Registro de Exámenes (CSV)")
