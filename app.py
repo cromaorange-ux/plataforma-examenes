@@ -2100,6 +2100,30 @@ else:
                                     st.success(f"✅ Informe guardado en SQL exitosamente para {registros_guardados} empleado(s). El usuario ya puede visualizarlo.")
                                 except Exception as err_save_sql:
                                     st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
+
+        # ADMIN CROMA - CONSULTAS LIBRES A LA IA
+        if st.session_state.es_croma and tab_admin_claude:
+            with tab_admin_claude:
+                st.subheader("🤖 Consultas Libres a Gemini / Modelos de IA")
+                st.info("Utiliza esta sección para interactuar directamente con la IA de forma libre.")
+
+                modelos_ia_opciones = obtener_modelos_ia_disponibles()
+                mod_libre_sel = st.selectbox("Selecciona el modelo de IA:", modelos_ia_opciones, key="sel_mod_libre")
+                
+                prompt_libre = st.text_area("Escribe tu consulta o prompt:", height=150, key="txt_prompt_libre")
+
+                if st.button("Enviar Consulta a la IA", use_container_width=True, key="btn_send_libre"):
+                    if not prompt_libre.strip():
+                        st.error("❌ Escribe una consulta antes de enviar.")
+                    else:
+                        with st.spinner(f"Consultando {mod_libre_sel}..."):
+                            try:
+                                resp_libre = consultar_ia(mod_libre_sel, prompt_libre)
+                                st.markdown("### 💬 Respuesta de la IA:")
+                                st.write(resp_libre)
+                            except Exception as err_l:
+                                st.error(f"Error procesando la consulta: {err_l}")
+
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
@@ -2112,90 +2136,65 @@ else:
                     "⚙️ Configuración General"
                 ])
 
-    with tab_g_emp:
-        st.markdown("### 👥 Gestión de Empleados y Permisos")
-    
-        # 1. Formulario para registrar nuevo empleado
-        with st.expander("➕ Registrar Nuevo Empleado"):
-            with st.form("form_nuevo_empleado", clear_on_submit=True):
-                nom_nuevo = st.text_input("Nombre completo del empleado:*")
-                pwd_nuevo = st.text_input("Contraseña de acceso:*", type="password")
-                es_admin_nuevo = st.checkbox("Es Administrador CROMA")
-            
-                btn_crear_emp = st.form_submit_button("Crear Empleado")
-            
-                if btn_crear_emp:
-                    if not nom_nuevo.strip() or not pwd_nuevo.strip():
-                        st.error("❌ Todos los campos son obligatorios.")
-                    else:
-                        try:
-                            supabase.table("empleados").insert({
-                                "nombre": nom_nuevo.strip(),
-                                "password_hash": pwd_nuevo.strip(),
-                                "es_admin_croma": es_admin_nuevo,
-                                "activo": True,
-                                "analisis_ia_habilitado": True
-                            }).execute()
-                            st.success("✅ Empleado registrado con éxito.")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as err_crear:
-                            st.error(f"Error al registrar empleado: {err_crear}")
+                with tab_g_emp:
+                    st.markdown("### ➕ Registrar Nuevo Empleado")
+                    with st.form("form_nuevo_empleado", clear_on_submit=True):
+                        nom_nuevo = st.text_input("Nombre completo del empleado:*")
+                        pwd_nuevo = st.text_input("Contraseña de acceso:*", type="password")
+                        es_admin_nuevo = st.checkbox("Es Administrador CROMA")
+                        
+                        btn_crear_emp = st.form_submit_button("Crear Empleado")
+                        
+                        if btn_crear_emp:
+                            if not nom_nuevo.strip() or not pwd_nuevo.strip():
+                                st.error("❌ Todos los campos son obligatorios.")
+                            else:
+                                try:
+                                    nuevo_reg = {
+                                        "nombre": nom_nuevo.strip(),
+                                        "password_hash": pwd_nuevo.strip(),
+                                        "es_admin_croma": es_admin_nuevo,
+                                        "activo": True
+                                    }
+                                    supabase.table("empleados").insert(nuevo_reg).execute()
+                                    st.success(f"✅ Empleado '{nom_nuevo.strip()}' creado exitosamente.")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as err_emp:
+                                    st.error(f"❌ Error al crear empleado: {err_emp}")
 
-    st.markdown("---")
-    st.markdown("### 🔍 Marcar / Desmarcar Estado Activo y Análisis IA")
+                    st.markdown("---")
+                    st.markdown("### 🔍 Marcar / Desmarcar Estado Activo de Empleados")
+                    filtro_estado_emp = st.radio("Mostrar empleados:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_emp_est")
 
-    try:
-        # Cargar todos los empleados (activos e inactivos)
-        res_emp_todos = supabase.table("empleados").select("*").order("nombre", desc=False).execute()
-        lista_empleados_todos = res_emp_todos.data if res_emp_todos.data else []
-    except Exception as e_emp:
-        lista_empleados_todos = []
-        st.error(f"Error cargando empleados: {e_emp}")
+                    try:
+                        q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
+                        if filtro_estado_emp == "Sólo Activos":
+                            q_emp = q_emp.eq("activo", True)
+                        elif filtro_estado_emp == "Sólo Desactivados":
+                            q_emp = q_emp.eq("activo", False)
+                        
+                        res_emp_mng = q_emp.execute()
+                        emp_mng_data = res_emp_mng.data if res_emp_mng.data else []
+                        
+                        if emp_mng_data:
+                            for emp_item in emp_mng_data:
+                                col1, col2 = st.columns([3, 1])
+                                with col1:
+                                    st.write(f"👤 **{emp_item['nombre']}** | ID: {emp_item['id']} | Rol: {'Admin' if emp_item.get('es_admin_croma') else 'Empleado'}")
+                                with col2:
+                                    estado_actual = emp_item.get("activo", True)
+                                    nuevo_est = st.checkbox("Activo", value=estado_actual, key=f"chk_emp_{emp_item['id']}")
+                                    if nuevo_est != estado_actual:
+                                        supabase.table("empleados").update({"activo": nuevo_est}).eq("id", emp_item["id"]).execute()
+                                        st.success(f"Estado actualizado para {emp_item['nombre']}")
+                                        time.sleep(0.5)
+                                        st.rerun()
+                        else:
+                            st.info("No se encontraron empleados con los filtros aplicados.")
+                    except Exception as err_g_emp:
+                        st.error(f"Error al cargar empleados: {err_g_emp}")
 
-    if lista_empleados_todos:
-        # Encabezado de la tabla de gestión
-        col_nom, col_rol, col_act, col_ia = st.columns([3, 2, 2, 2])
-        col_nom.markdown("**Empleado**")
-        col_rol.markdown("**Rol**")
-        col_act.markdown("**Estado Activo**")
-        col_ia.markdown("**Análisis IA**")
-        st.markdown("---")
-
-        for emp in lista_empleados_todos:
-            c_nom, c_rol, c_act, c_ia = st.columns([3, 2, 2, 2])
-            
-            c_nom.write(f"👤 {emp['nombre']}")
-            c_rol.caption("Administrador" if emp.get("es_admin_croma") else "Empleado")
-
-            # Checkbox 1: Activo / Inactivo
-            estado_activo_actual = emp.get("activo", True)
-            nuevo_estado_activo = c_act.checkbox(
-                "Activo", 
-                value=estado_activo_actual, 
-                key=f"chk_act_{emp['id']}"
-            )
-            
-            if nuevo_estado_activo != estado_activo_actual:
-                supabase.table("empleados").update({"activo": nuevo_estado_activo}).eq("id", emp["id"]).execute()
-                st.toast(f"Estado de {emp['nombre']} actualizado.")
-                time.sleep(0.5)
-                st.rerun()
-
-            # Checkbox 2: Habilitar / Deshabilitar Análisis IA
-            estado_ia_actual = emp.get("analisis_ia_habilitado", True)
-            nuevo_estado_ia = c_ia.checkbox(
-                "🤖 IA Habilitada", 
-                value=estado_ia_actual, 
-                key=f"chk_ia_{emp['id']}"
-            )
-            
-            if nuevo_estado_ia != estado_ia_actual:
-                supabase.table("empleados").update({"analisis_ia_habilitado": nuevo_estado_ia}).eq("id", emp["id"]).eq("id", emp["id"]).execute()
-                st.toast(f"Análisis IA para {emp['nombre']} {'habilitado' if nuevo_estado_ia else 'deshabilitado'}.")
-                time.sleep(0.5)
-                st.rerun()
-                
                 with tab_g_man:
                     st.markdown("### 📄 Estado de Manuales Cargados")
                     filtro_estado_man = st.radio("Mostrar manuales:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_man_est")
@@ -2264,42 +2263,19 @@ else:
                 with tab_g_cfg:
                     st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
                     
+                    num_p_g_actual = obtener_num_preguntas_config("global")
+                    num_p_m_actual = obtener_num_preguntas_config("manual")
+
                     with st.form("form_cfg_tiempos"):
                         n_tiempo = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA)
-                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=15)
-                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=10)
+                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=num_p_g_actual)
+                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=num_p_m_actual)
                         
                         btn_save_cfg = st.form_submit_button("Guardar Parámetros")
                         if btn_save_cfg:
                             guardar_tiempo_pregunta_config(n_tiempo)
                             guardar_num_preguntas_config("global", n_p_global)
                             guardar_num_preguntas_config("manual", n_p_manual)
-                            st.success("✅ Configuración de tiempos y preguntas guardada exitosamente.")
+                            st.success("✅ Parámetros de configuración actualizados.")
                             time.sleep(1)
                             st.rerun()
-
-                    st.markdown("---")
-                    st.markdown("### 💬 Edición y Actualización de Prompts del Sistema")
-                    
-                    try:
-                        res_p_all = supabase.table("config_prompts").select("*").execute()
-                        prompts_list = res_p_all.data if res_p_all.data else []
-                    except Exception:
-                        prompts_list = []
-
-                    if prompts_list:
-                        nom_prompts = [p["nombre"] for p in prompts_list]
-                        prompt_sel_nom = st.selectbox("Selecciona un Prompt para editar/actualizar:", nom_prompts)
-                        
-                        p_obj_cfg = next((p for p in prompts_list if p["nombre"] == prompt_sel_nom), None)
-                        val_actual_p = p_obj_cfg.get("valor", "") if p_obj_cfg else ""
-
-                        with st.form("form_edit_prompt_cfg"):
-                            nuevo_val_prompt = st.text_area("Texto / Instrucciones del Prompt:", value=val_actual_p, height=200)
-                            btn_actualizar_p = st.form_submit_button("Actualizar Prompt")
-                            
-                            if btn_actualizar_p:
-                                if guardar_prompt_config(prompt_sel_nom, nuevo_val_prompt):
-                                    st.success(f"✅ Prompt '{prompt_sel_nom}' actualizado correctamente.")
-                                    time.sleep(1)
-                                    st.rerun()
