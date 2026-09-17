@@ -135,7 +135,6 @@ st.markdown("""
         margin: 0 !important;
     }
 
-    /* Card para Examen por Manual */
     .manual-card {
         background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0;
@@ -671,7 +670,7 @@ def login_modal():
                 st.error("❌ Contraseña incorrecta.")
 
 # ---------------------------------------------------------
-# FRAGMENTO DE CONTADOR DE TIEMPO REAL
+# FRAGMENTOS DE TEMPORIZACIÓN DINÁMICA
 # ---------------------------------------------------------
 @st.fragment(run_every=1)
 def renderizar_temporizador_realtime(idx):
@@ -695,6 +694,19 @@ def renderizar_temporizador_realtime(idx):
         st.caption(f"⏱️ Tiempo restante en esta pregunta: **{tiempo_restante} segundos**")
     else:
         st.warning("⏰ ¡Tiempo agotado en esta pregunta! La selección ha quedado bloqueada.")
+
+@st.fragment(run_every=1)
+def renderizar_temporizador_revision():
+    if st.session_state.tiempo_inicio_revision is None:
+        st.session_state.tiempo_inicio_revision = time.time()
+        
+    tiempo_revision_transcurrido = int(time.time() - st.session_state.tiempo_inicio_revision)
+    tiempo_revision_restante = max(0, 300 - tiempo_revision_transcurrido)
+    
+    if tiempo_revision_restante > 0:
+        st.warning(f"⏱️ Tiempo restante de revisión: **{tiempo_revision_restante // 60:02d}:{tiempo_revision_restante % 60:02d} minutos**. Si se agota, el examen se finalizará automáticamente.")
+    else:
+        st.error("⏰ ¡Tiempo de revisión agotado (5 minutos)! Finalizando el examen automáticamente...")
 
 # ---------------------------------------------------------
 # MÓDULO 1: AUTENTICACIÓN
@@ -747,11 +759,11 @@ else:
 
     def guardar_intento_en_bd():
         if st.session_state.examen_finalizado:
-            return
+            return True
         total_p = len(st.session_state.preguntas_seleccionadas)
         correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
-        porcentaje = round((correctas / total_p) * 100, 2)
-        nota_final = round((correctas / total_p) * 10, 2)
+        porcentaje = round((correctas / total_p) * 100, 2) if total_p > 0 else 0.0
+        nota_final = round((correctas / total_p) * 10, 2) if total_p > 0 else 0.0
         
         duracion_total = int(time.time() - (st.session_state.tiempo_inicio_examen or time.time()))
         tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
@@ -787,9 +799,11 @@ else:
                 pass
             
             st.session_state.examen_finalizado = True
+            return True
 
         except Exception as e:
             st.error(f"Error guardando intento: {e}")
+            return False
     
     # MODO REVISIÓN PREVIA A FINALIZAR
     if st.session_state.modo_revision:
@@ -804,10 +818,8 @@ else:
         if not st.session_state.examen_finalizado:
             st.info("Revisa tus respuestas e indica si deseas modificar alguna antes de la entrega definitiva.")
 
-            if tiempo_revision_restante > 0:
-                st.warning(f"⏱️ Tiempo restante de revisión: **{tiempo_revision_restante // 60:02d}:{tiempo_revision_restante % 60:02d} minutos**. Si se agota, el examen se finalizará automáticamente.")
-            else:
-                st.error("⏰ ¡Tiempo de revisión agotado (5 minutos)! Finalizando el examen automáticamente...")
+            # Temporizador dinámico en tiempo real para los 5 minutos de revisión
+            renderizar_temporizador_revision()
 
             for i, p_item in enumerate(st.session_state.preguntas_seleccionadas):
                 resp_actual = next((r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == i), None)
@@ -836,13 +848,13 @@ else:
                 st.rerun()
             else:
                 if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
-                    guardar_intento_en_bd()
-                    st.rerun()
+                    if guardar_intento_en_bd():
+                        st.rerun()
         else:
             total_p = len(st.session_state.preguntas_seleccionadas)
             correctas = sum(1 for r in st.session_state.respuestas_detalle if r["es_correcta"])
-            porcentaje = round((correctas / total_p) * 100, 2)
-            nota_final = round((correctas / total_p) * 10, 2)
+            porcentaje = round((correctas / total_p) * 100, 2) if total_p > 0 else 0.0
+            nota_final = round((correctas / total_p) * 10, 2) if total_p > 0 else 0.0
             estado_evaluacion = obtener_estado_evaluacion(porcentaje, st.session_state.sobrepaso_tiempo_global)
 
             if "APROBADO" in estado_evaluacion:
@@ -1133,7 +1145,6 @@ else:
                     st.subheader("📘 Manuales y Exámenes Disponibles")
                     num_p_manual = 10
                     
-                    # Renderizado de cards estructuradas por manual
                     cols = st.columns(3)
                     for idx_ex, ex_obj in enumerate(examenes_disponibles):
                         nombre_apt = ex_obj['apartado']
@@ -1825,7 +1836,6 @@ else:
                         except Exception as e_csv:
                             st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
 
-                # CARGA DIRECTA Y UNIFICACIÓN DE JSON
                 st.subheader("📄 Cargar Banco de Preguntas desde JSON (Soporta múltiples archivos)")
                 nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
                 archivos_json = st.file_uploader("Seleccionar uno o varios archivos JSON con preguntas", type=["json"], accept_multiple_files=True)
@@ -1892,7 +1902,6 @@ else:
 
                 st.markdown("---")
 
-                # PROMPT MODIFICABLE DESDE CONFIG_PROMPTS
                 cfg_eval = None
                 try:
                     res_cfg_eval = supabase.table("config_prompts").select("*").eq("nombre", "evaluacion_empleado").limit(1).execute()
@@ -1905,24 +1914,19 @@ else:
 
                 st.markdown("### 🤖 Evaluación Múltiple e Informe de Trabajadores")
                 
-                # Cargar lista de empleados para selección múltiple
                 res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                 emp_list_select = res_emp_activos_todos.data if res_emp_activos_todos.data else []
                 nombres_activos = sorted([e["nombre"] for e in emp_list_select])
 
-                # Selección Múltiple de Empleados
                 empleados_sel = st.multiselect("👥 Selecciona uno o varios empleados a analizar:", options=nombres_activos, default=nombres_activos[:1] if nombres_activos else [])
                 
-                # Selección Múltiple de Exámenes / Manuales
                 res_all_examenes = supabase.table("examenes").select("apartado").eq("activo", True).execute()
                 examenes_unicos = sorted(list(set([ex["apartado"] for ex in (res_all_examenes.data or [])])))
                 examenes_sel = st.multiselect("📘 Selecciona exámenes para restringir el estudio (Opcional):", options=examenes_unicos, default=examenes_unicos)
 
-                # Selección Múltiple de IAs
                 modelos_ia_opciones = obtener_modelos_ia_disponibles()
                 modelos_estudio_sel = st.multiselect("🤖 Selecciona una o múltiples IAs para generar el estudio:", options=modelos_ia_opciones, default=[modelos_ia_opciones[0]] if modelos_ia_opciones else [])
 
-                # Prompt modificable con opción de guardar en SQL
                 prompt_estudio_input = st.text_area("💬 Prompt de evaluación (Modificable y editable):", value=prompt_defecto_eval, height=120)
                 guardar_prompt_eval_check = st.checkbox("💾 Guardar cambios de este prompt en la base de datos (SQL)", key="chk_save_prompt_eval")
 
@@ -2008,7 +2012,6 @@ else:
                     "⚙️ Configuración General"
                 ])
 
-                # GESTIÓN DE EMPLEADOS (CREACIÓN SIN PKEY ERROR Y SELECCIÓN DE ACTIVOS/INACTIVOS)
                 with tab_g_emp:
                     st.markdown("### ➕ Registrar Nuevo Empleado")
                     with st.form("form_nuevo_empleado", clear_on_submit=True):
@@ -2068,7 +2071,6 @@ else:
                     except Exception as err_g_emp:
                         st.error(f"Error al cargar empleados: {err_g_emp}")
 
-                # GESTIÓN DE MANUALES
                 with tab_g_man:
                     st.markdown("### 📄 Estado de Manuales Cargados")
                     filtro_estado_man = st.radio("Mostrar manuales:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_man_est")
@@ -2102,7 +2104,6 @@ else:
                     except Exception as err_g_man:
                         st.error(f"Error al cargar manuales: {err_g_man}")
                 
-                # GESTIÓN DE EXÁMENES E INTENTOS
                 with tab_g_ex:
                     st.markdown("### 📝 Estado de Intentos de Exámenes")
                     filtro_estado_ex = st.radio("Mostrar exámenes/intentos:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_ex_est")
@@ -2135,7 +2136,6 @@ else:
                     except Exception as err_g_ex:
                         st.error(f"Error al cargar intentos de examen: {err_g_ex}")
 
-                # CONFIGURACIÓN GENERAL Y PROMPTS
                 with tab_g_cfg:
                     st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
                     
