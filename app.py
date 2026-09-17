@@ -1479,7 +1479,7 @@ else:
                     st.write("Aún no has realizado ningún examen.")
 
             with tab_mi_analisis:
-                st.subheader("📈 Mi Rendimiento Personal")
+                st.subheader("📈 Mi Rendimiento Personal e Informe IA")
                 
                 res_mis_graf = supabase.table("intentos_examen").select("id, nota, porcentaje_obtenido, fecha_inicio, apartado")\
                     .eq("empleado_id", st.session_state.user_id)\
@@ -1494,31 +1494,40 @@ else:
                     st.markdown("#### 📊 Evolución Histórica de Calificaciones")
                     st.line_chart(df_mi_graf, x="fecha", y="nota")
                     
-                    st.markdown("#### 📄 Informe Profesional de Evaluación IA")
-                    anio_actual_int = datetime.datetime.now().year
-                    res_mi_an = supabase.table("analisis_ia_empleados").select("*")\
-                        .eq("empleado_id", st.session_state.user_id)\
-                        .eq("anio", anio_actual_int)\
-                        .order("fecha_generacion", desc=True)\
-                        .limit(1).execute()
+                st.markdown("---")
+                st.markdown("#### 📄 Informe Profesional de Evaluación IA (Año Vigente)")
+                
+                anio_vigente = datetime.datetime.now().year
+                
+                # Consulta filtrada estrictamente por el id del usuario autenticado y el año actual
+                res_mi_an = supabase.table("analisis_ia_empleados").select("*")\
+                    .eq("empleado_id", st.session_state.user_id)\
+                    .eq("anio", anio_vigente)\
+                    .order("fecha_generacion", desc=True)\
+                    .limit(1).execute()
+                
+                if res_mi_an.data:
+                    info_eval_db = res_mi_an.data[0]
+                    txt_eval = info_eval_db["analisis_texto"]
+                    mod_usado = info_eval_db.get("modelo_ia", "IA")
+                    fecha_gen = info_eval_db.get("fecha_generacion", "")[:10]
                     
-                    if res_mi_an.data:
-                        txt_eval = res_mi_an.data[0]["analisis_texto"]
-                        st.info(txt_eval)
-                        pdf_eval_usr = generar_pdf_evaluacion_ia(st.session_state.user_nombre, txt_eval, anio_actual_int)
-                        if pdf_eval_usr:
-                            st.download_button(
-                                label="📄 Exportar Informe IA en PDF",
-                                data=pdf_eval_usr,
-                                file_name=f"Informe_Evaluacion_IA_{st.session_state.user_nombre.replace(' ', '_')}_{anio_actual_int}.pdf",
-                                mime="application/pdf",
-                                key="pdf_eval_usr_btn"
-                            )
-                    else:
-                        st.caption("Aún no hay un informe cualitativo generado para ti en el ciclo actual.")
+                    st.caption(f"🤖 Evaluado con: **{mod_usado}** | Fecha de informe: **{fecha_gen}** | Año: **{anio_vigente}**")
+                    st.info(txt_eval)
+                    
+                    pdf_eval_usr = generar_pdf_evaluacion_ia(st.session_state.user_nombre, txt_eval, anio_vigente)
+                    if pdf_eval_usr:
+                        st.download_button(
+                            label="📄 Descargar Informe Evaluación IA (PDF)",
+                            data=pdf_eval_usr,
+                            file_name=f"Informe_Evaluacion_IA_{st.session_state.user_nombre.replace(' ', '_')}_{anio_vigente}.pdf",
+                            mime="application/pdf",
+                            key="pdf_eval_usr_btn",
+                            use_container_width=True
+                        )
                 else:
-                    st.info("No dispones de suficientes evaluaciones registradas para generar gráficos.")
-
+                    st.warning(f"Aún no hay ningún informe de evaluación guardado para ti en el año {anio_vigente}.")
+                    
         # ADMIN CROMA - RESULTADOS Y EDICIÓN
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
@@ -1910,27 +1919,34 @@ else:
                 except Exception:
                     cfg_eval = None
 
-                prompt_defecto_eval = cfg_eval.get("valor") if cfg_eval and cfg_eval.get("valor") else "Analiza a los usuarios seleccionados y da una valoración como profesional en evaluaciones de sus resultados."
+                prompt_defecto_eval = cfg_eval.get("valor") if cfg_eval and cfg_eval.get("valor") else "Analiza los exámenes del empleado y genera una evaluación profesional estructurada."
 
                 st.markdown("### 🤖 Evaluación Múltiple e Informe de Trabajadores")
                 
+                # Carga de empleados activos
                 res_emp_activos_todos = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
                 emp_list_select = res_emp_activos_todos.data if res_emp_activos_todos.data else []
-                nombres_activos = sorted([e["nombre"] for e in emp_list_select])
+                map_empleados_dict = {e["nombre"]: e["id"] for e in emp_list_select}
+                nombres_activos = sorted(list(map_empleados_dict.keys()))
 
-                empleados_sel = st.multiselect("👥 Selecciona uno o varios empleados a analizar:", options=nombres_activos, default=nombres_activos[:1] if nombres_activos else [])
-                
+                col_filtro1, col_filtro2 = st.columns(2)
+                with col_filtro1:
+                    empleados_sel = st.multiselect("👥 Selecciona uno o varios empleados a analizar:", options=nombres_activos, default=nombres_activos[:1] if nombres_activos else [])
+                with col_filtro2:
+                    anio_actual_def = datetime.datetime.now().year
+                    anio_analisis_sel = st.number_input("📅 Año del informe:", min_value=2020, max_value=2030, value=anio_actual_def)
+
                 res_all_examenes = supabase.table("examenes").select("apartado").eq("activo", True).execute()
                 examenes_unicos = sorted(list(set([ex["apartado"] for ex in (res_all_examenes.data or [])])))
                 examenes_sel = st.multiselect("📘 Selecciona exámenes para restringir el estudio (Opcional):", options=examenes_unicos, default=examenes_unicos)
 
                 modelos_ia_opciones = obtener_modelos_ia_disponibles()
-                modelos_estudio_sel = st.multiselect("🤖 Selecciona una o múltiples IAs para generar el estudio:", options=modelos_ia_opciones, default=[modelos_ia_opciones[0]] if modelos_ia_opciones else [])
+                modelos_estudio_sel = st.multiselect("🤖 Selecciona el modelo de IA a consultar:", options=modelos_ia_opciones, default=[modelos_ia_opciones[0]] if modelos_ia_opciones else [])
 
                 prompt_estudio_input = st.text_area("💬 Prompt de evaluación (Modificable y editable):", value=prompt_defecto_eval, height=120)
                 guardar_prompt_eval_check = st.checkbox("💾 Guardar cambios de este prompt en la base de datos (SQL)", key="chk_save_prompt_eval")
 
-                if st.button("🚀 Generar Informe Cualitativo Múltiple", use_container_width=True):
+                if st.button("🚀 Generar Informe Cualitativo", use_container_width=True):
                     if not empleados_sel:
                         st.error("❌ Por favor selecciona al menos un empleado.")
                     elif not modelos_estudio_sel:
@@ -1939,67 +1955,88 @@ else:
                         if guardar_prompt_eval_check:
                             guardar_prompt_config("evaluacion_empleado", prompt_estudio_input)
 
-                        with st.spinner("🔍 Extrayendo datos desde SQL y procesando con las IAs..."):
+                        with st.spinner("🔍 Extrayendo exámenes desde SQL y procesando con la IA..."):
                             try:
+                                # Filtrar intentos del año seleccionado
                                 query = supabase.table("intentos_examen").select("*").eq("activo", True).in_("nombre_empleado", empleados_sel)
                                 if examenes_sel:
                                     query = query.in_("apartado", examenes_sel)
                                 res_intentos_sql = query.execute()
-                                datos_intentos = res_intentos_sql.data if res_intentos_sql.data else []
+                                datos_intentos = [it for it in (res_intentos_sql.data or []) if it.get("fecha_inicio") and int(it["fecha_inicio"][:4]) == anio_analisis_sel]
 
                                 if not datos_intentos:
-                                    st.warning("No se encontraron registros en SQL para la combinación de empleados y exámenes seleccionados.")
+                                    st.warning(f"No se encontraron registros de exámenes en SQL para los empleados y año {anio_analisis_sel} elegidos.")
                                 else:
                                     resumen_contexto = json.dumps(datos_intentos, indent=2, ensure_ascii=False)
-                                    prompt_completo = f"{prompt_estudio_input}\n\n[DATOS HISTÓRICOS EXTRAÍDOS DE SQL]:\n{resumen_contexto[:35000]}"
+                                    prompt_completo = f"{prompt_estudio_input}\n\n[DATOS HISTÓRICOS DE EXÁMENES DEL AÑO {anio_analisis_sel}]:\n{resumen_contexto[:35000]}"
+
+                                    st.session_state.eval_resultado_cache = []
 
                                     for mod in modelos_estudio_sel:
-                                        st.markdown(f"#### 🧠 Informe Generado por Modelo: `{mod}`")
-                                        resp_ia = consultar_ia(mod, prompt_completo, sistema="Eres un experto profesional en psicometría y evaluación del rendimiento académico/laboral.")
-                                        st.info(resp_ia)
-                                        
-                                        pdf_exp = generar_pdf_evaluacion_ia(", ".join(empleados_sel), resp_ia, datetime.datetime.now().year)
-                                        if pdf_exp:
-                                            st.download_button(
-                                                label=f"📄 Descargar Informe PDF ({mod})",
-                                                data=pdf_exp,
-                                                file_name=f"Informe_IA_{mod}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
-                                                mime="application/pdf",
-                                                key=f"pdf_btn_{mod}"
-                                            )
+                                        resp_ia = consultar_ia(mod, prompt_completo, sistema="Eres un evaluador profesional en rendimiento y capacitación técnica.")
+                                        st.session_state.eval_resultado_cache.append({
+                                            "modelo": mod,
+                                            "texto": resp_ia,
+                                            "prompt": prompt_estudio_input,
+                                            "anio": anio_analisis_sel,
+                                            "empleados": empleados_sel
+                                        })
+
                             except Exception as e_est:
                                 st.error(f"Error generando el estudio con la IA: {e_est}")
 
-        # ADMIN CROMA - CONSULTAS GEMINI / IA Y SQL
-        if st.session_state.es_croma and tab_admin_claude:
-            with tab_admin_claude:
-                st.subheader("🤖 Consultas Libres de IA sobre la Base de Datos SQL")
-                
-                modelos_disponibles_c = obtener_modelos_ia_disponibles()
-                mod_c_sel = st.selectbox("Selecciona modelo IA para consulta directa:", options=modelos_disponibles_c)
-                
-                incluir_contexto_sql = st.checkbox("📊 Incluir contexto estructurado de la base de datos SQL (Empleados e Intentos)", value=True)
-                prompt_directo = st.text_area("Escribe tu consulta o requerimiento para el modelo IA:", height=150, placeholder="Ejemplo: ¿Cuál es el examen con menor porcentaje de aprobados acumulado?")
-                
-                if st.button("Enviar Consulta a IA", use_container_width=True):
-                    if not prompt_directo.strip():
-                        st.error("Por favor escribe una consulta válida.")
-                    else:
-                        with st.spinner("Procesando consulta con la IA..."):
-                            try:
-                                prompt_final_q = prompt_directo
-                                if incluir_contexto_sql:
-                                    res_intentos_sql = supabase.table("intentos_examen").select("id, nombre_empleado, apartado, nota, porcentaje_obtenido, fecha_inicio, sobrepasado_tiempo").eq("activo", True).limit(200).execute()
-                                    datos_contexto = res_intentos_sql.data if res_intentos_sql.data else []
-                                    
-                                    prompt_final_q = f"Basándote en los datos reales extraídos de la base de datos SQL:\n\n[REGISTROS SQL DE EXÁMENES]:\n{json.dumps(datos_contexto, ensure_ascii=False)}\n\n[PREGUNTA DEL USUARIO]:\n{prompt_directo}"
+                # Renderizar resultados generados si existen en el estado de la sesión
+                if st.session_state.get("eval_resultado_cache"):
+                    st.markdown("---")
+                    st.markdown("### 📋 Resultados Generados por la IA")
 
-                                respuesta_ia = consultar_ia(mod_c_sel, prompt_final_q)
-                                st.markdown("### 📝 Respuesta del Modelo:")
-                                st.write(respuesta_ia)
-                            except Exception as e_ia:
-                                st.error(f"Error al consultar el modelo: {e_ia}")
+                    for item_eval in st.session_state.eval_resultado_cache:
+                        mod = item_eval["modelo"]
+                        resp_ia = item_eval["texto"]
+                        anio_inf = item_eval["anio"]
+                        list_emp = item_eval["empleados"]
 
+                        st.markdown(f"#### 🧠 Modelo: `{mod}` | Año: **{anio_inf}**")
+                        st.info(resp_ia)
+
+                        c_btn1, c_btn2 = st.columns(2)
+                        
+                        # Botón 1: Descargar Informe PDF
+                        with c_btn1:
+                            pdf_exp = generar_pdf_evaluacion_ia(", ".join(list_emp), resp_ia, anio_inf)
+                            if pdf_exp:
+                                st.download_button(
+                                    label=f"📄 Descargar Informe PDF ({mod})",
+                                    data=pdf_exp,
+                                    file_name=f"Informe_IA_{mod}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                                    mime="application/pdf",
+                                    key=f"pdf_btn_{mod}",
+                                    use_container_width=True
+                                )
+
+                        # Botón 2: Guardar en Base de Datos SQL
+                        with c_btn2:
+                            if st.button(f"💾 Guardar Consulta en SQL para Empleado(s)", key=f"btn_sql_save_{mod}", use_container_width=True):
+                                try:
+                                    registros_guardados = 0
+                                    for emp_nom in list_emp:
+                                        emp_id_val = map_empleados_dict.get(emp_nom)
+                                        if emp_id_val:
+                                            # Insertar en la nueva tabla
+                                            supabase.table("analisis_ia_empleados").insert({
+                                                "empleado_id": emp_id_val,
+                                                "nombre_empleado": emp_nom,
+                                                "anio": int(anio_inf),
+                                                "modelo_ia": mod,
+                                                "prompt_utilizado": item_eval["prompt"],
+                                                "analisis_texto": resp_ia,
+                                                "creado_por": st.session_state.user_nombre
+                                            }).execute()
+                                            registros_guardados += 1
+
+                                    st.success(f"✅ Informe guardado en SQL exitosamente para {registros_guardados} empleado(s). El usuario ya puede visualizarlo.")
+                                except Exception as err_save_sql:
+                                    st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
