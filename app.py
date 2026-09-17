@@ -994,12 +994,13 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos). Tiempo configurado por pregunta: **{TIEMPO_LIMITE_PREGUNTA} segundos**.")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_gestion = st.tabs([
+            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_informes_ia, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen",
                 "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación Exámenes e Importación Datos",
                 "📈 Analítica e IA",
+                "🤖 Informes IA",  # <--- PESTAÑA AÑADIDA
                 "⚙️ Gestión y Configuración"
             ])
         else:
@@ -2100,6 +2101,102 @@ else:
                                 except Exception as err_save_sql:
                                     st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
 
+        # ---------------------------------------------------------
+# NUEVA PESTAÑA: GESTIÓN DE INFORMES IA (analisis_ia_empleados)
+# ---------------------------------------------------------
+if st.session_state.es_croma and tab_admin_informes_ia:
+    with tab_admin_informes_ia:
+        st.subheader("🤖 Gestión e Informes Generados por IA")
+        st.caption(
+            "Consulta, activa o deshabilita la visibilidad de los informes"
+            " almacenados en la base de datos (analisis_ia_empleados)."
+        )
+
+        # Filtro de visibilidad/estado
+        filtro_estado_ia = st.radio(
+            "Filtrar informes por estado:",
+            ["Todos", "Sólo Activos", "Sólo Desactivados"],
+            horizontal=True,
+            key="f_ia_informes_est",
+        )
+
+        try:
+            # Consulta base a Supabase
+            q_ia = supabase.table("analisis_ia_empleados").select("*").order("fecha_generacion", desc=True)
+
+            if filtro_estado_ia == "Sólo Activos":
+                q_ia = q_ia.eq("activo", True)
+            elif filtro_estado_ia == "Sólo Desactivados":
+                q_ia = q_ia.eq("activo", False)
+
+            res_ia_mng = q_ia.execute()
+            ia_informes_data = res_ia_mng.data if res_ia_mng.data else []
+
+            if ia_informes_data:
+                for inf in ia_informes_data:
+                    inf_id = inf["id"]
+                    nombre_emp = inf.get("nombre_empleado", "Desconocido")
+                    anio_inf = inf.get("anio", "N/A")
+                    mod_ia = inf.get("modelo_ia", "IA")
+                    est_activo = inf.get("activo", True)  # Estado por defecto
+                    fecha_gen = str(inf.get("fecha_generacion", ""))[:10]
+
+                    label_expander = (
+                        f"📄 Informe #{inf_id} | {nombre_emp} | Año: {anio_inf} | Modelo: {mod_ia} "
+                        f"({'🟢 Visibilidad Activa' if est_activo else '🔴 Deshabilitado'})"
+                    )
+
+                    with st.expander(label_expander):
+                        col_txt, col_ctrl = st.columns([3, 1])
+
+                        with col_txt:
+                            st.markdown(
+                                f"**Creado por:** {inf.get('creado_por', 'Sistema')} el `{fecha_gen}`"
+                            )
+                            st.info(inf.get("analisis_texto", "Sin texto disponible."))
+
+                        with col_ctrl:
+                            st.markdown("### ⚙️ Control")
+                            nuevo_est_ia = st.checkbox(
+                                "Mostrar al empleado (Activo)",
+                                value=est_activo,
+                                key=f"chk_ia_inf_{inf_id}",
+                            )
+
+                            if nuevo_est_ia != est_activo:
+                                try:
+                                    supabase.table("analisis_ia_empleados").update(
+                                        {"activo": nuevo_est_ia}
+                                    ).eq("id", inf_id).execute()
+
+                                    st.success("Estado actualizado correctamente.")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                except Exception as err_upd:
+                                    st.error(f"Error al actualizar la base de datos: {err_upd}")
+
+                            # Descarga de PDF si existe la función generadora
+                            try:
+                                pdf_bytes = generar_pdf_evaluacion_ia(
+                                    nombre_emp, inf.get("analisis_texto", ""), anio_inf
+                                )
+                                if pdf_bytes:
+                                    st.download_button(
+                                        label="📄 Descargar PDF",
+                                        data=pdf_bytes,
+                                        file_name=f"Informe_IA_{nombre_emp}_{anio_inf}.pdf",
+                                        mime="application/pdf",
+                                        key=f"btn_dl_ia_{inf_id}",
+                                        use_container_width=True,
+                                    )
+                            except NameError:
+                                pass  # Si la función generar_pdf_evaluacion_ia no está definida en el scope
+            else:
+                st.info("No se encontraron informes de IA con el filtro seleccionado.")
+
+        except Exception as err_mng_ia:
+            st.error(f"Error al consultar la tabla 'analisis_ia_empleados': {err_mng_ia}")
+        
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
