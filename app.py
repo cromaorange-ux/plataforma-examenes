@@ -558,7 +558,7 @@ def seleccionar_preguntas_equilibradas(banco_completo, num_preguntas=15):
 
 def obtener_dias_restantes_mes():
     ahora = datetime.datetime.now()
-    _, ultimo_dia = calendar.monthrange(ahora.year, me := ahora.month)
+    _, ultimo_dia = calendar.monthrange(ahora.year, ahora.month)
     return ultimo_dia - ahora.day + 1
 
 def generar_pdf_resultado(intento):
@@ -994,13 +994,13 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos). Tiempo configurado por pregunta: **{TIEMPO_LIMITE_PREGUNTA} segundos**.")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_informes_ia, tab_admin_gestion = st.tabs(["Inicio", "Informes IA"])
+            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_informes_ia, tab_admin_gestion = st.tabs([
                 "📝 Realizar Examen",
                 "📄 Cargar Manual / Prompt", 
                 "📊 Resultados / Edición", 
                 "📥 Exportación Exámenes e Importación Datos",
                 "📈 Analítica e IA",
-                "🤖 Informes IA",  # <--- PESTAÑA AÑADIDA
+                "🤖 Informes IA",
                 "⚙️ Gestión y Configuración"
             ])
         else:
@@ -1013,7 +1013,7 @@ else:
         # TAB: REALIZAR EXAMEN
         with tab_examenes:
             ahora = datetime.datetime.now(datetime.timezone.utc)
-            primer_dia_mes = datetime.datetime(ahora.year, me := ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            primer_dia_mes = datetime.datetime(ahora.year, ahora.month, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
             user_intentos = []
             try:
@@ -1480,52 +1480,52 @@ else:
                 else:
                     st.write("Aún no has realizado ningún examen.")
 
-with tab_mi_analisis:
-    st.subheader("📈 Mi Rendimiento Personal e Informe IA")
+            with tab_mi_analisis:
+                st.subheader("📈 Mi Rendimiento Personal e Informe IA")
 
-    # Verificar si el usuario actual tiene habilitado el análisis por IA
-    res_usr_cfg = supabase.table("empleados").select("analisis_ia_habilitado").eq("id", st.session_state.user_id).execute()
-    ia_permitida = res_usr_cfg.data[0].get("analisis_ia_habilitado", True) if res_usr_cfg.data else True
+                # Verificar si el usuario actual tiene habilitado el análisis por IA
+                res_usr_cfg = supabase.table("empleados").select("analisis_ia_habilitado").eq("id", st.session_state.user_id).execute()
+                ia_permitida = res_usr_cfg.data[0].get("analisis_ia_habilitado", True) if res_usr_cfg.data else True
 
-    if not ia_permitida:
-        st.warning("🔒 La generación y visualización de Análisis por IA ha sido deshabilitada para tu usuario por el administrador.")
-    else:
-        # (Aquí se mantiene tu código existente para generar/mostrar los gráficos e informes IA)
-        res_mis_graf = supabase.table("intentos_examen").select("id, nota, porcentaje_obtenido, fecha_inicio, apartado")\
-            .eq("empleado_id", st.session_state.user_id)\
-            .eq("activo", True)\
-            .order("fecha_inicio", desc=False).execute()
-        mis_datos_graf = res_mis_graf.data if res_mis_graf.data else []
-        
-        if mis_datos_graf:
-            df_mi_graf = pd.DataFrame(mis_datos_graf)
-            df_mi_graf["fecha"] = df_mi_graf["fecha_inicio"].str[:10]
-            
-            st.markdown("#### 📊 Evolución Histórica de Calificaciones")
-            st.line_chart(df_mi_graf, x="fecha", y="nota")
-            
-        st.markdown("---")
-        st.markdown("#### 📄 Informe Profesional de Evaluación IA (Año Vigente)")
-        
-        anio_vigente = datetime.datetime.now().year
-        
-        res_mi_an = supabase.table("analisis_ia_empleados").select("*")\
-            .eq("empleado_id", st.session_state.user_id)\
-            .eq("anio", anio_vigente)\
-            .order("fecha_generacion", desc=True)\
-            .limit(1).execute()
-        
-        if res_mi_an.data:
-            info_eval_db = res_mi_an.data[0]
-            txt_eval = info_eval_db["analisis_texto"]
-            mod_usado = info_eval_db.get("modelo_ia", "IA")
-            fecha_gen = info_eval_db.get("fecha_generacion", "")[:10]
-            
-            st.caption(f"🤖 Evaluado con: **{mod_usado}** | Fecha de informe: **{fecha_gen}** | Año: **{anio_vigente}**")
-            st.info(txt_eval)
-        else:
-            st.warning(f"Aún no hay ningún informe de evaluación guardado para ti en el año {anio_vigente}.")
-            
+                if not ia_permitida:
+                    st.warning("🔒 La generación y visualización de Análisis por IA ha sido deshabilitada para tu usuario por el administrador.")
+                else:
+                    res_mis_graf = supabase.table("intentos_examen").select("id, nota, porcentaje_obtenido, fecha_inicio, apartado")\
+                        .eq("empleado_id", st.session_state.user_id)\
+                        .eq("activo", True)\
+                        .order("fecha_inicio", desc=False).execute()
+                    mis_datos_graf = res_mis_graf.data if res_mis_graf.data else []
+                    
+                    if mis_datos_graf:
+                        df_mi_graf = pd.DataFrame(mis_datos_graf)
+                        df_mi_graf["fecha"] = df_mi_graf["fecha_inicio"].str[:10]
+                        
+                        st.markdown("#### 📊 Evolución Histórica de Calificaciones")
+                        st.line_chart(df_mi_graf, x="fecha", y="nota")
+                        
+                    st.markdown("---")
+                    st.markdown("#### 📄 Informe Profesional de Evaluación IA (Año Vigente)")
+                    
+                    anio_vigente = datetime.datetime.now().year
+                    
+                    res_mi_an = supabase.table("analisis_ia_empleados").select("*")\
+                        .eq("empleado_id", st.session_state.user_id)\
+                        .eq("anio", anio_vigente)\
+                        .eq("activo", True)\
+                        .order("fecha_generacion", desc=True)\
+                        .limit(1).execute()
+                    
+                    if res_mi_an.data:
+                        info_eval_db = res_mi_an.data[0]
+                        txt_eval = info_eval_db["analisis_texto"]
+                        mod_usado = info_eval_db.get("modelo_ia", "IA")
+                        fecha_gen = info_eval_db.get("fecha_generacion", "")[:10]
+                        
+                        st.caption(f"🤖 Evaluado con: **{mod_usado}** | Fecha de informe: **{fecha_gen}** | Año: **{anio_vigente}**")
+                        st.info(txt_eval)
+                    else:
+                        st.warning(f"Aún no hay ningún informe de evaluación guardado y activo para ti en el año {anio_vigente}.")
+
         # ADMIN CROMA - RESULTADOS Y EDICIÓN
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
@@ -2098,110 +2098,103 @@ with tab_mi_analisis:
                                     st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
 
         # ---------------------------------------------------------
-# NUEVA PESTAÑA: GESTIÓN DE INFORMES IA (analisis_ia_empleados)
-# ---------------------------------------------------------
-if st.session_state.es_croma and tab_admin_informes_ia:
-    with tab_admin_informes_ia:
-        st.subheader("🤖 Gestión e Informes Generados por IA")
-        st.caption(
-            "Consulta, activa o deshabilita la visibilidad de los informes"
-            " almacenados en la base de datos (analisis_ia_empleados)."
-        )
+        # ADMIN CROMA - PESTAÑA: GESTIÓN DE INFORMES IA
+        # ---------------------------------------------------------
+        if st.session_state.es_croma and tab_admin_informes_ia:
+            with tab_admin_informes_ia:
+                st.subheader("🤖 Gestión e Informes Generados por IA")
+                st.caption(
+                    "Consulta, activa o deshabilita la visibilidad de los informes"
+                    " almacenados en la base de datos (analisis_ia_empleados)."
+                )
 
-        # Filtro de visibilidad/estado
-        filtro_estado_ia = st.radio(
-            "Filtrar informes por estado:",
-            ["Todos", "Sólo Activos", "Sólo Desactivados"],
-            horizontal=True,
-            key="f_ia_informes_est",
-        )
+                filtro_estado_ia = st.radio(
+                    "Filtrar informes por estado:",
+                    ["Todos", "Sólo Activos", "Sólo Desactivados"],
+                    horizontal=True,
+                    key="f_ia_informes_est",
+                )
 
-        try:
-            # Consulta base a Supabase
-            q_ia = supabase.table("analisis_ia_empleados").select("*").order("fecha_generacion", desc=True)
+                try:
+                    q_ia = supabase.table("analisis_ia_empleados").select("*").order("fecha_generacion", desc=True)
 
-            if filtro_estado_ia == "Sólo Activos":
-                q_ia = q_ia.eq("activo", True)
-            elif filtro_estado_ia == "Sólo Desactivados":
-                q_ia = q_ia.eq("activo", False)
+                    if filtro_estado_ia == "Sólo Activos":
+                        q_ia = q_ia.eq("activo", True)
+                    elif filtro_estado_ia == "Sólo Desactivados":
+                        q_ia = q_ia.eq("activo", False)
 
-            res_ia_mng = q_ia.execute()
-            ia_informes_data = res_ia_mng.data if res_ia_mng.data else []
+                    res_ia_mng = q_ia.execute()
+                    ia_informes_data = res_ia_mng.data if res_ia_mng.data else []
 
-            if ia_informes_data:
-                for inf in ia_informes_data:
-                    inf_id = inf["id"]
-                    nombre_emp = inf.get("nombre_empleado", "Desconocido")
-                    anio_inf = inf.get("anio", "N/A")
-                    mod_ia = inf.get("modelo_ia", "IA")
-                    est_activo = inf.get("activo", True)  # Estado por defecto
-                    fecha_gen = str(inf.get("fecha_generacion", ""))[:10]
+                    if ia_informes_data:
+                        for inf in ia_informes_data:
+                            inf_id = inf["id"]
+                            nombre_emp = inf.get("nombre_empleado", "Desconocido")
+                            anio_inf = inf.get("anio", "N/A")
+                            mod_ia = inf.get("modelo_ia", "IA")
+                            est_activo = inf.get("activo", True)
+                            fecha_gen = str(inf.get("fecha_generacion", ""))[:10]
 
-                    label_expander = (
-                        f"📄 Informe #{inf_id} | {nombre_emp} | Año: {anio_inf} | Modelo: {mod_ia} "
-                        f"({'🟢 Visibilidad Activa' if est_activo else '🔴 Deshabilitado'})"
-                    )
-
-                    with st.expander(label_expander):
-                        col_txt, col_ctrl = st.columns([3, 1])
-
-                        with col_txt:
-                            st.markdown(
-                                f"**Creado por:** {inf.get('creado_por', 'Sistema')} el `{fecha_gen}`"
-                            )
-                            st.info(inf.get("analisis_texto", "Sin texto disponible."))
-
-                        with col_ctrl:
-                            st.markdown("### ⚙️ Control")
-                            nuevo_est_ia = st.checkbox(
-                                "Mostrar al empleado (Activo)",
-                                value=est_activo,
-                                key=f"chk_ia_inf_{inf_id}",
+                            label_expander = (
+                                f"📄 Informe #{inf_id} | {nombre_emp} | Año: {anio_inf} | Modelo: {mod_ia} "
+                                f"({'🟢 Visibilidad Activa' if est_activo else '🔴 Deshabilitado'})"
                             )
 
-                            if nuevo_est_ia != est_activo:
-                                try:
-                                    supabase.table("analisis_ia_empleados").update(
-                                        {"activo": nuevo_est_ia}
-                                    ).eq("id", inf_id).execute()
+                            with st.expander(label_expander):
+                                col_txt, col_ctrl = st.columns([3, 1])
 
-                                    st.success("Estado actualizado correctamente.")
-                                    time.sleep(0.5)
-                                    st.rerun()
-                                except Exception as err_upd:
-                                    st.error(f"Error al actualizar la base de datos: {err_upd}")
-
-                            # Descarga de PDF si existe la función generadora
-                            try:
-                                pdf_bytes = generar_pdf_evaluacion_ia(
-                                    nombre_emp, inf.get("analisis_texto", ""), anio_inf
-                                )
-                                if pdf_bytes:
-                                    st.download_button(
-                                        label="📄 Descargar PDF",
-                                        data=pdf_bytes,
-                                        file_name=f"Informe_IA_{nombre_emp}_{anio_inf}.pdf",
-                                        mime="application/pdf",
-                                        key=f"btn_dl_ia_{inf_id}",
-                                        use_container_width=True,
+                                with col_txt:
+                                    st.markdown(
+                                        f"**Creado por:** {inf.get('creado_por', 'Sistema')} el `{fecha_gen}`"
                                     )
-                            except NameError:
-                                pass  # Si la función generar_pdf_evaluacion_ia no está definida en el scope
-            else:
-                st.info("No se encontraron informes de IA con el filtro seleccionado.")
+                                    st.info(inf.get("analisis_texto", "Sin texto disponible."))
 
-        except Exception as err_mng_ia:
-            st.error(f"Error al consultar la tabla 'analisis_ia_empleados': {err_mng_ia}")
-        
+                                with col_ctrl:
+                                    st.markdown("### ⚙️ Control")
+                                    nuevo_est_ia = st.checkbox(
+                                        "Mostrar al empleado (Activo)",
+                                        value=est_activo,
+                                        key=f"chk_ia_inf_{inf_id}",
+                                    )
+
+                                    if nuevo_est_ia != est_activo:
+                                        try:
+                                            supabase.table("analisis_ia_empleados").update(
+                                                {"activo": nuevo_est_ia}
+                                            ).eq("id", inf_id).execute()
+
+                                            st.success("Estado actualizado correctamente.")
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        except Exception as err_upd:
+                                            st.error(f"Error al actualizar la base de datos: {err_upd}")
+
+                                    pdf_bytes = generar_pdf_evaluacion_ia(
+                                        nombre_emp, inf.get("analisis_texto", ""), anio_inf
+                                    )
+                                    if pdf_bytes:
+                                        st.download_button(
+                                            label="📄 Descargar PDF",
+                                            data=pdf_bytes,
+                                            file_name=f"Informe_IA_{nombre_emp}_{anio_inf}.pdf",
+                                            mime="application/pdf",
+                                            key=f"btn_dl_ia_{inf_id}",
+                                            use_container_width=True,
+                                        )
+                    else:
+                        st.info("No se encontraron informes de IA con el filtro seleccionado.")
+
+                except Exception as err_mng_ia:
+                    st.error(f"Error al consultar la tabla 'analisis_ia_empleados': {err_mng_ia}")
+
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Gestión de Usuarios, Manuales, Exámenes y Estado Activo")
                 
-                tab_g_emp, tab_g_man, tab_g_ex, tab_g_cfg = st.tabs([
+                tab_g_emp, tab_g_man, tab_g_cfg = st.tabs([
                     "👤 Empleados", 
                     "📄 Manuales", 
-                    "📝 Exámenes", 
                     "⚙️ Configuración General"
                 ])
 
@@ -2282,91 +2275,35 @@ if st.session_state.es_croma and tab_admin_informes_ia:
                             for man_item in man_mng_data:
                                 col1, col2 = st.columns([3, 1])
                                 with col1:
-                                    num_preg = len(man_item.get("preguntas_json", [])) if isinstance(man_item.get("preguntas_json"), list) else 0
-                                    st.write(f"📘 **{man_item['apartado']}** | ID: {man_item['id']} | Preguntas: {num_preg}")
+                                    num_p = len(man_item.get("preguntas_json", [])) if isinstance(man_item.get("preguntas_json"), list) else 0
+                                    st.write(f"📘 **{man_item['apartado']}** | ID: {man_item['id']} | Preguntas: {num_p}")
                                 with col2:
-                                    est_man_act = man_item.get("activo", True)
-                                    nuevo_est_m = st.checkbox("Activo", value=est_man_act, key=f"chk_man_{man_item['id']}")
-                                    if nuevo_est_m != est_man_act:
+                                    estado_man = man_item.get("activo", True)
+                                    nuevo_est_m = st.checkbox("Activo", value=estado_man, key=f"chk_man_{man_item['id']}")
+                                    if nuevo_est_m != estado_man:
                                         supabase.table("examenes").update({"activo": nuevo_est_m}).eq("id", man_item["id"]).execute()
-                                        st.success(f"Estado actualizado para el manual '{man_item['apartado']}'")
+                                        st.success(f"Estado actualizado para {man_item['apartado']}")
                                         time.sleep(0.5)
                                         st.rerun()
                         else:
-                            st.info("No se encontraron manuales con los filtros seleccionados.")
+                            st.info("No se encontraron manuales con los filtros aplicados.")
                     except Exception as err_g_man:
                         st.error(f"Error al cargar manuales: {err_g_man}")
-                
-                with tab_g_ex:
-                    st.markdown("### 📝 Estado de Intentos de Exámenes")
-                    filtro_estado_ex = st.radio("Mostrar exámenes/intentos:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_ex_est")
-
-                    try:
-                        q_ex = supabase.table("intentos_examen").select("id, nombre_empleado, apartado, nota, fecha_inicio, activo").order("id", desc=True).limit(50)
-                        if filtro_estado_ex == "Sólo Activos":
-                            q_ex = q_ex.eq("activo", True)
-                        elif filtro_estado_ex == "Sólo Desactivados":
-                            q_ex = q_ex.eq("activo", False)
-                        
-                        res_ex_mng = q_ex.execute()
-                        ex_mng_data = res_ex_mng.data if res_ex_mng.data else []
-                        
-                        if ex_mng_data:
-                            for ex_item in ex_mng_data:
-                                col1, col2 = st.columns([3, 1])
-                                with col1:
-                                    st.write(f"📝 Examen #{ex_item['id']} | **{ex_item['nombre_empleado']}** ({ex_item['apartado']}) - Nota: {ex_item['nota']}/10")
-                                with col2:
-                                    est_ex_act = ex_item.get("activo", True)
-                                    nuevo_est_e = st.checkbox("Activo", value=est_ex_act, key=f"chk_ex_{ex_item['id']}")
-                                    if nuevo_est_e != est_ex_act:
-                                        supabase.table("intentos_examen").update({"activo": nuevo_est_e}).eq("id", ex_item["id"]).execute()
-                                        st.success(f"Estado actualizado para el examen #{ex_item['id']}")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                        else:
-                            st.info("No se encontraron exámenes registrados con los filtros seleccionados.")
-                    except Exception as err_g_ex:
-                        st.error(f"Error al cargar intentos de examen: {err_g_ex}")
 
                 with tab_g_cfg:
-                    st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
+                    st.markdown("### ⏱️ Ajustes Temporales y de Configuración Global")
+                    tiempo_preg_actual = obtener_tiempo_pregunta_config()
                     
-                    with st.form("form_cfg_tiempos"):
-                        n_tiempo = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA)
-                        n_p_global = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=15)
-                        n_p_manual = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=10)
-                        
-                        btn_save_cfg = st.form_submit_button("Guardar Parámetros")
-                        if btn_save_cfg:
-                            guardar_tiempo_pregunta_config(n_tiempo)
-                            guardar_num_preguntas_config("global", n_p_global)
-                            guardar_num_preguntas_config("manual", n_p_manual)
-                            st.success("✅ Configuración de tiempos y preguntas guardada exitosamente.")
+                    nuevo_tiempo_input = st.number_input(
+                        "Tiempo límite por pregunta (en segundos):", 
+                        min_value=10, 
+                        max_value=300, 
+                        value=tiempo_preg_actual,
+                        step=5
+                    )
+                    
+                    if st.button("💾 Guardar Nuevo Tiempo por Pregunta"):
+                        if guardar_tiempo_pregunta_config(nuevo_tiempo_input):
+                            st.success("✅ Configuración guardada correctamente.")
                             time.sleep(1)
                             st.rerun()
-
-                    st.markdown("---")
-                    st.markdown("### 💬 Edición y Actualización de Prompts del Sistema")
-                    
-                    try:
-                        res_prompts_db = supabase.table("config_prompts").select("*").execute()
-                        prompts_data = res_prompts_db.data if res_prompts_db.data else []
-                        
-                        if prompts_data:
-                            dict_p = {p["nombre"]: p.get("valor", "") for p in prompts_data if p.get("nombre")}
-                            
-                            p_sel_nombre = st.selectbox("Selecciona el prompt a editar:", list(dict_p.keys()), key="sel_prompt_edit_mng")
-                            p_valor_actual = dict_p[p_sel_nombre]
-                            
-                            with st.form("form_edit_prompt_db"):
-                                nuevo_p_valor = st.text_area("Contenido del Prompt:", value=p_valor_actual, height=200)
-                                if st.form_submit_button("Guardar Prompt en SQL"):
-                                    if guardar_prompt_config(p_sel_nombre, nuevo_p_valor):
-                                        st.success(f"✅ Prompt '{p_sel_nombre}' actualizado correctamente.")
-                                        time.sleep(1)
-                                        st.rerun()
-                        else:
-                            st.info("No hay prompts registrados en la base de datos.")
-                    except Exception as err_p_mng:
-                        st.error(f"Error al cargar configuración de prompts: {err_p_mng}")
