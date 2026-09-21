@@ -2472,9 +2472,11 @@ else:
                     st.markdown("---")
                     st.markdown("#### 💬 Editar Prompts Generales")
                     
-                    # Reemplazo seguro para la línea 2476
-                    if cfg_ex_p and getattr(cfg_ex_p, 'data', None) and len(cfg_ex_p.data) > 0 and cfg_ex_p.data[0]:
-                        p_ex_val = cfg_ex_p.data[0].get("valor") or PROMPT_DEFECTO_EXAMEN
+                    # Comprobar de forma segura si cfg_ex_p fue definida y tiene datos
+                    cfg_ex_p_obj = locals().get('cfg_ex_p', None)
+
+                    if cfg_ex_p_obj and getattr(cfg_ex_p_obj, 'data', None) and len(cfg_ex_p_obj.data) > 0 and cfg_ex_p_obj.data[0]:
+                        p_ex_val = cfg_ex_p_obj.data[0].get("valor") or PROMPT_DEFECTO_EXAMEN
                     else:
                         p_ex_val = PROMPT_DEFECTO_EXAMEN
                     
