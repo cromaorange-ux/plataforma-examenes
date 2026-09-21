@@ -2472,9 +2472,12 @@ else:
                     st.markdown("---")
                     st.markdown("#### 💬 Editar Prompts Generales")
                     
-                    cfg_ex_p = supabase.table("config_prompts").select("valor").eq("nombre", "prompt_examen").execute()
-                    p_ex_val = cfg_ex_p.data[0]["valor"] if cfg_ex_p.data and cfg_p_trim.data[0].get("valor") else PROMPT_DEFECTO_EXAMEN
-
+                    # Reemplazo seguro para la línea 2476
+                    if cfg_ex_p and getattr(cfg_ex_p, 'data', None) and len(cfg_ex_p.data) > 0 and cfg_ex_p.data[0]:
+                        p_ex_val = cfg_ex_p.data[0].get("valor") or PROMPT_DEFECTO_EXAMEN
+                    else:
+                        p_ex_val = PROMPT_DEFECTO_EXAMEN
+                    
                     prompt_ex_edit = st.text_area("Prompt Generador de Preguntas de Examen (JSON):", value=p_ex_val, height=180)
                     if st.button("Guardar Prompt de Examen", use_container_width=True):
                         guardar_prompt_config("prompt_examen", prompt_ex_edit)
