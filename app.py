@@ -203,6 +203,15 @@ if CLAUDE_DISPONIBLE and CLAUDE_API_KEY:
     except Exception:
         claude_client = None
 
+# APARTADOS OFICIALES Y SUS PESOS POR DEFECTO
+APARTADOS_CONFIG = {
+    "Tareas realizar por turnos y todos los turnos": 20.0,
+    "Tiempos respuesta Tbox": 20.0,
+    "Tiempos respuesta Siemens": 20.0,
+    "Iniciativa / Proactividad ante el trabajo": 20.0,
+    "Conocimientos": 20.0
+}
+
 # ---------------------------------------------------------
 # INICIALIZACIÓN ESTRUCTURAS SQL
 # ---------------------------------------------------------
@@ -228,6 +237,31 @@ def inicializar_esquema_sql_evaluaciones():
     try:
         supabase.rpc("ejecutar_sql_directo", {
             "query": """
+            CREATE TABLE IF NOT EXISTS config_apartados_eval (
+                id SERIAL PRIMARY KEY,
+                nombre_apartado VARCHAR(255) UNIQUE NOT NULL,
+                habilitado BOOLEAN DEFAULT TRUE,
+                peso NUMERIC DEFAULT 20.0,
+                updated_at TIMESTAMP WITH TIMEZONE DEFAULT NOW()
+            );
+            """
+        }).execute()
+
+        # Insertar valores por defecto si la tabla está vacía
+        res_cfg = supabase.table("config_apartados_eval").select("id").execute()
+        if not res_cfg.data:
+            for ap_nom, ap_peso in APARTADOS_CONFIG.items():
+                supabase.table("config_apartados_eval").insert({
+                    "nombre_apartado": ap_nom,
+                    "habilitado": True,
+                    "peso": ap_peso
+                }).execute()
+    except Exception:
+        pass
+
+    try:
+        supabase.rpc("ejecutar_sql_directo", {
+            "query": """
             CREATE TABLE IF NOT EXISTS evaluaciones_trimestrales (
                 id SERIAL PRIMARY KEY,
                 empleado_id INT REFERENCES empleados(id),
@@ -236,6 +270,7 @@ def inicializar_esquema_sql_evaluaciones():
                 trimestre VARCHAR(10) NOT NULL,
                 puntuacion_total NUMERIC,
                 observaciones TEXT,
+                habilitado BOOLEAN DEFAULT TRUE,
                 fecha_registro TIMESTAMP WITH TIMEZONE DEFAULT NOW(),
                 UNIQUE(empleado_id, anio, trimestre)
             );
@@ -250,8 +285,11 @@ def inicializar_esquema_sql_evaluaciones():
             CREATE TABLE IF NOT EXISTS evaluacion_detalles (
                 id SERIAL PRIMARY KEY,
                 evaluacion_id INT REFERENCES evaluaciones_trimestrales(id) ON DELETE CASCADE,
-                concepto VARCHAR(255),
+                apartado VARCHAR(255),
+                tipo VARCHAR(255),
                 puntuacion NUMERIC,
+                comentario TEXT,
+                concepto VARCHAR(255),
                 fecha_registro TIMESTAMP WITH TIMEZONE DEFAULT NOW()
             );
             """
@@ -305,6 +343,43 @@ inicializar_esquema_sql_evaluaciones()
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES DE CONFIGURACIÓN Y SQL
 # ---------------------------------------------------------
+def obtener_config_apartados():
+    try:
+        res = supabase.table("config_apartados_eval").select("*").execute()
+        if res.data:
+            return {row["nombre_apartado"]: {"habilitado": row["habilitado"], "peso": float(row["peso"])} for row in res.data}
+    except Exception:
+        pass
+    return {k: {"habilitado": True, "peso": v} for k, v in APARTADOS_CONFIG.items()}
+
+def guardar_config_apartado(nombre, habilitado, peso):
+    try:
+        supabase.table("config_apartados_eval").upsert({
+            "nombre_apartado": nombre,
+            "habilitado": habilitado,
+            "peso": float(peso),
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        }, on_conflict="nombre_apartado").execute()
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar configuración de apartado: {e}")
+        return False
+
+def calcular_media_evaluacion(evaluaciones_trimestrales, config_apartados):
+    """
+    Calcula la media anual filtrando Qs deshabilitados o sin datos,
+    y aplicando ponderación de apartados habilitados.
+    """
+    q_validos = [q for q in evaluaciones_trimestrales if q.get("habilitado", True) and q.get("puntuacion_total") is not None]
+    if not q_validos:
+        return 0.0
+    
+    totales_q = []
+    for q in q_validos:
+        totales_q.append(q["puntuacion_total"])
+        
+    return sum(totales_q) / len(totales_q)
+
 def obtener_media_objetivo_config():
     try:
         res = supabase.table("config_evaluaciones").select("media_objetivo").eq("id", 1).execute()
@@ -469,7 +544,7 @@ UMBRAL_APROBADO_PORCENTAJE = 70.0
 
 PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test por cada temática/sección basadas en el documento. 
 
-Requisitos estrictos para el JSON:
+Requisitos strictly para el JSON:
 1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
 2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
 3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
@@ -1418,8 +1493,10 @@ else:
             with tab_trimestrales:
                 st.subheader("📊 Gestión de Evaluaciones Trimestrales (Q1 - Q4)")
                 
-                media_objetivo_actual = obtener_media_objetivo_config()
-                with st.expander("⚙️ Configuración de la Media Objetivo en Características"):
+                config_apartados = obtener_config_apartados()
+
+                with st.expander("⚙️ Configuración de Apartados, Habilitación, Pesos y Media Objetivo"):
+                    media_objetivo_actual = obtener_media_objetivo_config()
                     c_med1, c_med2 = st.columns([3, 1])
                     with c_med1:
                         nueva_media_obj = st.number_input("Establecer Media del Objetivo:", min_value=0.0, max_value=100.0, value=media_objetivo_actual, step=0.1)
@@ -1432,6 +1509,27 @@ else:
                                 time.sleep(1)
                                 st.rerun()
 
+                    st.markdown("---")
+                    st.markdown("##### 🛠️ Edición de Apartados (Habilitación y Pesos)")
+                    
+                    with st.form("form_config_apartados"):
+                        nuevos_pesos_hab = {}
+                        for ap_nombre, ap_info in config_apartados.items():
+                            c_ap1, c_ap2 = st.columns([2, 2])
+                            with c_ap1:
+                                is_hab = st.checkbox(f"Habilitar {ap_nombre}", value=ap_info["habilitado"], key=f"hab_{ap_nombre}")
+                            with c_ap2:
+                                p_val = st.number_input(f"Peso para {ap_nombre} (%)", min_value=0.0, max_value=100.0, value=ap_info["peso"], step=1.0, key=f"peso_{ap_nombre}")
+                            nuevos_pesos_hab[ap_nombre] = {"habilitado": is_hab, "peso": p_val}
+                        
+                        if st.form_submit_button("Guardar Configuración de Apartados"):
+                            for ap_nombre, datos_cfg in nuevos_pesos_hab.items():
+                                guardar_config_apartado(ap_nombre, datos_cfg["habilitado"], datos_cfg["peso"])
+                            st.success("✅ Configuración de apartados guardada en SQL.")
+                            time.sleep(1)
+                            st.rerun()
+
+                media_objetivo_actual = obtener_media_objetivo_config()
                 st.markdown(f"**Media de Objetivo Actual:** `{media_objetivo_actual}`")
                 st.markdown("---")
 
@@ -1471,19 +1569,31 @@ else:
                                 puntuacion_total_val = None
                                 observaciones_val = ""
                                 items_detalles = []
+                                apartado_actual_ctx = ""
 
                                 for idx_row, row in df_q.iterrows():
-                                    texto_a = str(row[0]).strip() if not pd.isna(row[0]) else ""
+                                    col_a = str(row[0]).strip() if not pd.isna(row[0]) else ""
+                                    col_b = str(row[1]).strip() if len(row) > 1 and not pd.isna(row[1]) else ""
                                     
-                                    if "puntuacion total" in texto_a.lower():
+                                    # Detección dinámica de la sección "Observaciones Generales:"
+                                    if "observaciones generales:" in col_a.lower() or "observaciones generales:" in col_b.lower():
+                                        if idx_row + 1 < df_q.shape[0]:
+                                            obs_abajo = df_q.iloc[idx_row + 1, 0]
+                                            if not pd.isna(obs_abajo):
+                                                observaciones_val = str(obs_abajo).strip()
+
+                                    if col_a in APARTADOS_CONFIG.keys():
+                                        apartado_actual_ctx = col_a
+
+                                    if "puntuacion total" in col_a.lower():
                                         try:
                                             puntuacion_total_val = float(row[2])
                                         except Exception:
                                             pass
-                                    elif "observaciones" in texto_a.lower():
+                                    elif "observaciones" in col_a.lower() and not observaciones_val:
                                         observaciones_val = str(row[1]) if not pd.isna(row[1]) else ""
 
-                                    if "puntuacion total" in texto_a.lower() or "porciento de puntuacion" in texto_a.lower():
+                                    if "puntuacion total" in col_a.lower() or "porciento de puntuacion" in col_a.lower():
                                         continue
 
                                     val_c = row[2] if len(row) > 2 else None
@@ -1492,8 +1602,13 @@ else:
                                     if not pd.isna(val_c):
                                         try:
                                             num_c = float(val_c)
-                                            if val_d:
-                                                items_detalles.append({"concepto": val_d, "puntuacion": num_c})
+                                            items_detalles.append({
+                                                "apartado": apartado_actual_ctx,
+                                                "tipo": col_a if col_a != apartado_actual_ctx else "",
+                                                "puntuacion": num_c,
+                                                "comentario": val_d,
+                                                "concepto": f"{col_a} {val_d}".strip()
+                                            })
                                         except ValueError:
                                             pass
 
@@ -1565,7 +1680,8 @@ else:
                                         "anio": reg["anio"],
                                         "trimestre": reg["trimestre"],
                                         "puntuacion_total": reg["puntuacion_total"],
-                                        "observaciones": reg["observaciones"]
+                                        "observaciones": reg["observaciones"],
+                                        "habilitado": True
                                     }).execute()
 
                                     if res_ins.data:
@@ -1573,8 +1689,11 @@ else:
                                         for det in reg["detalles"]:
                                             supabase.table("evaluacion_detalles").insert({
                                                 "evaluacion_id": eval_id,
-                                                "concepto": det["concepto"],
-                                                "puntuacion": det["puntuacion"]
+                                                "apartado": det.get("apartado"),
+                                                "tipo": det.get("tipo"),
+                                                "puntuacion": det.get("puntuacion"),
+                                                "comentario": det.get("comentario"),
+                                                "concepto": det.get("concepto")
                                             }).execute()
                                 st.success("✅ Datos de evaluaciones trimestrales guardados exitosamente en SQL.")
                                 time.sleep(1.5)
@@ -1638,7 +1757,8 @@ else:
                                         "anio": reg["anio"],
                                         "trimestre": reg["trimestre"],
                                         "puntuacion_total": reg["puntuacion_total"],
-                                        "observaciones": reg["observaciones"]
+                                        "observaciones": reg["observaciones"],
+                                        "habilitado": True
                                     }).execute()
 
                                     if res_ins.data:
@@ -1646,8 +1766,11 @@ else:
                                         for det in reg["detalles"]:
                                             supabase.table("evaluacion_detalles").insert({
                                                 "evaluacion_id": eval_id,
-                                                "concepto": det["concepto"],
-                                                "puntuacion": det["puntuacion"]
+                                                "apartado": det.get("apartado"),
+                                                "tipo": det.get("tipo"),
+                                                "puntuacion": det.get("puntuacion"),
+                                                "comentario": det.get("comentario"),
+                                                "concepto": det.get("concepto")
                                             }).execute()
 
                                 st.session_state.cambios_pendientes_excel = None
@@ -1686,17 +1809,30 @@ else:
                     evals_emp_data = res_evals_emp.data if res_evals_emp.data else []
 
                     if evals_emp_data:
+                        st.markdown("##### ⚙️ Estado de los Trimestres (Habilitar / Deshabilitar Q)")
+                        for q_item in sorted(evals_emp_data, key=lambda x: x["trimestre"]):
+                            c_q1, c_q2 = st.columns([3, 1])
+                            with c_q1:
+                                st.write(f"**Trimestre {q_item['trimestre']}** — Puntuación: `{q_item['puntuacion_total']}`")
+                            with c_q2:
+                                hab_val = st.checkbox("Habilitado para Media", value=q_item.get("habilitado", True), key=f"q_hab_{q_item['id']}")
+                                if hab_val != q_item.get("habilitado", True):
+                                    supabase.table("evaluaciones_trimestrales").update({"habilitado": hab_val}).eq("id", q_item["id"]).execute()
+                                    st.rerun()
+
                         df_q_emp = pd.DataFrame(evals_emp_data)
-                        media_anual_q = df_q_emp["puntuacion_total"].mean()
+                        media_anual_q = calcular_media_evaluacion(evals_emp_data, config_apartados)
                         
                         col_m1, col_m2 = st.columns(2)
                         with col_m1:
-                            st.metric("📊 Resumen Anual (Media de los Q)", f"{round(media_anual_q, 2)}")
+                            st.metric("📊 Resumen Anual (Media de los Q habilitados)", f"{round(media_anual_q, 2)}")
                         with col_m2:
                             st.metric("🎯 Media del Objetivo", f"{media_objetivo_actual}")
 
                         st.markdown("##### 📌 Desglose Trimestral")
-                        st.bar_chart(df_q_emp.set_index("trimestre")["puntuacion_total"], use_container_width=True)
+                        df_graf_q = df_q_emp[df_q_emp["habilitado"] == True] if "habilitado" in df_q_emp.columns else df_q_emp
+                        if not df_graf_q.empty:
+                            st.bar_chart(df_graf_q.set_index("trimestre")["puntuacion_total"], use_container_width=True)
 
                         st.markdown("---")
                         st.markdown("### 🤖 Generar Informe de Evaluación Experta con IA")
@@ -1777,14 +1913,38 @@ else:
                 datos_q_emp = res_q_emp.data if res_q_emp.data else []
 
                 if datos_q_emp:
+                    config_ap_usr = obtener_config_apartados()
+                    media_calculada_usr = calcular_media_evaluacion(datos_q_emp, config_ap_usr)
+                    
+                    st.metric("📊 Nota Media Anual Calificada (Qs Habilitados)", f"{round(media_calculada_usr, 2)}")
+                    
                     df_q_usr = pd.DataFrame(datos_q_emp)
-                    st.markdown("##### 📈 Datos Obtenidos por Q")
-                    st.bar_chart(df_q_usr.set_index("trimestre")["puntuacion_total"], use_container_width=True)
-                    st.dataframe(df_q_usr[["trimestre", "puntuacion_total", "observaciones"]].rename(columns={
+                    df_q_usr_hab = df_q_usr[df_q_usr["habilitado"] == True] if "habilitado" in df_q_usr.columns else df_q_usr
+                    
+                    st.markdown("##### 📈 Datos Obtenidos por Q Habilitado")
+                    if not df_q_usr_hab.empty:
+                        st.bar_chart(df_q_usr_hab.set_index("trimestre")["puntuacion_total"], use_container_width=True)
+                    
+                    st.dataframe(df_q_usr[["trimestre", "puntuacion_total", "observaciones", "habilitado"]].rename(columns={
                         "trimestre": "Trimestre (Q)",
                         "puntuacion_total": "Puntuación Obtenida",
-                        "observaciones": "Observaciones"
+                        "observaciones": "Observaciones",
+                        "habilitado": "Habilitado"
                     }), use_container_width=True, hide_index=True)
+
+                    # Mostrar desglose de celdas/tipos con valor y comentario
+                    res_det_emp = supabase.table("evaluacion_detalles").select("*").execute()
+                    detalles_all = res_det_emp.data if res_det_emp.data else []
+                    
+                    ids_eval_usr = [q["id"] for q in datos_q_emp]
+                    detalles_usr = [d for d in detalles_all if d.get("evaluacion_id") in ids_eval_usr]
+
+                    if detalles_usr:
+                        st.markdown("##### 📌 Desglose Detallado por Apartado, Tipo y Comentario")
+                        df_det_usr = pd.DataFrame(detalles_usr)
+                        if not df_det_usr.empty:
+                            cols_ver = [c for c in ["apartado", "tipo", "puntuacion", "comentario", "concepto"] if c in df_det_usr.columns]
+                            st.dataframe(df_det_usr[cols_ver], use_container_width=True, hide_index=True)
                 else:
                     st.write("No hay registros trimestrales para el año seleccionado.")
 
@@ -2287,200 +2447,3 @@ else:
         if st.session_state.es_croma and tab_admin_analisis:
             with tab_admin_analisis:
                 st.subheader("📈 Analítica Global e Inteligencia de Negocio")
-                
-                res_emp_all = supabase.table("empleados").select("id, nombre").eq("activo", True).order("nombre").execute()
-                emp_all = res_emp_all.data if res_emp_all.data else []
-
-                if emp_all:
-                    dict_emp_all = {e["nombre"]: e["id"] for e in emp_all}
-                    emp_analisis_sel = st.selectbox("👤 Selecciona Empleado para ver Analítica Global:", list(dict_emp_all.keys()), key="sel_emp_analisis")
-                    emp_analisis_id = dict_emp_all[emp_analisis_sel]
-
-                    res_int_emp = supabase.table("intentos_examen").select("*")\
-                        .eq("empleado_id", emp_analisis_id)\
-                        .eq("activo", True)\
-                        .order("fecha_inicio", desc=False).execute()
-                    intentos_emp_all = res_int_emp.data if res_int_emp.data else []
-
-                    if intentos_emp_all:
-                        df_emp_an = pd.DataFrame(intentos_emp_all)
-                        df_emp_an["fecha"] = df_emp_an["fecha_inicio"].str[:10]
-
-                        c_m1, c_m2, c_m3 = st.columns(3)
-                        with c_m1:
-                            st.metric("Total Exámenes Realizados", len(df_emp_an))
-                        with c_m2:
-                            st.metric("Nota Media Global", f"{round(df_emp_an['nota'].mean(), 2)} / 10")
-                        with c_m3:
-                            aprobados_count = sum(1 for p in df_emp_an['porcentaje_obtenido'] if p >= UMBRAL_APROBADO_PORCENTAJE)
-                            st.metric("Tasa de Aprobado", f"{round((aprobados_count / len(df_emp_an)) * 100, 1)}%")
-
-                        st.markdown("##### 📈 Evolución Histórica de Notas")
-                        st.line_chart(df_emp_an.set_index("fecha")["nota"], use_container_width=True)
-
-                        todas_resp_emp = []
-                        for it in intentos_emp_all:
-                            resp = it.get("respuestas_usuario", [])
-                            if isinstance(resp, list):
-                                todas_resp_emp.extend(resp)
-
-                        if todas_resp_emp:
-                            df_resp_all = pd.DataFrame(todas_resp_emp)
-                            if "subindice" not in df_resp_all.columns:
-                                df_resp_all["subindice"] = df_resp_all.get("categoria", "General")
-                            df_resp_all["subindice"] = df_resp_all["subindice"].fillna("General")
-
-                            resumen_sub = df_resp_all.groupby("subindice").agg(
-                                Aciertos=('es_correcta', lambda x: sum(x == True)),
-                                Fallos=('es_correcta', lambda x: sum(x == False)),
-                                Total=('es_correcta', 'count')
-                            ).reset_index()
-                            resumen_sub["% Acierto"] = (resumen_sub["Aciertos"] / resumen_sub["Total"] * 100).round(2)
-
-                            st.markdown("##### 📊 Rendimiento por Subíndice / Categoría")
-                            st.bar_chart(resumen_sub.set_index("subindice")[["Aciertos", "Fallos"]], use_container_width=True)
-                            st.dataframe(resumen_sub, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Este empleado aún no ha realizado ningún examen.")
-
-        # ---------------------------------------------------------
-        # ADMIN CROMA - INFORMES IA
-        # ---------------------------------------------------------
-        if st.session_state.es_croma and tab_admin_informes_ia:
-            with tab_admin_informes_ia:
-                st.subheader("🤖 Informes Generados por IA y Visibilidad")
-                
-                res_informes_ia = supabase.table("analisis_ia_empleados").select("*").order("fecha_generacion", desc=True).execute()
-                lista_informes_ia = res_informes_ia.data if res_informes_ia.data else []
-
-                if lista_informes_ia:
-                    for inf in lista_informes_ia:
-                        e_nom = inf.get("nombre_empleado", "Empleado")
-                        anio_inf = inf.get("anio", "N/A")
-                        mod_inf = inf.get("modelo_ia", "IA")
-                        act_inf = inf.get("activo", True)
-                        f_gen = inf.get("fecha_generacion", "")[:10]
-
-                        with st.expander(f"📄 Informe #{inf['id']} - {e_nom} | Año {anio_inf} | {mod_inf} | {'🟢 Visible para Empleado' if act_inf else '🔴 Oculto'}"):
-                            st.write(f"**Creado por:** {inf.get('creado_por')} el {f_gen}")
-                            st.info(inf.get("analisis_texto"))
-
-                            c_i1, c_i2 = st.columns(2)
-                            with c_i1:
-                                nuevo_estado_act = not act_inf
-                                btn_txt = "🔴 Ocultar al Empleado" if act_inf else "🟢 Habilitar Visibilidad"
-                                if st.button(btn_txt, key=f"btn_vis_{inf['id']}", use_container_width=True):
-                                    supabase.table("analisis_ia_empleados").update({"activo": nuevo_estado_act}).eq("id", inf["id"]).execute()
-                                    st.success("✅ Visibilidad del informe actualizada.")
-                                    time.sleep(1)
-                                    st.rerun()
-
-                            with c_i2:
-                                pdf_inf_b = generar_pdf_evaluacion_ia(e_nom, inf.get("analisis_texto", ""), anio_inf)
-                                if pdf_inf_b:
-                                    st.download_button(
-                                        label="📄 Descargar Informe PDF",
-                                        data=pdf_inf_b,
-                                        file_name=f"Informe_IA_{e_nom}_{anio_inf}.pdf",
-                                        mime="application/pdf",
-                                        key=f"pdf_ia_dl_{inf['id']}",
-                                        use_container_width=True
-                                    )
-                else:
-                    st.info("No se han generado informes de evaluación por IA hasta el momento.")
-
-        # ---------------------------------------------------------
-        # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
-        # ---------------------------------------------------------
-        if st.session_state.es_croma and tab_admin_gestion:
-            with tab_admin_gestion:
-                st.subheader("⚙️ Gestión Global del Sistema y Configuración")
-                
-                subtab_emp, subtab_aut, subtab_prompts = st.tabs(["👤 Empleados", "🔓 Autorizaciones Examen", "💬 Prompts y Parámetros"])
-
-                with subtab_emp:
-                    st.markdown("### 👥 Listado y Edición de Empleados")
-                    res_emp_gest = supabase.table("empleados").select("*").order("id").execute()
-                    emp_gest_data = res_emp_gest.data if res_emp_gest.data else []
-
-                    if emp_gest_data:
-                        for eg in emp_gest_data:
-                            c_e1, c_e2, c_e3 = st.columns([2, 2, 2])
-                            with c_e1:
-                                st.write(f"**{eg['nombre']}** ({'Admin CROMA' if eg.get('es_admin_croma') else 'Empleado'})")
-                            with c_e2:
-                                chk_ia = st.checkbox("Análisis IA Habilitado", value=eg.get("analisis_ia_habilitado", True), key=f"chk_ia_emp_{eg['id']}")
-                            with c_e3:
-                                chk_act = st.checkbox("Usuario Activo", value=eg.get("activo", True), key=f"chk_act_emp_{eg['id']}")
-
-                            if chk_ia != eg.get("analisis_ia_habilitado") or chk_act != eg.get("activo"):
-                                supabase.table("empleados").update({
-                                    "analisis_ia_habilitado": chk_ia,
-                                    "activo": chk_act
-                                }).eq("id", eg["id"]).execute()
-                                st.success(f"✅ Estado de {eg['nombre']} actualizado.")
-                                time.sleep(1)
-                                st.rerun()
-
-                with subtab_aut:
-                    st.markdown("### 🔓 Habilitar Intento Extra a Empleado")
-                    
-                    res_emp_a = supabase.table("empleados").select("id, nombre").eq("activo", True).execute()
-                    emp_a_data = res_emp_a.data if res_emp_a.data else []
-
-                    res_ex_a = supabase.table("examenes").select("apartado").eq("activo", True).execute()
-                    ex_a_list = ["GLOBAL COMPLETO"] + [e["apartado"] for e in (res_ex_a.data or [])]
-
-                    if emp_a_data:
-                        dict_emp_a = {e["nombre"]: e["id"] for e in emp_a_data}
-                        with st.form("form_autorizacion_extra"):
-                            emp_aut_sel = st.selectbox("Selecciona Empleado:", list(dict_emp_a.keys()))
-                            apt_aut_sel = st.selectbox("Selecciona Examen / Apartado:", ex_a_list)
-                            btn_dar_aut = st.form_submit_button("🔓 Conceder Autorización de Re-intento")
-
-                            if btn_dar_aut:
-                                emp_id_aut = dict_emp_a[emp_aut_sel]
-                                supabase.table("autorizaciones_examen").insert({
-                                    "empleado_id": emp_id_aut,
-                                    "apartado": apt_aut_sel
-                                }).execute()
-                                st.success(f"✅ Se concedió re-intento a {emp_aut_sel} para '{apt_aut_sel}'.")
-
-                with subtab_prompts:
-                    st.markdown("### 💬 Configuración de Parámetros y Prompts Predeterminados")
-                    
-                    t_pregunta_actual = obtener_tiempo_pregunta_config()
-                    n_p_global_actual = obtener_num_preguntas_config("global")
-                    n_p_manual_actual = obtener_num_preguntas_config("manual")
-
-                    c_p1, c_p2, c_p3 = st.columns(3)
-                    with c_p1:
-                        nuevo_t_preg = st.number_input("⏱️ Segundos por pregunta:", min_value=10, max_value=300, value=t_pregunta_actual, step=5)
-                    with c_p2:
-                        nuevo_n_glob = st.number_input("🌐 Preguntas Examen Global:", min_value=5, max_value=50, value=n_p_global_actual, step=1)
-                    with c_p3:
-                        nuevo_n_man = st.number_input("📘 Preguntas Examen Manual:", min_value=5, max_value=50, value=n_p_manual_actual, step=1)
-
-                    if st.button("Guardar Parámetros de Tiempos y Preguntas", use_container_width=True):
-                        guardar_tiempo_pregunta_config(nuevo_t_preg)
-                        guardar_num_preguntas_config("global", nuevo_n_glob)
-                        guardar_num_preguntas_config("manual", nuevo_n_man)
-                        st.success("✅ Parámetros de examen actualizados correctamente.")
-                        time.sleep(1)
-                        st.rerun()
-
-                    st.markdown("---")
-                    st.markdown("#### 💬 Editar Prompts Generales")
-                    
-                    # Comprobar de forma segura si cfg_ex_p fue definida y tiene datos
-                    cfg_ex_p_obj = locals().get('cfg_ex_p', None)
-
-                    if cfg_ex_p_obj and getattr(cfg_ex_p_obj, 'data', None) and len(cfg_ex_p_obj.data) > 0 and cfg_ex_p_obj.data[0]:
-                        p_ex_val = cfg_ex_p_obj.data[0].get("valor") or PROMPT_DEFECTO_EXAMEN
-                    else:
-                        p_ex_val = PROMPT_DEFECTO_EXAMEN
-                    
-                    prompt_ex_edit = st.text_area("Prompt Generador de Preguntas de Examen (JSON):", value=p_ex_val, height=180)
-                    if st.button("Guardar Prompt de Examen", use_container_width=True):
-                        guardar_prompt_config("prompt_examen", prompt_ex_edit)
-                        st.success("✅ Prompt de Examen actualizado.")
