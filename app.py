@@ -2216,7 +2216,7 @@ else:
                 st.subheader("🤖 Módulo de Informes IA Generados")
                 st.info("Consulte y administre los informes consolidados generados por los distintos modelos de IA.")
 
-        # TAB: GESTIÓN Y CONFIGURACIÓN (ADMIN)
+# TAB: GESTIÓN Y CONFIGURACIÓN (ADMIN)
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
                 st.subheader("⚙️ Gestión del Sistema y Parámetros Globales")
@@ -2227,9 +2227,15 @@ else:
                     "⚙️ Parámetros Globales del Sistema"
                 ])
 
+                # 1. GESTIÓN DE USUARIOS
                 with tab_g_usr:
                     st.markdown("#### Lista y Estado Activo de Empleados")
-                    filtro_usr_est = st.radio("Mostrar Empleados:", ["Solo Habilitados", "Solo Deshabilitados", "Todos"], index=0, horizontal=True, key="filtro_usr_radio")
+                    filtro_usr_est = st.radio(
+                        "Mostrar Empleados:", 
+                        ["Solo Habilitados", "Solo Deshabilitados", "Todos"],
+                        horizontal=True,
+                        key="filtro_usr_est_radio"
+                    )
                     
                     if supabase:
                         query_usr = supabase.table("empleados").select("*").order("nombre")
@@ -2237,64 +2243,141 @@ else:
                             query_usr = query_usr.eq("activo", True)
                         elif filtro_usr_est == "Solo Deshabilitados":
                             query_usr = query_usr.eq("activo", False)
-                        res_emp_gest = query_usr.execute()
-                        emp_list = res_emp_gest.data if res_emp_gest else []
+                        
+                        res_usr_list = query_usr.execute()
+                        lista_emp_admin = res_usr_list.data if res_usr_list.data else []
                     else:
-                        emp_list = []
+                        lista_emp_admin = []
 
-                    if emp_list:
-                        for emp in emp_list:
-                            est_u = bool(emp.get("activo", True))
-                            c_u1, c_u2 = st.columns([3, 1])
+                    if lista_emp_admin:
+                        for emp_adm in lista_emp_admin:
+                            est_usr_act = bool(emp_adm.get("activo", True))
+                            es_admin_role = bool(emp_adm.get("es_admin_croma", False))
+                            
+                            c_u1, c_u2, c_u3 = st.columns([3, 2, 2])
                             with c_u1:
-                                st.write(f"**{emp['nombre']}** ({'Admin' if emp.get('es_admin_croma') else 'Empleado'})")
+                                st.write(f"**{emp_adm['nombre']}** ({'Administrador CROMA' if es_admin_role else 'Empleado'})")
                             with c_u2:
-                                chk_u_act = st.checkbox("Habilitado", value=est_u, key=f"chk_u_{emp['id']}")
-                                if chk_u_act != est_u:
+                                chk_usr = st.checkbox("Activo / Habilitado", value=est_usr_act, key=f"chk_usr_{emp_adm['id']}")
+                                if chk_usr != est_usr_act:
                                     try:
                                         if supabase:
-                                            supabase.table("empleados").update({"activo": bool(chk_u_act)}).eq("id", emp["id"]).execute()
-                                        st.success("Estado actualizado.")
+                                            supabase.table("empleados").update({"activo": bool(chk_usr)}).eq("id", emp_adm["id"]).execute()
+                                        st.success(f"Estado de {emp_adm['nombre']} actualizado.")
+                                        time.sleep(0.5)
                                         st.rerun()
-                                    except Exception as err_u:
-                                        st.error(f"Error: {err_u}")
+                                    except Exception as err_u_act:
+                                        st.error(f"Error actualizando usuario: {err_u_act}")
+                            with c_u3:
+                                # Habilitar nuevo intento manualmente
+                                if st.button("🔓 Habilitar Examen", key=f"btn_hab_usr_{emp_adm['id']}", use_container_width=True):
+                                    st.session_state[f"show_hab_modal_{emp_adm['id']}"] = True
 
-                with tab_g_man:
-                    st.markdown("#### Lista y Estado Activo de Manuales / Exámenes")
-                    if supabase:
-                        res_man_gest = supabase.table("examenes").select("*").order("apartado").execute()
-                        man_list = res_man_gest.data if res_man_gest else []
+                            if st.session_state.get(f"show_hab_modal_{emp_adm['id']}", False):
+                                with st.form(key=f"form_hab_aut_{emp_adm['id']}"):
+                                    st.caption(f"Autorizar nuevo intento de examen para **{emp_adm['nombre']}**")
+                                    
+                                    # Cargar apartados/manuales
+                                    opciones_apt = ["GLOBAL COMPLETO"]
+                                    if supabase:
+                                        res_ex_aut = supabase.table("examenes").select("apartado").eq("activo", True).execute()
+                                        if res_ex_aut.data:
+                                            opciones_apt.extend([e["apartado"] for e in res_ex_aut.data])
+                                    
+                                    apt_aut_sel = st.selectbox("Selecciona el examen a autorizar:", opciones_apt, key=f"sel_apt_aut_{emp_adm['id']}")
+                                    
+                                    col_h1, col_h2 = st.columns(2)
+                                    with col_h1:
+                                        btn_confirm_aut = st.form_submit_button("✅ Conceder Permiso")
+                                    with col_h2:
+                                        btn_cancel_aut = st.form_submit_button("❌ Cancelar")
+
+                                    if btn_confirm_aut:
+                                        try:
+                                            if supabase:
+                                                supabase.table("autorizaciones_examen").insert({
+                                                    "empleado_id": emp_adm["id"],
+                                                    "apartado": apt_aut_sel,
+                                                    "autorizado_por": st.session_state.user_nombre
+                                                }).execute()
+                                            st.success(f"✅ Autorización guardada para {apt_aut_sel}.")
+                                            st.session_state[f"show_hab_modal_{emp_adm['id']}"] = False
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        except Exception as err_aut_add:
+                                            st.error(f"Error al guardar autorización: {err_aut_add}")
+
+                                    if btn_cancel_aut:
+                                        st.session_state[f"show_hab_modal_{emp_adm['id']}"] = False
+                                        st.rerun()
+                            st.markdown("---")
                     else:
-                        man_list = []
+                        st.info("No hay usuarios registrados con el filtro seleccionado.")
 
-                    if man_list:
-                        for man in man_list:
-                            est_m = bool(man.get("activo", True))
-                            c_m1, c_m2 = st.columns([3, 1])
-                            with c_m1:
-                                st.write(f"📘 **{man['apartado']}** ({len(man.get('preguntas_json', []))} preguntas)")
-                            with c_m2:
-                                chk_m_act = st.checkbox("Habilitado", value=est_m, key=f"chk_m_{man['id']}")
-                                if chk_m_act != est_m:
+                # 2. GESTIÓN DE MANUALES
+                with tab_g_man:
+                    st.markdown("#### Exámenes y Banco de Preguntas Almacenados")
+                    if supabase:
+                        res_man_adm = supabase.table("examenes").select("*").order("id", desc=True).execute()
+                        lista_manuales_adm = res_man_adm.data if res_man_adm.data else []
+                    else:
+                        lista_manuales_adm = []
+
+                    if lista_manuales_adm:
+                        for ex_m in lista_manuales_adm:
+                            st_act_m = bool(ex_m.get("activo", True))
+                            num_p_json = len(ex_m.get("preguntas_json", [])) if isinstance(ex_m.get("preguntas_json"), list) else 0
+
+                            with st.expander(f"📘 {ex_m['apartado']} ({num_p_json} preguntas) - Estado: {'🟢 Activo' if st_act_m else '🔴 Inactivo'}"):
+                                chk_ex_act = st.checkbox("Examen Activo", value=st_act_m, key=f"chk_ex_m_{ex_m['id']}")
+                                if chk_ex_act != st_act_m:
                                     try:
                                         if supabase:
-                                            supabase.table("examenes").update({"activo": bool(chk_m_act)}).eq("id", man["id"]).execute()
-                                        st.success("Estado del manual actualizado.")
+                                            supabase.table("examenes").update({"activo": bool(chk_ex_act)}).eq("id", ex_m["id"]).execute()
+                                        st.success("Estado del examen actualizado.")
+                                        time.sleep(0.5)
                                         st.rerun()
-                                    except Exception as err_m_st:
-                                        st.error(f"Error: {err_m_st}")
+                                    except Exception as err_m_up:
+                                        st.error(f"Error al actualizar examen: {err_m_up}")
+                    else:
+                        st.info("No hay manuales cargados en la base de datos.")
 
+                # 3. PARÁMETROS GLOBALES DEL SISTEMA
                 with tab_g_global:
-                    st.markdown("#### Configuración de Tiempos y Preguntas Globales")
-                    with st.form("form_cfg_global"):
-                        t_preg_in = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA)
-                        num_g_in = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=100, value=NUM_PREG_GLOBAL)
-                        num_m_in = st.number_input("Número de preguntas por Manual:", min_value=5, max_value=50, value=NUM_PREG_MANUAL)
+                    st.markdown("#### Ajuste de Configuración Global")
+                    
+                    with st.form("form_config_global_tiempos"):
+                        st.write("##### Tiempos y Cantidad de Preguntas")
+                        tiempo_p_input = st.number_input(
+                            "⏱️ Tiempo máximo por pregunta (en segundos):", 
+                            min_value=10, 
+                            max_value=300, 
+                            value=int(TIEMPO_LIMITE_PREGUNTA), 
+                            step=5
+                        )
+                        num_p_glob_input = st.number_input(
+                            "🌐 Preguntas en Examen Global:", 
+                            min_value=5, 
+                            max_value=100, 
+                            value=int(NUM_PREG_GLOBAL), 
+                            step=1
+                        )
+                        num_p_man_input = st.number_input(
+                            "📘 Preguntas en Examen por Manual:", 
+                            min_value=5, 
+                            max_value=100, 
+                            value=int(NUM_PREG_MANUAL), 
+                            step=1
+                        )
 
-                        if st.form_submit_button("💾 Guardar Parámetros Globales"):
-                            guardar_tiempo_pregunta_config(t_preg_in)
-                            guardar_num_preguntas_config("global", num_g_in)
-                            guardar_num_preguntas_config("manual", num_m_in)
-                            st.success("Parámetros actualizados correctamente.")
-                            time.sleep(1)
-                            st.rerun()
+                        if st.form_submit_button("💾 Guardar Configuración Global"):
+                            e1 = guardar_tiempo_pregunta_config(tiempo_p_input)
+                            e2 = guardar_num_preguntas_config("global", num_p_glob_input)
+                            e3 = guardar_num_preguntas_config("manual", num_p_man_input)
+                            
+                            if e1 and e2 and e3:
+                                st.success("✅ Configuración global actualizada correctamente en SQL.")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error("❌ Ocurrió un error al guardar algunos parámetros.")
