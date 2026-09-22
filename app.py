@@ -643,8 +643,60 @@ SECCIONES_TRIMESTRALES_DEFINICION = [
     "Tiempos respuesta Tbox",
     "Tiempos respuesta Siemens",
     "Iniciativa / Proactividad ante el trabajo",
-    "Conocimientos"
+    "Conocimientos",
+    "Evaluacion"
 ]
+
+CONFIG_APARTADOS = {
+    "Tareas realizar por turnos y todos los turnos": {
+        "max_punt": 3.0,
+        "subapartados": [
+            "Turno mañana",
+            "Turno Fin de semana Mañana",
+            "Turno Tarde",
+            "Turno Noche",
+            "Turno Fin de semana Noche",
+            "Todos los turnos"
+        ]
+    },
+    "Tiempos respuesta Tbox": {
+        "max_punt": 3.0,
+        "subapartados": [
+            "% menos de 1 %",
+            "tiempo mas de 20 minutos",
+            "Numero alarmas mas de 15 minutos (inferior a 10)"
+        ]
+    },
+    "Tiempos respuesta Siemens": {
+        "max_punt": 3.0,
+        "subapartados": [
+            "% menos de 1 %",
+            "tiempo mas de 20 minutos",
+            "Numero alarmas mas de 15 minutos (inferior a 10)"
+        ]
+    },
+    "Iniciativa / Proactividad ante el trabajo": {
+        "max_punt": 3.0,
+        "subapartados": [
+            "Sugerencia de ideas / Mejoras / Realización de tabajos sin indicar nada"
+        ]
+    },
+    "Conocimientos": {
+        "max_punt": 1.0,
+        "subapartados": [
+            "Conocimientos aplicados en puesto trabajo"
+        ]
+    },
+    "Evaluacion": {
+        "max_punt": 1.0,
+        "subapartados": [
+            "Teorica (ANUAL)",
+            "Practica (ANUAL)",
+            "Herramienta (ANUAL)",
+            "Dejar operativo portatil desde 0"
+        ]
+    }
+}
 
 def procesar_excel_evaluacion_trimestral(file_bytes):
     xls = pd.ExcelFile(file_bytes)
@@ -718,10 +770,12 @@ def procesar_excel_evaluacion_trimestral(file_bytes):
                 try:
                     num_val = float(col_c)
                     tipo_nombre = col_a if col_a else f"Subapartado Fila {r_idx+1}"
+                    max_p = CONFIG_APARTADOS.get(seccion_actual, {}).get("max_punt", 3.0)
                     apartados_detallados.append({
                         "seccion": seccion_actual,
                         "tipo": tipo_nombre,
                         "valor_c": num_val,
+                        "max_puntuacion": max_p,
                         "comentario_d": col_d,
                         "habilitado": True,
                         "peso": 1.0
@@ -1450,6 +1504,7 @@ else:
                 ])
 
                 # SUBTAB 1: CARGA DE ARCHIVOS EXCEL (Q1 - Q4)
+# SUBTAB 1: CARGA Y ACTUALIZACIÓN DE EVALUACIONES TRIMESTRALES
                 with subtab_upload_q:
                     st.markdown("#### Subir Evaluación Excel (Pestañas Q1, Q2, Q3, Q4)")
                     excel_q_file = st.file_uploader("📂 Selecciona el documento Excel (.xlsx):", type=["xlsx"], key="excel_q_uploader")
@@ -1496,7 +1551,8 @@ else:
                                                 "trimestre": trim_str,
                                                 "p_viejo": p_total_v,
                                                 "p_nuevo": p_total_n,
-                                                "eval_nueva": eval_q
+                                                "eval_nueva": eval_q,
+                                                "subapartados_viejos": reg_viejo.get("datos_completos_json", {}).get("apartados", [])
                                             }
                                         else:
                                             st.info(f"ℹ️ La evaluación para **{emp_nom}** ({trim_str} - {anio_eval}) ya está registrada sin cambios.")
@@ -1518,6 +1574,7 @@ else:
                             except Exception as err_xlsx:
                                 st.error(f"❌ Error al procesar el documento Excel: {err_xlsx}")
 
+                    # MODAL / CONFIRMACIÓN DE CAMBIOS Y AUDITORÍA DE SUBAPARTADOS
                     if st.session_state.get("modal_actualizar_q"):
                         st.markdown("---")
                         mod_data = st.session_state.modal_actualizar_q
@@ -1540,14 +1597,18 @@ else:
                                 else:
                                     try:
                                         ev_n = mod_data["eval_nueva"]
+                                        now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
                                         if supabase:
+                                            # 1. Actualizar la tabla principal
                                             supabase.table("evaluaciones_trimestrales").update({
                                                 "puntuacion_total": ev_n["puntuacion_total"],
                                                 "observaciones": ev_n["observaciones"],
                                                 "datos_completos_json": {"apartados": ev_n["apartados"]},
-                                                "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                                                "updated_at": now_utc
                                             }).eq("id", mod_data["reg_id"]).execute()
 
+                                            # 2. Guardar auditoría general
                                             supabase.table("auditoria_evaluaciones").insert({
                                                 "evaluacion_id": mod_data["reg_id"],
                                                 "empleado_id": mod_data["emp_id"],
@@ -1560,7 +1621,30 @@ else:
                                                 "motivo": motivo_mod_q.strip()
                                             }).execute()
 
-                                        st.success("✅ Cambio guardado y auditado con éxito.")
+                                            # 3. Guardar auditoría detallada subapartado por subapartado si cambiaron sus valores
+                                            sub_viejos = {f"{a.get('seccion')}_{a.get('tipo')}": a.get('valor_c') for a in mod_data.get("subapartados_viejos", [])}
+                                            
+                                            for sub_nuevo in ev_n.get("apartados", []):
+                                                key_sub = f"{sub_nuevo.get('seccion')}_{sub_nuevo.get('tipo')}"
+                                                val_v = sub_viejos.get(key_sub)
+                                                val_n = sub_nuevo.get("valor_c")
+
+                                                if val_v is not None and str(val_v) != str(val_n):
+                                                    supabase.table("auditoria_subapartados").insert({
+                                                        "evaluacion_id": mod_data["reg_id"],
+                                                        "empleado_id": mod_data["emp_id"],
+                                                        "anio": mod_data["anio"],
+                                                        "trimestre": mod_data["trimestre"],
+                                                        "seccion": sub_nuevo.get("seccion"),
+                                                        "subapartado": sub_nuevo.get("tipo"),
+                                                        "valor_anterior": float(val_v),
+                                                        "valor_nuevo": float(val_n),
+                                                        "usuario_modificador": persona_mod_q.strip(),
+                                                        "motivo": motivo_mod_q.strip(),
+                                                        "fecha_modificacion": now_utc
+                                                    }).execute()
+
+                                        st.success("✅ Cambio guardado y auditado por subapartados con éxito en SQL.")
                                         st.session_state.modal_actualizar_q = None
                                         time.sleep(1)
                                         st.rerun()
@@ -1571,9 +1655,9 @@ else:
                                 st.session_state.modal_actualizar_q = None
                                 st.rerun()
 
-                # SUBTAB 2: EDICIÓN, VISIBILIDAD Y PESOS DE APARTADOS
+                # SUBTAB 2: EDICIÓN MANUAL Y REGISTRO EN VIVO DE SUBAPARTADOS EN SQL
                 with subtab_edit_q:
-                    st.markdown("#### Configuración, Visibilidad y Ponderación de Apartados")
+                    st.markdown("#### Edición Directa, Visibilidad y Auditoría de Subapartados")
                     
                     filtro_q_edit = st.radio("Filtro Estado Trimestres:", ["Solo Habilitados", "Solo Deshabilitados", "Todos"], index=0, horizontal=True, key="filtro_q_edit_radio")
                     
@@ -1601,73 +1685,111 @@ else:
                             evals_emp = []
 
                         if evals_emp:
-                            st.write(f"##### Resumen de Qs Registrados en {anio_q_sel}:")
-                            
                             for ev in evals_emp:
                                 trim_nom = ev["trimestre"]
                                 est_act = bool(ev.get("activo", True))
-                                p_tot = ev.get("puntuacion_total", "N/A")
                                 datos_j = ev.get("datos_completos_json", {})
                                 list_ap = datos_j.get("apartados", [])
 
-                                with st.expander(f"{trim_nom} - Puntuación Total: {p_tot} | Estado: {'🟢 Habilitado' if est_act else '🔴 Deshabilitado'}"):
+                                with st.expander(f"📝 Editar Subapartados de {trim_nom} ({anio_q_sel}) - Empleado: {emp_sel_q_nom}"):
                                     
-                                    chk_habil_q = st.checkbox(f"Habilitar {trim_nom} para el cálculo de la media anual", value=est_act, key=f"chk_q_hab_{ev['id']}")
-                                    if chk_habil_q != est_act:
-                                        try:
-                                            if supabase:
-                                                supabase.table("evaluaciones_trimestrales").update({"activo": bool(chk_habil_q)}).eq("id", ev["id"]).execute()
-                                            st.success(f"Estado de {trim_nom} actualizado correctamente.")
-                                            time.sleep(0.5)
-                                            st.rerun()
-                                        except Exception as err_up_q:
-                                            st.error(f"❌ Error al actualizar estado del trimestre: {err_up_q}")
+                                    with st.form(key=f"form_edit_subapartados_{ev['id']}"):
+                                        st.write("##### Modificación Manual de Puntuaciones de Subapartados")
+                                        nuevos_apartados = []
 
-                                    st.write("###### Configuración y Visualización de Apartados:")
-                                    
-                                    # Ponderación porcentual por apartados principales (Color Naranja)
-                                    st.markdown("###### Ponderación de Porcentajes por Sección:")
-                                    cols_pct = st.columns(len(SECCIONES_TRIMESTRALES_DEFINICION))
-                                    porcentajes_dict = {}
-                                    pct_defecto = 100.0 / len(SECCIONES_TRIMESTRALES_DEFINICION)
-                                    
-                                    for idx_sec, sec_name in enumerate(SECCIONES_TRIMESTRALES_DEFINICION):
-                                        with cols_pct[idx_sec]:
-                                            pct_val = st.number_input(
-                                                f"% {sec_name[:15]}...",
-                                                min_value=0.0,
-                                                max_value=100.0,
-                                                value=pct_defecto,
-                                                step=5.0,
-                                                key=f"pct_{ev['id']}_{idx_sec}"
-                                            )
-                                            porcentajes_dict[sec_name] = pct_val
-                                            
-                                    suma_porcentajes = sum(porcentajes_dict.values())
-                                    if round(suma_porcentajes, 1) == 100.0:
-                                        st.success(f"📊 Suma Total de Porcentajes: **{suma_porcentajes:.1f}%** (Correcto)")
-                                    else:
-                                        st.warning(f"⚠️ Suma Total de Porcentajes: **{suma_porcentajes:.1f}%** (Atención: la suma ideal es 100%)")
+                                        for idx_sub, sub_item in enumerate(list_ap):
+                                            c_sub1, c_sub2, c_sub3 = st.columns([2, 1, 2])
+                                            sec_name = sub_item.get("seccion", "General")
+                                            sub_name = sub_item.get("tipo", f"Subapartado {idx_sub+1}")
+                                            val_c_actual = float(sub_item.get("valor_c", 0.0))
+                                            max_p = float(sub_item.get("max_puntuacion", 3.0))
+                                            obs_actual = sub_item.get("comentario_d", "")
 
-                                    # Mostrar subapartados agrupados con formato
-                                    for sec_name in SECCIONES_TRIMESTRALES_DEFINICION:
-                                        st.markdown(f"<div class='seccion-naranja'>📙 Apartado: {sec_name} (Peso: {porcentajes_dict.get(sec_name, 0)}%)</div>", unsafe_allow_html=True)
-                                        sub_items = [a for a in list_ap if a.get("seccion", "").lower() == sec_name.lower()]
-                                        
-                                        if sub_items:
-                                            for idx_sub, sub_item in enumerate(sub_items):
-                                                val_c = sub_item.get("valor_c", "N/A")
-                                                com_d = sub_item.get("comentario_d", "")
-                                                nom_tipo = sub_item.get("tipo", f"Subapartado {idx_sub+1}")
-                                                
-                                                st.markdown(f"""
-                                                <div class='subapartado-neutro'>
-                                                    <b>Subapartado:</b> {nom_tipo} | <b>Puntuación Columna C:</b> <span style='color: #2B6CB0; font-weight: bold;'>{val_c}</span><br>
-                                                    <small style='color: #718096;'>Observación Columna D: {com_d if com_d else 'Sin observación'}</small>
-                                                </div>
-                                                """, unsafe_allow_html=True)
-                                        else:
-                                            st.caption("No se detectaron subapartados específicos registrados para esta sección.")
+                                            with c_sub1:
+                                                st.caption(f"**{sec_name}**")
+                                                st.write(f"🔹 {sub_name}")
+                                            with c_sub2:
+                                                nuevo_val = st.number_input(
+                                                    f"Puntuación (Max {max_p})",
+                                                    min_value=0.0,
+                                                    max_value=max_p,
+                                                    value=val_c_actual,
+                                                    step=0.1,
+                                                    key=f"val_{ev['id']}_{idx_sub}"
+                                                )
+                                            with c_sub3:
+                                                nueva_obs = st.text_input(
+                                                    "Observación",
+                                                    value=obs_actual,
+                                                    key=f"obs_{ev['id']}_{idx_sub}"
+                                                )
+
+                                            nuevos_apartados.append({
+                                                "seccion": sec_name,
+                                                "tipo": sub_name,
+                                                "valor_c": nuevo_val,
+                                                "max_puntuacion": max_p,
+                                                "comentario_d": nueva_obs,
+                                                "habilitado": sub_item.get("habilitado", True),
+                                                "peso": sub_item.get("peso", 1.0)
+                                            })
+                                            st.markdown("---")
+
+                                        usr_mod = st.text_input("👤 Nombre de quien modifica:", value=st.session_state.user_nombre, key=f"usr_edit_{ev['id']}")
+                                        mot_mod = st.text_area("📋 Motivo del cambio:", key=f"mot_edit_{ev['id']}")
+
+                                        if st.form_submit_button("💾 Guardar Cambios en SQL y Registrar Auditoría"):
+                                            if not usr_mod.strip() or not mot_mod.strip():
+                                                st.error("❌ Debes especificar el nombre y motivo para guardar.")
+                                            else:
+                                                try:
+                                                    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                                                    
+                                                    # Recalcular total automáticamente
+                                                    sum_val = sum(a["valor_c"] for a in nuevos_apartados)
+                                                    
+                                                    # 1. Guardar en evaluaciones_trimestrales
+                                                    supabase.table("evaluaciones_trimestrales").update({
+                                                        "puntuacion_total": sum_val,
+                                                        "datos_completos_json": {"apartados": nuevos_apartados},
+                                                        "updated_at": now_utc
+                                                    }).eq("id", ev["id"]).execute()
+
+                                                    # 2. Registrar en auditoria_subapartados para cada ítem modificado
+                                                    for idx_a, sub_old in enumerate(list_ap):
+                                                        sub_new = nuevos_apartados[idx_a]
+                                                        if float(sub_old.get("valor_c", 0)) != float(sub_new["valor_c"]):
+                                                            supabase.table("auditoria_subapartados").insert({
+                                                                "evaluacion_id": ev["id"],
+                                                                "empleado_id": emp_sel_q_id,
+                                                                "anio": int(anio_q_sel),
+                                                                "trimestre": trim_nom,
+                                                                "seccion": sub_new["seccion"],
+                                                                "subapartado": sub_new["tipo"],
+                                                                "valor_anterior": float(sub_old.get("valor_c", 0)),
+                                                                "valor_nuevo": float(sub_new["valor_c"]),
+                                                                "usuario_modificador": usr_mod.strip(),
+                                                                "motivo": mot_mod.strip(),
+                                                                "fecha_modificacion": now_utc
+                                                            }).execute()
+
+                                                    st.success("✅ Subapartados actualizados y cambios registrados en la auditoría de SQL correctamente.")
+                                                    time.sleep(1)
+                                                    st.rerun()
+
+                                                except Exception as err_m_sub:
+                                                    st.error(f"❌ Error al guardar subapartados en SQL: {err_m_sub}")
+
+                        # Historial de Auditoría de Subapartados
+                        st.markdown("---")
+                        st.write("##### 📜 Historial de Cambios y Auditoría de Subapartados en SQL")
+                        res_aud = supabase.table("auditoria_subapartados").select("*").eq("empleado_id", emp_sel_q_id).order("fecha_modificacion", desc=True).execute() if supabase else None
+                        
+                        if res_aud and res_aud.data:
+                            df_aud = pd.DataFrame(res_aud.data)
+                            st.dataframe(df_aud[["fecha_modificacion", "trimestre", "seccion", "subapartado", "valor_anterior", "valor_nuevo", "usuario_modificador", "motivo"]], use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No hay registros de cambios en subapartados para este empleado.")
 
                         # Mostrar Resumen Anual y Media
                         media_calc, num_qs = calcular_media_trimestral_empleado(evals_emp)
@@ -2164,52 +2286,35 @@ else:
                 mis_intentos = res_mis_intentos.data if res_mis_intentos else []
                 
                 dias_restantes = obtener_dias_restantes_mes()
-                st.info(f"📅 **Habilitación de Examen:** Quedan **{dias_restantes} días** para finalizar el ciclo de evaluación actual.")
-                
+                st.info(f"📅 **Habilitación de Examen:** Quedan **{dias_restantes} días** para finalizar el mes actual.")
+
                 if mis_intentos:
-                    for i in mis_intentos:
-                        fecha_str = i["fecha_inicio"][:10] if i.get("fecha_inicio") else "N/A"
-                        porc = i.get("porcentaje_obtenido", 0)
-                        respuestas = i.get("respuestas_usuario", [])
-                        num_correctas = sum(1 for r in respuestas if r.get("es_correcta"))
-                        total_p = len(respuestas) if respuestas else 15
-                        
-                        expirado = i.get("sobrepasado_tiempo", False)
-                        estado = obtener_estado_evaluacion(porc, expirado)
-                        
-                        with st.expander(f"Examen #{i['id']} - {i.get('apartado')} | {fecha_str} | Nota: {i.get('nota', 0)}/10 | Estado: {estado}"):
-                            st.write(f"**Resultado:** {num_correctas} / {total_p} aciertos ({porc}%) - **{estado}**")
-                            
-                            pdf_bytes = generar_pdf_resultado(i)
-                            if pdf_bytes:
-                                st.download_button(
-                                    label="📄 Descargar Informe PDF de Resultados",
-                                    data=pdf_bytes,
-                                    file_name=f"resultado_examen_{i['id']}.pdf",
-                                    mime="application/pdf",
-                                    key=f"pdf_usr_{i['id']}"
-                                )
+                    for it in mis_intentos:
+                        fecha_str = it.get("fecha_inicio", "")[:10] if it.get("fecha_inicio") else "N/A"
+                        porc = it.get("porcentaje_obtenido", 0)
+                        est_txt = obtener_estado_evaluacion(porc, it.get("sobrepasado_tiempo", False))
+
+                        with st.expander(f"📌 {it['apartado']} - Fecha: {fecha_str} | Nota: {it.get('nota')}/10 ({porc}%) | {est_txt}"):
+                            st.write(f"**Duración:** {it.get('tiempo_total_segundos', 0)} segundos")
+                            pdf_b = generar_pdf_resultado(it)
+                            if pdf_b:
+                                st.download_button("📄 Descargar Certificado / Informe PDF", pdf_b, file_name=f"mi_resultado_{it['id']}.pdf", mime="application/pdf", key=f"pdf_usr_{it['id']}")
                 else:
-                    st.write("Aún no has realizado ningún examen.")
+                    st.info("Aún no has realizado ningún examen registrado.")
 
-            with tab_mi_analisis:
-                st.subheader("📈 Mi Rendimiento Personal e Informe IA")
-
-                res_usr_cfg = supabase.table("empleados").select("analisis_ia_habilitado").eq("id", st.session_state.user_id).execute() if supabase else None
-                ia_permitida = res_usr_cfg.data[0].get("analisis_ia_habilitado", True) if (res_usr_cfg and res_usr_cfg.data) else True
-
-                if not ia_permitida:
-                    st.warning("🔒 La generación y visualización de Análisis por IA ha sido deshabilitada para tu usuario por el administrador.")
-                else:
-                    res_mis_graf = supabase.table("intentos_examen").select("id, nota, porcentaje_obtenido, fecha_inicio, apartado")\
-                        .eq("empleado_id", st.session_state.user_id)\
-                        .eq("activo", True)\
-                        .order("fecha_inicio", desc=False).execute() if supabase else None
-                    mis_datos_graf = res_mis_graf.data if res_mis_graf else []
+            if tab_mi_analisis:
+                with tab_mi_analisis:
+                    st.subheader("📈 Mi Rendimiento General e Informes IA")
                     
-                    if mis_datos_graf:
-                        df_mi_graf = pd.DataFrame(mis_datos_graf)
-                        df_mi_graf["fecha"] = df_mi_graf["fecha_inicio"].str[:10]
-                        
-                        st.markdown("#### 📊 Evolución Histórica de Calificaciones")
-                        st.line_chart(df_mi_graf, x="fecha", y="nota")
+                    if mis_intentos:
+                        df_m = pd.DataFrame(mis_intentos)
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            st.metric("Total de Exámenes Completados", len(df_m))
+                        with col_m2:
+                            media_m = round(df_m["nota"].mean(), 2) if "nota" in df_m.columns else 0.0
+                            st.metric("Mi Nota Media Global", f"{media_m} / 10")
+
+                        st.line_chart(df_m.set_index("fecha_inicio")["nota"])
+                    else:
+                        st.info("Realiza exámenes para visualizar tu evolución académica.")
