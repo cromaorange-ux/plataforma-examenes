@@ -1655,95 +1655,76 @@ else:
                                 st.rerun()
 
                 # SUBTAB 2: EDICIÓN MANUAL Y REGISTRO EN VIVO DE SUBAPARTADOS EN SQL
-                with subtab_edit_q:
-                    st.markdown("#### Edición Directa, Visibilidad y Auditoría de Subapartados")
+                with tab_edit:
+                st.subheader("Edición de Evaluaciones y Sub-apartados")
+    
+                if "evaluaciones" in st.session_state and st.session_state.evaluaciones:
+                    for ev in st.session_state.evaluaciones:
+                        with st.expander(f"📋 Evaluador: {ev.get('evaluador', 'N/A')} - {ev.get('fecha', '')}"):
+                
+                            # Modificación de metadatos básicos
+                            col_e1, col_e2 = st.columns(2)
+                            with col_e1:
+                                nuevo_evaluador = st.text_input("Evaluador", value=ev.get("evaluador", ""), key=f"ev_name_{ev['id']}")
+                            with col_e2:
+                                nueva_fecha = st.text_input("Fecha", value=ev.get("fecha", ""), key=f"ev_date_{ev['id']}")
+                
+                            st.markdown("---")
+                            st.write("**Puntuaciones por Sub-apartado:**")
+                
+                            sub_items = ev.get("sub_items", [])
+                
+                            for idx_sub, sub in enumerate(sub_items):
+                                col_s1, col_s2, col_s3 = st.columns([3, 2, 2])
                     
-                    filtro_q_edit = st.radio("Filtro Estado Trimestres:", ["Solo Habilitados", "Solo Deshabilitados", "Todos"], index=0, horizontal=True, key="filtro_q_edit_radio")
+                                # 1. Nombre del sub-apartado
+                                with col_s1:
+                                    st.markdown(f"**{sub.get('nombre', f'Sub-item {idx_sub+1}')}**")
                     
-                    res_emp_q = supabase.table("empleados").select("id, nombre").eq("activo", True).order("nombre").execute() if supabase else None
-                    dict_emp_q = {e["nombre"]: e["id"] for e in (res_emp_q.data if res_emp_q else [])}
+                                # 2. Puntuación Máxima (max_p)
+                                max_p = float(sub.get("max_puntos", 10.0))
+                    
+                                # 3. Puntuación Actual en Base de Datos (val_c_actual)
+                                val_c_actual = float(sub.get("puntos", 0.0))
+                    
+                                # CONTROL DE ERRORES: Asegurar que el valor no supere el máximo
+                                val_inicial_seguro = min(val_c_actual, max_p)
+                    
+                                with col_s2:
+                                    nuevo_val = st.number_input(
+                                        f"Puntos (Máx: {max_p})",
+                                        min_value=0.0,
+                                        max_value=max_p,
+                                        value=val_inicial_seguro,
+                                        step=0.1,
+                                        key=f"val_{ev['id']}_{idx_sub}"
+                                    )
+                                # Actualizar el valor ajustado en la estructura del sub-item
+                                sub["puntos"] = nuevo_val
+                        
+                            with col_s3:
+                            # Indicador visual si el valor original superaba el máximo
+                            if val_c_actual > max_p:
+                                st.warning(f"⚠️ Valor original ({val_c_actual}) ajustado al máx ({max_p})")
+                            else:
+                                st.caption(f"Límite OK ({max_p} pts)")
 
-                    if dict_emp_q:
-                        col_m1, col_m2 = st.columns(2)
-                        with col_m1:
-                            emp_sel_q_nom = st.selectbox("👥 Seleccionar Empleado:", list(dict_emp_q.keys()), key="sel_emp_q_edit")
-                        with col_m2:
-                            anio_q_sel = st.number_input("📅 Seleccionar Año:", min_value=2020, max_value=2030, value=datetime.datetime.now().year, key="sel_anio_q_edit")
-
-                        emp_sel_q_id = dict_emp_q[emp_sel_q_nom]
-
-                        query_ev = supabase.table("evaluaciones_trimestrales").select("*").eq("empleado_id", emp_sel_q_id).eq("anio", int(anio_q_sel)) if supabase else None
-                        if query_ev:
-                            if filtro_q_edit == "Solo Habilitados":
-                                query_ev = query_ev.eq("activo", True)
-                            elif filtro_q_edit == "Solo Deshabilitados":
-                                query_ev = query_ev.eq("activo", False)
-                            res_ev_all = query_ev.execute()
-                            evals_emp = res_ev_all.data if res_ev_all.data else []
+                        # Botón para guardar los cambios de esta evaluación específica
+                        if st.button("Guardar Cambios de esta Evaluación", key=f"btn_save_{ev['id']}"):
+                            ev["evaluador"] = nuevo_evaluador
+                            ev["fecha"] = nueva_fecha
+                    
+                            # Recalcular la puntuación total sumando los sub-apartados
+                            ev["total_puntos"] = sum(float(s.get("puntos", 0)) for s in ev.get("sub_items", []))
+                    
+                            # Si tienes función de persistencia a base de datos (p. ej., Supabase)
+                            # actualizar_evaluacion_bd(ev["id"], ev)
+                    
+                            st.success(f"¡Evaluación de {nuevo_evaluador} actualizada correctamente!")
+                            st.experimental_rerun()
                         else:
-                            evals_emp = []
-
-                        if evals_emp:
-                            for ev in evals_emp:
-                                trim_nom = ev["trimestre"]
-                                est_act = bool(ev.get("activo", True))
-                                datos_j = ev.get("datos_completos_json", {})
-                                list_ap = datos_j.get("apartados", [])
-
-                                with st.expander(f"📝 Editar Subapartados de {trim_nom} ({anio_q_sel}) - Empleado: {emp_sel_q_nom}"):
-                                    
-                                    with st.form(key=f"form_edit_subapartados_{ev['id']}"):
-                                        st.write("##### Modificación Manual de Puntuaciones de Subapartados")
-                                        nuevos_apartados = []
-
-                                        for idx_sub, sub_item in enumerate(list_ap):
-                                            c_sub1, c_sub2, c_sub3 = st.columns([2, 1, 2])
-                                            sec_name = sub_item.get("seccion", "General")
-                                            sub_name = sub_item.get("tipo", f"Subapartado {idx_sub+1}")
-                                            val_c_actual = float(sub_item.get("valor_c", 0.0))
-                                            max_p = float(sub_item.get("max_puntuacion", 3.0))
-                                            obs_actual = sub_item.get("comentario_d", "")
-
-                                            with c_sub1:
-                                                st.caption(f"**{sec_name}**")
-                                                st.write(f"🔹 {sub_name}")
-                                            with c_sub2:
-                                                nuevo_val = st.number_input(
-                                                    f"Puntuación (Max {max_p})",
-                                                    min_value=0.0,
-                                                    max_value=max_p,
-                                                    value=val_c_actual,
-                                                    step=0.1,
-                                                    key=f"val_{ev['id']}_{idx_sub}"
-                                                )
-                                            with c_sub3:
-                                                nueva_obs = st.text_input(
-                                                    "Observación",
-                                                    value=obs_actual,
-                                                    key=f"obs_{ev['id']}_{idx_sub}"
-                                                )
-
-                                            nuevos_apartados.append({
-                                                "seccion": sec_name,
-                                                "tipo": sub_name,
-                                                "valor_c": nuevo_val,
-                                                "max_puntuacion": max_p,
-                                                "comentario_d": nueva_obs,
-                                                "habilitado": sub_item.get("habilitado", True),
-                                                "peso": sub_item.get("peso", 1.0)
-                                            })
-                                            st.markdown("---")
-
-                                        usr_mod = st.text_input("👤 Nombre de quien modifica:*", value=st.session_state.user_nombre, key=f"usr_edit_{ev['id']}")
-                                        mot_mod = st.text_area("📋 Motivo del cambio:*", key=f"mot_edit_{ev['id']}")
-
-                                        if st.form_submit_button("💾 Guardar Cambios en SQL y Registrar Auditoría"):
-                                            if not usr_mod.strip() or not mot_mod.strip():
-                                                st.error("❌ Debes especificar el nombre y motivo para guardar.")
-                                            else:
-                                                try:
-                                                    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                                                    
+                            st.info("No hay evaluaciones disponibles para editar.")
+        
                                                     # Recalcular total automáticamente
                                                     sum_val = sum(a["valor_c"] for a in nuevos_apartados)
                                                     
