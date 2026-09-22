@@ -1503,8 +1503,7 @@ else:
                     "🤖 Informes de Evaluaciones e IA"
                 ])
 
-                # SUBTAB 1: CARGA DE ARCHIVOS EXCEL (Q1 - Q4)
-# SUBTAB 1: CARGA Y ACTUALIZACIÓN DE EVALUACIONES TRIMESTRALES
+                # SUBTAB 1: CARGA Y ACTUALIZACIÓN DE EVALUACIONES TRIMESTRALES
                 with subtab_upload_q:
                     st.markdown("#### Subir Evaluación Excel (Pestañas Q1, Q2, Q3, Q4)")
                     excel_q_file = st.file_uploader("📂 Selecciona el documento Excel (.xlsx):", type=["xlsx"], key="excel_q_uploader")
@@ -1735,8 +1734,8 @@ else:
                                             })
                                             st.markdown("---")
 
-                                        usr_mod = st.text_input("👤 Nombre de quien modifica:", value=st.session_state.user_nombre, key=f"usr_edit_{ev['id']}")
-                                        mot_mod = st.text_area("📋 Motivo del cambio:", key=f"mot_edit_{ev['id']}")
+                                        usr_mod = st.text_input("👤 Nombre de quien modifica:*", value=st.session_state.user_nombre, key=f"usr_edit_{ev['id']}")
+                                        mot_mod = st.text_area("📋 Motivo del cambio:*", key=f"mot_edit_{ev['id']}")
 
                                         if st.form_submit_button("💾 Guardar Cambios en SQL y Registrar Auditoría"):
                                             if not usr_mod.strip() or not mot_mod.strip():
@@ -1943,8 +1942,12 @@ else:
 
                 st.info(f"🎯 **Media del Objetivo Corporativo:** **{obj_media_val} / 10**")
 
-                anio_actual_emp = datetime.datetime.now().year
-                anio_sel_emp = st.number_input("📅 Seleccionar Año de Consulta:", min_value=2020, max_value=2030, value=anio_actual_emp, key="emp_q_anio_sel")
+                col_e1, col_e2 = st.columns(2)
+                with col_e1:
+                    anio_actual_emp = datetime.datetime.now().year
+                    anio_sel_emp = st.number_input("📅 Seleccionar Año de Consulta:", min_value=2020, max_value=2030, value=anio_actual_emp, key="emp_q_anio_sel")
+                with col_e2:
+                    q_sel_emp = st.selectbox("📌 Seleccionar Trimestre (Q):", ["Todos", "Q1", "Q2", "Q3", "Q4"], index=0, key="emp_q_trim_sel")
 
                 res_emp_qs = supabase.table("evaluaciones_trimestrales").select("*")\
                     .eq("empleado_id", st.session_state.user_id)\
@@ -1959,17 +1962,53 @@ else:
                     else:
                         st.info("Sin datos evaluados en este período.")
 
-                    st.markdown("##### 📋 Desglose de Puntuaciones por Q Registrado:")
-                    cols_q = st.columns(4)
-                    for idx_q_nom, q_code in enumerate(["Q1", "Q2", "Q3", "Q4"]):
-                        q_match = next((item for item in mis_evals_q if item["trimestre"] == q_code), None)
-                        with cols_q[idx_q_nom]:
-                            if q_match:
-                                st.success(f"**{q_code}:** {q_match.get('puntuacion_total', 'N/A')} / 10")
-                                if q_match.get("observaciones"):
-                                    st.caption(f"💬 *{q_match['observaciones']}*")
-                            else:
-                                st.warning(f"**{q_code}:** Sin datos")
+                    st.markdown("---")
+                    st.markdown("##### 📋 Desglose Detallado por Apartado y Subapartado:")
+
+                    evals_filtradas = mis_evals_q
+                    if q_sel_emp != "Todos":
+                        evals_filtradas = [e for e in mis_evals_q if e.get("trimestre") == q_sel_emp]
+
+                    if evals_filtradas:
+                        for ev_item in evals_filtradas:
+                            q_code = ev_item.get("trimestre", "N/A")
+                            p_tot = ev_item.get("puntuacion_total", "N/A")
+                            obs_gen = ev_item.get("observaciones", "")
+                            datos_completos = ev_item.get("datos_completos_json", {})
+                            apartados_sub = datos_completos.get("apartados", [])
+
+                            with st.expander(f"📌 {q_code} ({anio_sel_emp}) — Puntuación Total: {p_tot} / 10", expanded=True):
+                                if obs_gen:
+                                    st.info(f"💬 **Observaciones Generales:** {obs_gen}")
+
+                                if apartados_sub:
+                                    # Agrupar subapartados por Sección/Apartado principal
+                                    secciones_dict = {}
+                                    for sub in apartados_sub:
+                                        sec = sub.get("seccion", "General")
+                                        if sec not in secciones_dict:
+                                            secciones_dict[sec] = []
+                                        secciones_dict[sec].append(sub)
+
+                                    for sec_nombre, sub_lista in secciones_dict.items():
+                                        st.markdown(f"<div class='seccion-naranja'>📂 {sec_nombre}</div>", unsafe_allow_html=True)
+                                        
+                                        for sub in sub_lista:
+                                            sub_nombre = sub.get("tipo", "Subapartado")
+                                            val_c = sub.get("valor_c", 0.0)
+                                            max_p = sub.get("max_puntuacion", 3.0)
+                                            coment_d = sub.get("comentario_d", "")
+
+                                            st.markdown(f"""
+                                            <div class="subapartado-neutro">
+                                                <strong>🔹 {sub_nombre}:</strong> <span style="color: #2B6CB0; font-weight: bold;">{val_c} / {max_p} pts</span>
+                                                {f'<br><small style="color: #718096;"><i>Comentario: {coment_d}</i></small>' if coment_d else ''}
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                else:
+                                    st.caption("Sin subapartados detallados registrados en este trimestre.")
+                    else:
+                        st.warning(f"No hay datos registrados para la combinación del trimestre {q_sel_emp} y el año {anio_sel_emp}.")
                 else:
                     st.warning(f"No tienes evaluaciones trimestrales registradas o habilitadas para el año {anio_sel_emp}.")
 
@@ -2222,15 +2261,8 @@ else:
 
                 with tab_g_man:
                     st.markdown("#### Lista y Estado Activo de Manuales / Exámenes")
-                    filtro_man_est = st.radio("Mostrar Manuales:", ["Solo Habilitados", "Solo Deshabilitados", "Todos"], index=0, horizontal=True, key="filtro_man_radio")
-                    
                     if supabase:
-                        query_man = supabase.table("examenes").select("*").order("apartado")
-                        if filtro_man_est == "Solo Habilitados":
-                            query_man = query_man.eq("activo", True)
-                        elif filtro_man_est == "Solo Deshabilitados":
-                            query_man = query_man.eq("activo", False)
-                        res_man_gest = query_man.execute()
+                        res_man_gest = supabase.table("examenes").select("*").order("apartado").execute()
                         man_list = res_man_gest.data if res_man_gest else []
                     else:
                         man_list = []
@@ -2247,74 +2279,22 @@ else:
                                     try:
                                         if supabase:
                                             supabase.table("examenes").update({"activo": bool(chk_m_act)}).eq("id", man["id"]).execute()
-                                        st.success("Estado actualizado.")
+                                        st.success("Estado del manual actualizado.")
                                         st.rerun()
-                                    except Exception as err_m:
-                                        st.error(f"Error: {err_m}")
+                                    except Exception as err_m_st:
+                                        st.error(f"Error: {err_m_st}")
 
                 with tab_g_global:
-                    st.markdown("#### Parámetros Globales del Sistema y Prompts Editables")
-                    
-                    with st.form("form_param_globales"):
-                        st.subheader("⏱️ Tiempos y Cantidad de Preguntas por Tipo de Examen")
-                        tiempo_seg_in = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA, step=5)
-                        num_preg_global_in = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=50, value=NUM_PREG_GLOBAL, step=1)
-                        num_preg_manual_in = st.number_input("Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=NUM_PREG_MANUAL, step=1)
-
-                        st.subheader("💬 Prompts Generales del Sistema")
-                        prompt_def_in = st.text_area("Prompt por defecto para Generación General de Preguntas:", value=PROMPT_DEFECTO, height=150)
-                        prompt_ex_in = st.text_area("Prompt por defecto para Generación de Exámenes:", value=PROMPT_DEFECTO_EXAMEN, height=150)
+                    st.markdown("#### Configuración de Tiempos y Preguntas Globales")
+                    with st.form("form_cfg_global"):
+                        t_preg_in = st.number_input("Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=TIEMPO_LIMITE_PREGUNTA)
+                        num_g_in = st.number_input("Número de preguntas en Examen Global:", min_value=5, max_value=100, value=NUM_PREG_GLOBAL)
+                        num_m_in = st.number_input("Número de preguntas por Manual:", min_value=5, max_value=50, value=NUM_PREG_MANUAL)
 
                         if st.form_submit_button("💾 Guardar Parámetros Globales"):
-                            guardar_tiempo_pregunta_config(tiempo_seg_in)
-                            guardar_num_preguntas_config("global", num_preg_global_in)
-                            guardar_num_preguntas_config("manual", num_preg_manual_in)
-                            guardar_prompt_config("prompt_defecto", prompt_def_in)
-                            guardar_prompt_config("prompt_examen", prompt_ex_in)
-                            st.success("✅ Parámetros globales guardados correctamente.")
+                            guardar_tiempo_pregunta_config(t_preg_in)
+                            guardar_num_preguntas_config("global", num_g_in)
+                            guardar_num_preguntas_config("manual", num_m_in)
+                            st.success("Parámetros actualizados correctamente.")
+                            time.sleep(1)
                             st.rerun()
-
-        # VISTA USUARIO: MIS RESULTADOS Y RENDIMIENTO
-        if not st.session_state.es_croma:
-            with tab_mis_resultados:
-                st.subheader("📌 Mis Calificaciones e Historial Completo")
-                
-                res_mis_intentos = supabase.table("intentos_examen").select("*")\
-                    .eq("empleado_id", st.session_state.user_id)\
-                    .eq("activo", True)\
-                    .order("fecha_inicio", desc=True).execute() if supabase else None
-                mis_intentos = res_mis_intentos.data if res_mis_intentos else []
-                
-                dias_restantes = obtener_dias_restantes_mes()
-                st.info(f"📅 **Habilitación de Examen:** Quedan **{dias_restantes} días** para finalizar el mes actual.")
-
-                if mis_intentos:
-                    for it in mis_intentos:
-                        fecha_str = it.get("fecha_inicio", "")[:10] if it.get("fecha_inicio") else "N/A"
-                        porc = it.get("porcentaje_obtenido", 0)
-                        est_txt = obtener_estado_evaluacion(porc, it.get("sobrepasado_tiempo", False))
-
-                        with st.expander(f"📌 {it['apartado']} - Fecha: {fecha_str} | Nota: {it.get('nota')}/10 ({porc}%) | {est_txt}"):
-                            st.write(f"**Duración:** {it.get('tiempo_total_segundos', 0)} segundos")
-                            pdf_b = generar_pdf_resultado(it)
-                            if pdf_b:
-                                st.download_button("📄 Descargar Certificado / Informe PDF", pdf_b, file_name=f"mi_resultado_{it['id']}.pdf", mime="application/pdf", key=f"pdf_usr_{it['id']}")
-                else:
-                    st.info("Aún no has realizado ningún examen registrado.")
-
-            if tab_mi_analisis:
-                with tab_mi_analisis:
-                    st.subheader("📈 Mi Rendimiento General e Informes IA")
-                    
-                    if mis_intentos:
-                        df_m = pd.DataFrame(mis_intentos)
-                        col_m1, col_m2 = st.columns(2)
-                        with col_m1:
-                            st.metric("Total de Exámenes Completados", len(df_m))
-                        with col_m2:
-                            media_m = round(df_m["nota"].mean(), 2) if "nota" in df_m.columns else 0.0
-                            st.metric("Mi Nota Media Global", f"{media_m} / 10")
-
-                        st.line_chart(df_m.set_index("fecha_inicio")["nota"])
-                    else:
-                        st.info("Realiza exámenes para visualizar tu evolución académica.")
