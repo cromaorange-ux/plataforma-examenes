@@ -156,75 +156,84 @@ if rol == "Administrador":
     )
 
     if uploaded_file:
-      datos_parsed = parsear_excel_evaluacion(uploaded_file)
-      st.success(
-          "Archivo procesado correctamente. Inspeccionando pestañas Q1-Q4..."
-      )
-
-      for q_name, data in datos_parsed.items():
-        st.markdown(
-            f"### Pestaña {q_name} - {data['nombre_empleado']} ({data['anio']})"
+      try:
+        datos_parsed = parsear_excel_evaluacion(uploaded_file)
+        st.success(
+            "Archivo procesado correctamente. Inspeccionando pestañas Q1-Q4..."
         )
 
-        # Verificar si el empleado existe en Supabase
-        emp_resp = (
-            supabase.table("empleados")
-            .select("id")
-            .eq("nombre", data["nombre_empleado"])
-            .execute()
-        )
-        if not emp_resp.data:
-          st.error(
-              f"El empleado '{data['nombre_empleado']}' no existe en la base"
-              " de datos de empleados."
+        for q_name, data in datos_parsed.items():
+          st.markdown(
+              f"### Pestaña {q_name} - {data['nombre_empleado']} ({data['anio']})"
           )
-          continue
 
-        emp_id = emp_resp.data[0]["id"]
-
-        if st.button(
-            f"Guardar/Actualizar {q_name} en Supabase", key=f"btn_save_{q_name}"
-        ):
-          # Upsert evaluación trimestral
-          res_eval = (
-              supabase.table("evaluaciones_trimestrales")
-              .upsert(
-                  {
-                      "empleado_id": emp_id,
-                      "nombre_empleado": data["nombre_empleado"],
-                      "anio": data["anio"],
-                      "trimestre": q_name,
-                      "puntuacion_total": data["puntuacion_total_excel"],
-                      "observaciones": data["observaciones_generales"],
-                      "datos_completos_json": data["detalles"],
-                  },
-                  on_conflict="empleado_id, anio, trimestre",
-              )
+          emp_resp = (
+              supabase.table("empleados")
+              .select("id")
+              .eq("nombre", data["nombre_empleado"])
               .execute()
           )
+          if not emp_resp.data:
+            st.error(
+                f"El empleado '{data['nombre_empleado']}' no existe en la base"
+                " de datos."
+            )
+            continue
 
-          eval_id_created = res_eval.data[0]["id"]
+          emp_id = emp_resp.data[0]["id"]
 
-          # Limpiar y reinsertar detalles de subapartados
-          supabase.table("evaluacion_detalles").delete().eq(
-              "evaluacion_id", eval_id_created
-          ).execute()
-          for d in data["detalles"]:
-            supabase.table("evaluacion_detalles").insert({
-                "evaluacion_id": eval_id_created,
-                "empleado_id": emp_id,
-                "nombre_empleado": data["nombre_empleado"],
-                "anio": data["anio"],
-                "trimestre": q_name,
-                "apartado": d["apartado"],
-                "subapartado": d["subapartado"],
-                "puntuacion": d["puntuacion"],
-                "observaciones": d["comentario"],
-            }).execute()
-          st.success(
-              f"Pestaña {q_name} guardada correctamente para"
-              f" {data['nombre_empleado']}."
-          )
+          if st.button(
+              f"Guardar/Actualizar {q_name} en Supabase", key=f"btn_save_{q_name}"
+          ):
+            try:
+              res_eval = (
+                  supabase.table("evaluaciones_trimestrales")
+                  .upsert(
+                      {
+                          "empleado_id": emp_id,
+                          "nombre_empleado": data["nombre_empleado"],
+                          "anio": data["anio"],
+                          "trimestre": q_name,
+                          "puntuacion_total": float(
+                              data["puntuacion_total_excel"]
+                          )
+                          if data["puntuacion_total_excel"] is not None
+                          else 0.0,
+                          "observaciones": data["observaciones_generales"],
+                          "datos_completos_json": json.dumps(data["detalles"]),
+                      },
+                      on_conflict="empleado_id, anio, trimestre",
+                  )
+                  .execute()
+              )
+
+              eval_id_created = res_eval.data[0]["id"]
+
+              supabase.table("evaluacion_detalles").delete().eq(
+                  "evaluacion_id", eval_id_created
+              ).execute()
+              for d in data["detalles"]:
+                supabase.table("evaluacion_detalles").insert({
+                    "evaluacion_id": eval_id_created,
+                    "empleado_id": emp_id,
+                    "nombre_empleado": data["nombre_empleado"],
+                    "anio": data["anio"],
+                    "trimestre": q_name,
+                    "apartado": d["apartado"],
+                    "subapartado": d["subapartado"],
+                    "puntuacion": float(d["puntuacion"])
+                    if d["puntuacion"] is not None
+                    else 0.0,
+                    "observaciones": d["comentario"],
+                }).execute()
+              st.success(
+                  f"Pestaña {q_name} guardada correctamente para"
+                  f" {data['nombre_empleado']}."
+              )
+            except Exception as err_db:
+              st.error(f"Error al guardar en Supabase: {err_db}")
+      except Exception as err_parse:
+        st.error(f"Error al leer el archivo Excel: {err_parse}")
 
   # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO ---
   elif menu_admin == "2. Edición y Visibilidad por Empleado":
@@ -245,11 +254,9 @@ if rol == "Administrador":
           "✏️ Editar Valores y Observaciones",
       ])
 
-      # --- TAB 1: VISIBILIDAD DE ESTE EMPLEADO ---
       with tab_vis:
         st.markdown(f"#### Visibilidad para **{sel_emp}** ({sel_anio})")
 
-        # Visibilidad Qs
         st.markdown("**1. Trimestres (Q) Habilitados:**")
         qs_act = vis_emp.get(
             "qs_habilitados", {"Q1": True, "Q2": True, "Q3": True, "Q4": True}
@@ -260,7 +267,6 @@ if rol == "Administrador":
         q3 = col3.checkbox("Habilitar Q3", value=qs_act.get("Q3", True))
         q4 = col4.checkbox("Habilitar Q4", value=qs_act.get("Q4", True))
 
-        # Visibilidad Apartados
         st.markdown("**2. Apartados Habilitados:**")
         apts_act = vis_emp.get("apartados_habilitados", {})
         nuevos_apts = {}
@@ -278,7 +284,6 @@ if rol == "Administrador":
               key=f"apt_vis_{apt}",
           )
 
-        # Visibilidad Subapartados
         st.markdown("**3. Subapartados a OCULTAR:**")
         sub_des_act = vis_emp.get("subapartados_deshabilitados", [])
         detalles_emp = (
@@ -318,7 +323,6 @@ if rol == "Administrador":
           )
           st.success(f"Visibilidad de {sel_emp} actualizada correctamente.")
 
-      # --- TAB 2: EDITAR VALORES Y OBSERVACIONES DE ESTE EMPLEADO ---
       with tab_edit:
         st.markdown(
             f"#### Editar Calificaciones y Observaciones de **{sel_emp}**"
@@ -339,14 +343,11 @@ if rol == "Administrador":
 
         if eval_q:
           eval_id = eval_q[0]["id"]
-
-          # Observaciones Generales del Q
           obs_gen = st.text_area(
               "Observaciones Generales del Q:",
               value=eval_q[0].get("observaciones", ""),
           )
 
-          # Cargar Subapartados
           detalles_q = (
               supabase.table("evaluacion_detalles")
               .select("*")
@@ -382,12 +383,10 @@ if rol == "Administrador":
               })
 
             if st.button("Guardar Cambios en Subapartados y Q", type="primary"):
-              # Actualizar Observaciones del Q
               supabase.table("evaluaciones_trimestrales").update(
                   {"observaciones": obs_gen}
               ).eq("id", eval_id).execute()
 
-              # Actualizar detalles de subapartados
               for c in cambios_sub:
                 supabase.table("evaluacion_detalles").update({
                     "puntuacion": c["puntuacion"],
@@ -525,7 +524,6 @@ elif rol == "Empleado":
     )
     sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
 
-    # Cargar configuración de visibilidad ESPECÍFICA de este empleado
     vis_emp = obtener_visibilidad_empleado(emp_id, sel_anio)
     qs_habilitados = vis_emp.get("qs_habilitados", {})
     apts_habilitados = vis_emp.get("apartados_habilitados", {})
@@ -541,12 +539,13 @@ elif rol == "Empleado":
     )
 
     if q_evals:
-      puntuaciones_q = []
+      puntuaciones_obtenidas = []
+      puntuaciones_maximas = []
+      notas_sobre_10 = []
 
       for q in sorted(q_evals, key=lambda x: x["trimestre"]):
         q_nombre = q["trimestre"]
 
-        # Filtrar Q si está deshabilitado para ESTE empleado
         if not qs_habilitados.get(q_nombre, True):
           continue
 
@@ -561,42 +560,108 @@ elif rol == "Empleado":
         if detalles:
           df_det = pd.DataFrame(detalles)
 
-          # Filtrar apartados y subapartados específicos para ESTE empleado
+          # Filtrar apartados y subapartados habilitados para este empleado
           df_det = df_det[
               df_det["apartado"].map(lambda x: apts_habilitados.get(x, True))
           ]
           df_det = df_det[~df_det["subapartado"].isin(sub_ocultos)]
 
-          ptos_q = df_det["puntuacion"].sum() if not df_det.empty else 0
-          puntuaciones_q.append(ptos_q)
+          if not df_det.empty:
+            ptos_obtenidos = float(df_det["puntuacion"].sum())
 
-          with st.expander(
-              f"📊 {q_nombre} - Puntuación Total: {round(ptos_q, 2)} pts",
-              expanded=True,
-          ):
-            if q.get("observaciones"):
-              st.info(
-                  f"**Observaciones Generales del Q:** {q['observaciones']}"
+            # Máximo posible dinámico basado en subapartados únicos presentes en la base de datos
+            todos_sub_q = (
+                supabase.table("evaluacion_detalles")
+                .select("subapartado, puntuacion")
+                .eq("evaluacion_id", q["id"])
+                .execute()
+                .data
+            )
+            df_sub_all = pd.DataFrame(todos_sub_q)
+            df_sub_all = df_sub_all[
+                ~df_sub_all["subapartado"].isin(sub_ocultos)
+            ]
+
+            # Si no hay valor de max cargado, se calcula sobre el total de subapartados habilitados (ejemplo: nota máx de cada uno)
+            ptos_max_q = float(
+                len(df_det) * 5.0
+            )  # Asume puntuación escala habitual si no es dinámica por fila
+
+            # Nota sobre 10
+            nota_10 = (
+                (ptos_obtenidos / ptos_max_q) * 10 if ptos_max_q > 0 else 0
+            )
+            ptos_aprobar = ptos_max_q / 2.0  # Equivalente a 5.0 en escala 10
+
+            puntuaciones_obtenidas.append(ptos_obtenidos)
+            puntuaciones_maximas.append(ptos_max_q)
+            notas_sobre_10.append(nota_10)
+
+            estado_q = "🟢 APROBADO" if nota_10 >= 5.0 else "🔴 SUSPENSO"
+
+            with st.expander(f"📊 {q_nombre} - Estado: {estado_q}", expanded=True):
+              c1, c2, c3, c4 = st.columns(4)
+              c1.metric("Puntos Obtenidos", f"{round(ptos_obtenidos, 2)} pts")
+              c2.metric("Puntos Máximos Habilitados", f"{round(ptos_max_q, 2)} pts")
+              c3.metric(
+                  "Mínimo para Aprobar (50%)", f"{round(ptos_aprobar, 2)} pts"
+              )
+              c4.metric(
+                  "Nota (Escala 0 - 10)",
+                  f"{round(nota_10, 2)} / 10",
+                  delta="Aprobado" if nota_10 >= 5.0 else "- Suspenso",
               )
 
-            st.markdown("**Desglose de Subapartados:**")
-            for apartado, group in df_det.groupby("apartado"):
-              st.markdown(f"#### 📌 {apartado}")
-              for _, row in group.iterrows():
-                col1, col2 = st.columns([3, 1])
-                col1.write(f"• **{row['subapartado']}**")
-                if row["observaciones"]:
-                  col1.caption(f"Obs: {row['observaciones']}")
-                col2.metric("Puntuación", f"{row['puntuacion']} pts")
-              st.divider()
+              if q.get("observaciones"):
+                st.info(
+                    f"**Observaciones Generales del Q:** {q['observaciones']}"
+                )
 
-      # Promedio Global únicamente con los Qs habilitados de este empleado
-      if puntuaciones_q:
-        media_global = sum(puntuaciones_q) / len(puntuaciones_q)
-        st.markdown("---")
-        st.metric(
-            "🏆 Media Global Anual (Q Habilitados)", round(media_global, 2)
+              st.markdown("**Desglose por Apartados:**")
+              for apartado, group in df_det.groupby("apartado"):
+                st.markdown(f"#### 📌 {apartado}")
+                for _, row in group.iterrows():
+                  col1, col2 = st.columns([3, 1])
+                  col1.write(f"• **{row['subapartado']}**")
+                  if row["observaciones"]:
+                    col1.caption(f"Obs: {row['observaciones']}")
+                  col2.metric("Puntuación", f"{row['puntuacion']} pts")
+                st.divider()
+
+      # --- RESUMEN GLOBAL ANUAL EN ESCALA 10 ---
+      if puntuaciones_obtenidas:
+        total_puntos_obt = sum(puntuaciones_obtenidas)
+        total_puntos_max = sum(puntuaciones_maximas)
+        nota_media_anual = (
+            sum(notas_sobre_10) / len(notas_sobre_10) if notas_sobre_10 else 0
         )
+        min_puntos_aprobar = total_puntos_max / 2.0
+
+        st.markdown("---")
+        st.subheader("🏆 Resumen Anual Global (Trimestres Habilitados)")
+
+        col_g1, col_g2, col_g3, col_g4 = st.columns(4)
+        col_g1.metric(
+            "Puntos Totales Obtenidos", f"{round(total_puntos_obt, 2)} pts"
+        )
+        col_g2.metric(
+            "Puntuación Máxima Posible", f"{round(total_puntos_max, 2)} pts"
+        )
+        col_g3.metric(
+            "Mínimo Global para Aprobar", f"{round(min_puntos_aprobar, 2)} pts"
+        )
+        col_g4.metric(
+            "Nota Media Anual (Escala 0 - 10)", f"{round(nota_media_anual, 2)} / 10"
+        )
+
+        if nota_media_anual >= 5.0:
+          st.success(
+              f"🎉 **ESTADO ANUAL: APROBADO** (Nota: {round(nota_media_anual, 2)}/10)"
+          )
+        else:
+          st.error(
+              f"⚠️ **ESTADO ANUAL: SUSPENSO** (Nota: {round(nota_media_anual, 2)}/10 - Se requiere mínimo 5.0)"
+          )
       else:
         st.warning("No hay trimestres habilitados para mostrar.")
     else:
