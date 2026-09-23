@@ -2291,19 +2291,40 @@ else:
                         st.error(f"Error al cargar manuales: {err_g_man}")
 
                 with tab_g_cfg:
-                    st.markdown("### ⏱️ Ajustes Temporales y de Configuración Global")
-                    tiempo_preg_actual = obtener_tiempo_pregunta_config()
+                    st.markdown("#### Ajuste de Configuración Global")
                     
-                    nuevo_tiempo_input = st.number_input(
-                        "Tiempo límite por pregunta (en segundos):", 
-                        min_value=10, 
-                        max_value=300, 
-                        value=tiempo_preg_actual,
-                        step=5
-                    )
-                    
-                    if st.button("💾 Guardar Nuevo Tiempo por Pregunta"):
-                        if guardar_tiempo_pregunta_config(nuevo_tiempo_input):
-                            st.success("✅ Configuración guardada correctamente.")
-                            time.sleep(1)
-                            st.rerun()
+                    with st.form("form_config_global_tiempos"):
+                        st.write("##### Tiempos y Cantidad de Preguntas")
+                        tiempo_p_input = st.number_input(
+                            "⏱️ Tiempo máximo por pregunta (en segundos):", 
+                            min_value=10, 
+                            max_value=300, 
+                            value=int(TIEMPO_LIMITE_PREGUNTA), 
+                            step=5
+                        )
+                        num_p_glob_input = st.number_input(
+                            "🌐 Preguntas en Examen Global:", 
+                            min_value=5, 
+                            max_value=100, 
+                            value=int(NUM_PREG_GLOBAL), 
+                            step=1
+                        )
+                        num_p_man_input = st.number_input(
+                            "📘 Preguntas en Examen por Manual:", 
+                            min_value=5, 
+                            max_value=100, 
+                            value=int(NUM_PREG_MANUAL), 
+                            step=1
+                        )
+
+                        if st.form_submit_button("💾 Guardar Configuración Global"):
+                            e1 = guardar_tiempo_pregunta_config(tiempo_p_input)
+                            e2 = guardar_num_preguntas_config("global", num_p_glob_input)
+                            e3 = guardar_num_preguntas_config("manual", num_p_man_input)
+                            
+                            if e1 and e2 and e3:
+                                st.success("✅ Configuración global actualizada correctamente en SQL.")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error("❌ Ocurrió un error al guardar algunos parámetros.")
