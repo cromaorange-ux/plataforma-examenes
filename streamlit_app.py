@@ -62,12 +62,56 @@ if rol == "Administrador":
         "5. Generar e Informes IA"
     ])
 
-    # --- 1. CARGAR EXCEL ---
+# --- 1. CARGAR EXCEL ---
     if menu_admin == "1. Cargar Excel Evaluaciones":
         st.subheader("Subir Evaluación Trimestral (.xlsx)")
         uploaded_file = st.file_uploader("Cargar archivo de evaluación", type=["xlsx"])
+        
         if uploaded_file:
-            st.info("Utiliza el lector de archivos Excel para actualizar las evaluaciones.")
+            datos_parsed = parsear_excel_evaluacion(uploaded_file)
+            st.success("Archivo procesado correctamente. Inspeccionando pestañas Q1-Q4...")
+            
+            for q_name, data in datos_parsed.items():
+                st.markdown(f"### Pestaña {q_name} - {data['nombre_empleado']} ({data['anio']})")
+                
+                # Verificar si el empleado existe en Supabase
+                emp_resp = supabase.table("empleados").select("id").eq("nombre", data['nombre_empleado']).execute()
+                if not emp_resp.data:
+                    st.error(f"El empleado '{data['nombre_empleado']}' no existe en la base de datos de empleados.")
+                    continue
+                
+                emp_id = emp_resp.data[0]["id"]
+                
+                if st.button(f"Guardar/Actualizar {q_name} en Supabase", key=f"btn_save_{q_name}"):
+                    # Upsert evaluación trimestral
+                    res_eval = supabase.table("evaluaciones_trimestrales").upsert({
+                        "empleado_id": emp_id,
+                        "nombre_empleado": data["nombre_empleado"],
+                        "anio": data["anio"],
+                        "trimestre": q_name,
+                        "puntuacion_total": data["puntuacion_total_excel"],
+                        "observaciones": data["observaciones_generales"],
+                        "datos_completos_json": data["detalles"]
+                    }, on_conflict="empleado_id, anio, trimestre").execute()
+                    
+                    eval_id_created = res_eval.data[0]["id"]
+                    
+                    # Limpiar y reinsertar detalles de subapartados
+                    supabase.table("evaluacion_detalles").delete().eq("evaluacion_id", eval_id_created).execute()
+                    for d in data["detalles"]:
+                        supabase.table("evaluacion_detalles").insert({
+                            "evaluacion_id": eval_id_created,
+                            "empleado_id": emp_id,
+                            "nombre_empleado": data["nombre_empleado"],
+                            "anio": data["anio"],
+                            "trimestre": q_name,
+                            "apartado": d["apartado"],
+                            "subapartado": d["subapartado"],
+                            "puntuacion": d["puntuacion"],
+                            "observaciones": d["comentario"]
+                        }).execute()
+                    st.success(f"Pestaña {q_name} guardada correctamente para {data['nombre_empleado']}.")
+                    
 
     # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO ---
     elif menu_admin == "2. Edición y Visibilidad por Empleado":
