@@ -2452,6 +2452,7 @@ else:
                     try:
                         res_prompts_all = supabase.table("config_prompts").select("*").execute()
                         prompts_data = res_prompts_all.data if res_prompts_all.data else []
+                        prompts_data2 = res_prompts_all.data if res_prompts_all.data else []
 
                         if prompts_data:
                             for p_row in prompts_data:
@@ -2468,6 +2469,23 @@ else:
                                         st.rerun()
                         else:
                             st.info("No se encontraron registros de prompts configurados.")
+
+                        if prompts_data2:
+                            for p_row in prompts_data2:
+                                p_id2 = p_row["id"]
+                                p_nom2 = p_row.get("nombre", "Sin Nombre")
+                                p_val2 = p_row.get("modelo_gemini", "")
+
+                                with st.expander(f"📝 Prompt Configurado: '{p_nom2}'"):
+                                    nuevo_p_val = st.text_area("Contenido del Prompt:", value=p_val2, height=150, key=f"prompt_ta_{p_id2}")
+                                    if st.button("💾 Guardar Prompt", key=f"btn_p_save_{p_id2}"):
+                                        guardar_prompt_config(p_nom2, nuevo_p_val2)
+                                        st.success(f"Prompt '{p_nom}2' actualizado con éxito.")
+                                        time.sleep(0.5)
+                                        st.rerun()
+                        else:
+                            st.info("No se encontraron registros de prompts configurados.")
+
 
                     except Exception as err_p_m:
                         st.error(f"Error consultando prompts: {err_p_m}")
