@@ -2464,8 +2464,9 @@ else:
 
                                 with st.expander(f"📝 Prompt Configurado: '{p_nom}'"):
                                     nuevo_p_val = st.text_area("Contenido del Prompt:", value=p_val, height=150, key=f"prompt_ta_{p_id}")
+                                    nuevo_p_val2 = st.text_area("Contenido del Prompt:", value=p_val2, height=150, key=f"prompt_ta_{p_id}")
                                     if st.button("💾 Guardar Prompt", key=f"btn_p_save_{p_id}"):
-                                        guardar_prompt_config(p_nom, nuevo_p_val)
+                                        guardar_prompt_config(p_nom, nuevo_p_val, nuevo_p_val2)
                                         st.success(f"Prompt '{p_nom}' actualizado con éxito.")
                                         time.sleep(0.5)
                                         st.rerun()
