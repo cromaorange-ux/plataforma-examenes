@@ -45,7 +45,7 @@ st.markdown("""
         --secondary-color: #2B6CB0;
         --background-color: #000000;
         --card-bg: #FFFFFF;
-        --text-color: #2D3748;
+        --text-color: #FFFFFF;
         --border-radius: 12px;
     }
 
@@ -55,11 +55,12 @@ st.markdown("""
         background-color: var(--background-color);
     }
 
+    /* ESTILOS DE RADIO BUTTON PARA OPCIONES EN BLANCO */
     .stRadio label {
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #2D3748 !important;
+        color: #FFFFFF !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -67,37 +68,37 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label {
-        background-color: #FFFFFF !important;
+        background-color: #1A202C !important;
         padding: 14px 18px !important;
         border-radius: 8px !important;
-        border: 2px solid #E2E8F0 !important;
+        border: 2px solid #4A5568 !important;
         transition: all 0.2s ease-in-out;
         width: 100%;
         margin-bottom: 8px !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #2D3748 !important;
+        color: #FFFFFF !important;
         font-weight: 600 !important;
     }
 
     .stRadio div[role='radiogroup'] > label:hover {
-        background-color: #EDF2F7 !important;
-        border-color: #2B6CB0 !important;
+        background-color: #2D3748 !important;
+        border-color: #3182CE !important;
     }
 
     .pregunta-titulo {
         font-size: 22px !important;
         font-weight: 700 !important;
-        color: #1A365D;
+        color: #FFFFFF;
         margin-bottom: 20px;
         line-height: 1.3;
         padding: 18px;
-        background-color: #FFFFFF;
-        border-left: 6px solid #2B6CB0;
+        background-color: #1A202C;
+        border-left: 6px solid #3182CE;
         border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
 
     div[data-baseweb="select"] span {
@@ -324,6 +325,8 @@ if "tiempo_inicio_revision" not in st.session_state:
     st.session_state.tiempo_inicio_revision = None
 if "examen_id" not in st.session_state:
     st.session_state.examen_id = None
+if "intento_id_actual" not in st.session_state:
+    st.session_state.intento_id_actual = None
 if "apartado_actual" not in st.session_state:
     st.session_state.apartado_actual = ""
 if "sobrepaso_tiempo_global" not in st.session_state:
@@ -347,11 +350,9 @@ UMBRAL_APROBADO_PORCENTAJE = 70.0
 NUM_PREG_GLOBAL = obtener_num_preguntas_config("global")
 NUM_PREG_MANUAL = obtener_num_preguntas_config("manual")
 
-
-
 PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test por cada temática/sección basadas en el documento. 
 
-Requisitos estrictos para el JSON:
+Requisitos strictly para el JSON:
 1. "es_principal": Marca como true ÚNICAMENTE en las 5 preguntas más fundamentales de todo el documento. El resto debe ser false.
 2. "dificultad": Asigna equitativamente "facil", "media" o "dificil".
 3. "pista": Incluye una pista breve (máx 2 frases) sin revelar la opción correcta.
@@ -649,16 +650,20 @@ def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
     return buffer.getvalue()
 
 # ---------------------------------------------------------
-# DIÁLOGO DE AUTENTICACIÓN
+# DIÁLOGO DE AUTENTICACIÓN Y CONTRASEÑA POR DEFECTO
 # ---------------------------------------------------------
 @st.dialog("🔒 Confirmar Contraseña")
 def login_modal():
     usuario = st.session_state.usuario_modal_sel
     st.write(f"Accediendo como: **{usuario['nombre']}**")
     
+    usar_pwd_defecto = st.checkbox("Usar contraseña por defecto ('1234' / Hash asignado)")
+    
     with st.form("form_login_modal"):
+        valor_inicial = usuario.get("password_hash", "1234") if usar_pwd_defecto else ""
         pwd_input = st.text_input(
             "Introduce tu contraseña:", 
+            value=valor_inicial,
             type="password", 
             key="modal_pwd_input",
             autocomplete="current-password"
@@ -666,7 +671,7 @@ def login_modal():
         submitted = st.form_submit_button("Ingresar")
         
         if submitted:
-            if usuario["password_hash"] == pwd_input:
+            if usuario["password_hash"] == pwd_input or (usar_pwd_defecto and pwd_input == usuario.get("password_hash")):
                 st.session_state.user_id = usuario["id"]
                 st.session_state.user_nombre = usuario["nombre"]
                 st.session_state.es_croma = usuario.get("es_admin_croma", False)
@@ -763,6 +768,49 @@ else:
         
     st.markdown("---")
 
+    def registrar_inicio_examen_bd(apartado_nombre, examen_id_val=None):
+        """Registra el inicio formal del examen en Supabase al hacer clic en comenzar."""
+        try:
+            tiempo_ini_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            id_examen_validado = examen_id_val if isinstance(examen_id_val, int) and examen_id_val > 0 else None
+            
+            registro_inicio = {
+                "empleado_id": st.session_state.user_id,
+                "nombre_empleado": st.session_state.user_nombre,
+                "examen_id": id_examen_validado,
+                "apartado": apartado_nombre,
+                "nota": 0.0,
+                "porcentaje_obtenido": 0.0,
+                "respuestas_usuario": [],
+                "fecha_inicio": tiempo_ini_examen,
+                "fecha_fin": None,
+                "tiempo_total_segundos": 0,
+                "tiempo_limite": len(st.session_state.preguntas_seleccionadas) * TIEMPO_LIMITE_PREGUNTA,
+                "sobrepasado_tiempo": False,
+                "activo": True
+            }
+            res = supabase.table("intentos_examen").insert(registro_inicio).execute()
+            if res.data and len(res.data) > 0:
+                st.session_state.intento_id_actual = res.data[0]["id"]
+        except Exception as e:
+            st.error(f"Error al registrar inicio de examen en BD: {e}")
+
+    def cancelar_examen_bd():
+        """Sanciona el examen como realizado con nota 0 si se cancela/abandona."""
+        if st.session_state.intento_id_actual:
+            tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            duracion_total = int(time.time() - (st.session_state.tiempo_inicio_examen or time.time()))
+            try:
+                supabase.table("intentos_examen").update({
+                    "nota": 0.0,
+                    "porcentaje_obtenido": 0.0,
+                    "fecha_fin": tiempo_fin_examen,
+                    "tiempo_total_segundos": duracion_total,
+                    "respuestas_usuario": st.session_state.respuestas_detalle
+                }).eq("id", st.session_state.intento_id_actual).execute()
+            except Exception as e:
+                st.error(f"Error al registrar cancelación de examen: {e}")
+
     def guardar_intento_en_bd():
         if st.session_state.examen_finalizado:
             return True
@@ -774,28 +822,33 @@ else:
         duracion_total = int(time.time() - (st.session_state.tiempo_inicio_examen or time.time()))
         tiempo_limite_total = total_p * TIEMPO_LIMITE_PREGUNTA
         tiempo_fin_examen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        tiempo_ini_examen = datetime.datetime.fromtimestamp(st.session_state.tiempo_inicio_examen, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if st.session_state.tiempo_inicio_examen else tiempo_fin_examen
         
         try:
             id_examen_validado = st.session_state.examen_id if isinstance(st.session_state.examen_id, int) and st.session_state.examen_id > 0 else None
 
-            registro_intento = {
-                "empleado_id": st.session_state.user_id,
-                "nombre_empleado": st.session_state.user_nombre,
-                "examen_id": id_examen_validado,
-                "apartado": st.session_state.apartado_actual,
+            datos_actualizacion = {
                 "nota": nota_final,
                 "porcentaje_obtenido": porcentaje,
                 "respuestas_usuario": st.session_state.respuestas_detalle,
-                "fecha_inicio": tiempo_ini_examen,
                 "fecha_fin": tiempo_fin_examen,
                 "tiempo_total_segundos": duracion_total,
-                "tiempo_limite": tiempo_limite_total,
-                "sobrepasado_tiempo": st.session_state.sobrepaso_tiempo_global,
-                "activo": True
+                "sobrepasado_tiempo": st.session_state.sobrepaso_tiempo_global
             }
-            
-            supabase.table("intentos_examen").insert(registro_intento).execute()
+
+            if st.session_state.intento_id_actual:
+                supabase.table("intentos_examen").update(datos_actualizacion).eq("id", st.session_state.intento_id_actual).execute()
+            else:
+                tiempo_ini_examen = datetime.datetime.fromtimestamp(st.session_state.tiempo_inicio_examen, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if st.session_state.tiempo_inicio_examen else tiempo_fin_examen
+                datos_actualizacion.update({
+                    "empleado_id": st.session_state.user_id,
+                    "nombre_empleado": st.session_state.user_nombre,
+                    "examen_id": id_examen_validado,
+                    "apartado": st.session_state.apartado_actual,
+                    "fecha_inicio": tiempo_ini_examen,
+                    "tiempo_limite": tiempo_limite_total,
+                    "activo": True
+                })
+                supabase.table("intentos_examen").insert(datos_actualizacion).execute()
 
             try:
                 supabase.table("autorizaciones_examen").delete()\
@@ -853,8 +906,17 @@ else:
                 guardar_intento_en_bd()
                 st.rerun()
             else:
-                if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
-                    if guardar_intento_en_bd():
+                c_fin1, c_fin2 = st.columns(2)
+                with c_fin1:
+                    if st.button("✅ Confirmar y Entregar Examen Definitivamente", use_container_width=True):
+                        if guardar_intento_en_bd():
+                            st.rerun()
+                with c_fin2:
+                    if st.button("🚫 Cancelar / Abandonar Examen (Nota 0)", use_container_width=True):
+                        cancelar_examen_bd()
+                        st.session_state.examen_activo = False
+                        st.session_state.modo_revision = False
+                        st.session_state.examen_finalizado = True
                         st.rerun()
         else:
             total_p = len(st.session_state.preguntas_seleccionadas)
@@ -910,7 +972,9 @@ else:
             if deshabilitar_opciones:
                 st.session_state.tiempos_restantes_preguntas[idx] = 0
 
-            st.markdown(f"<div class='pregunta-titulo'>{p_actual['pregunta']}</div>", unsafe_allow_html=True)
+            # Garantizar que la pregunta siempre sea visible para exámen por manual o global
+            texto_pregunta = p_actual.get("pregunta", "Pregunta no disponible")
+            st.markdown(f"<div class='pregunta-titulo'>{texto_pregunta}</div>", unsafe_allow_html=True)
 
             resp_previa = next((r["opcion_elegida"] for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == idx), None)
             idx_previa = None
@@ -940,7 +1004,7 @@ else:
                     st.caption("🚫 Has agotado tus 3 comodines de ayuda.")
 
             st.write("")
-            col_b1, col_b2 = st.columns(2)
+            col_b1, col_b2, col_b3 = st.columns(3)
             
             def registrar_respuesta_pregunta(elec_val):
                 if elec_val is not None and elec_val != "":
@@ -984,6 +1048,15 @@ else:
                     registrar_respuesta_pregunta(eleccion)
                     st.session_state.modificando_desde_revision = False
                     st.session_state.modo_revision = True
+                    st.rerun()
+
+            with col_b3:
+                if st.button("🚫 Cancelar Examen (Nota 0)", key=f"btn_canc_{idx}", use_container_width=True):
+                    registrar_respuesta_pregunta(eleccion)
+                    cancelar_examen_bd()
+                    st.session_state.examen_activo = False
+                    st.session_state.modo_revision = False
+                    st.session_state.examen_finalizado = True
                     st.rerun()
 
             if tiempo_restante <= 0:
@@ -1144,6 +1217,10 @@ else:
                         st.session_state.pistas_activadas = set()
                         st.session_state.sobrepaso_tiempo_global = False
                         st.session_state.examen_finalizado = False
+                        
+                        # Registrar inicio en la base de datos
+                        registrar_inicio_examen_bd("GLOBAL COMPLETO", None)
+                        
                         st.session_state.examen_activo = True
                         st.rerun()
 
@@ -1217,6 +1294,10 @@ else:
                                 st.session_state.pistas_activadas = set()
                                 st.session_state.sobrepaso_tiempo_global = False
                                 st.session_state.examen_finalizado = False
+                                
+                                # Registrar inicio en la base de datos
+                                registrar_inicio_examen_bd(nombre_apt, ex_obj["id"])
+
                                 st.session_state.examen_activo = True
                                 st.rerun()
 
@@ -1750,9 +1831,7 @@ else:
 
                 st.markdown("---")
                 
-                # ---------------------------------------------------------
                 # INFORME DE EVALUACIÓN IA (SQL) - ADMINISTRADOR
-                # ---------------------------------------------------------
                 st.subheader("📄 Consulta de Informe de Análisis IA por Empleado (SQL)")
                 
                 try:
@@ -2085,7 +2164,7 @@ else:
                                     for emp_nom in list_emp:
                                         emp_id_val = map_empleados_dict.get(emp_nom)
                                         if emp_id_val:
-                                            # Insertar en la nueva tabla
+                                            # Insertar en la tabla correspondiente
                                             supabase.table("analisis_ia_empleados").insert({
                                                 "empleado_id": emp_id_val,
                                                 "nombre_empleado": emp_nom,
@@ -2101,9 +2180,7 @@ else:
                                 except Exception as err_save_sql:
                                     st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
 
-        # ---------------------------------------------------------
         # ADMIN CROMA - PESTAÑA: GESTIÓN DE INFORMES IA
-        # ---------------------------------------------------------
         if st.session_state.es_croma and tab_admin_informes_ia:
             with tab_admin_informes_ia:
                 st.subheader("🤖 Gestión e Informes Generados por IA")
@@ -2282,9 +2359,9 @@ else:
                                     num_p = len(man_item.get("preguntas_json", [])) if isinstance(man_item.get("preguntas_json"), list) else 0
                                     st.write(f"📘 **{man_item['apartado']}** | ID: {man_item['id']} | Preguntas: {num_p}")
                                 with col2:
-                                    estado_man = man_item.get("activo", True)
-                                    nuevo_est_m = st.checkbox("Activo", value=estado_man, key=f"chk_man_{man_item['id']}")
-                                    if nuevo_est_m != estado_man:
+                                    estado_actual_m = man_item.get("activo", True)
+                                    nuevo_est_m = st.checkbox("Activo", value=estado_actual_m, key=f"chk_man_{man_item['id']}")
+                                    if nuevo_est_m != estado_actual_m:
                                         supabase.table("examenes").update({"activo": nuevo_est_m}).eq("id", man_item["id"]).execute()
                                         st.success(f"Estado actualizado para {man_item['apartado']}")
                                         time.sleep(0.5)
@@ -2295,40 +2372,25 @@ else:
                         st.error(f"Error al cargar manuales: {err_g_man}")
 
                 with tab_g_cfg:
-                    st.markdown("#### Ajuste de Configuración Global")
+                    st.markdown("### ⚙️ Ajustes Globales de Evaluación")
                     
-                    with st.form("form_config_global_tiempos"):
-                        st.write("##### Tiempos y Cantidad de Preguntas")
-                        tiempo_p_input = st.number_input(
-                            "⏱️ Tiempo máximo por pregunta (en segundos):", 
-                            min_value=10, 
-                            max_value=300, 
-                            value=int(TIEMPO_LIMITE_PREGUNTA), 
-                            step=5
-                        )
-                        num_p_glob_input = st.number_input(
-                            "🌐 Preguntas en Examen Global:", 
-                            min_value=5, 
-                            max_value=100, 
-                            value=int(NUM_PREG_GLOBAL), 
-                            step=1
-                        )
-                        num_p_man_input = st.number_input(
-                            "📘 Preguntas en Examen por Manual:", 
-                            min_value=5, 
-                            max_value=100, 
-                            value=int(NUM_PREG_MANUAL), 
-                            step=1
-                        )
-
-                        if st.form_submit_button("💾 Guardar Configuración Global"):
-                            e1 = guardar_tiempo_pregunta_config(tiempo_p_input)
-                            e2 = guardar_num_preguntas_config("global", num_p_glob_input)
-                            e3 = guardar_num_preguntas_config("manual", num_p_man_input)
+                    seg_actual = obtener_tiempo_pregunta_config()
+                    num_g_actual = NUM_PREG_GLOBAL
+                    num_m_actual = NUM_PREG_MANUAL
+                    
+                    with st.form("form_cfg_tiempos_cantidades"):
+                        nuevos_seg = st.number_input("⏱️ Tiempo límite por pregunta (en segundos):", min_value=10, max_value=300, value=seg_actual)
+                        nuevas_preg_g = st.number_input("🌐 Preguntas en Examen Global:", min_value=1, max_value=100, value=num_g_actual)
+                        nuevas_preg_m = st.number_input("📘 Preguntas en Examen por Manual:", min_value=1, max_value=100, value=num_m_actual)
+                        
+                        btn_guardar_cfg = st.form_submit_button("Guardar Configuración General")
+                        
+                        if btn_guardar_cfg:
+                            o1 = guardar_tiempo_pregunta_config(nuevos_seg)
+                            o2 = guardar_num_preguntas_config("global", nuevas_preg_g)
+                            o3 = guardar_num_preguntas_config("manual", nuevas_preg_m)
                             
-                            if e1 and e2 and e3:
-                                st.success("✅ Configuración global actualizada correctamente en SQL.")
-                                time.sleep(0.5)
+                            if o1 and o2 and o3:
+                                st.success("✅ Configuración actualizada con éxito.")
+                                time.sleep(1)
                                 st.rerun()
-                            else:
-                                st.error("❌ Ocurrió un error al guardar algunos parámetros.")
