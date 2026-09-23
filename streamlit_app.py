@@ -63,6 +63,22 @@ def guardar_visibilidad_empleado(
   ).execute()
 
 
+def obtener_media_objetivo():
+  try:
+    res = (
+        supabase.table("config_prompts_eval")
+        .select("objetivo_media")
+        .limit(1)
+        .execute()
+        .data
+    )
+    if res and "objetivo_media" in res[0]:
+      return float(res[0]["objetivo_media"])
+    return 8.0
+  except Exception:
+    return 8.0
+
+
 # --- FUNCIÓN DE PARSEO EXCEL ---
 def parsear_excel_evaluacion(uploaded_file):
   wb = openpyxl.load_workbook(uploaded_file, data_only=True)
@@ -464,7 +480,7 @@ if rol == "Administrador":
 
     with st.form("form_media_obj"):
       nueva_media = st.number_input(
-          "Media Objetivo:",
+          "Media Objetivo (Base 10):",
           value=float(cfg_actual.get("objetivo_media", 8.0)),
           step=0.1,
       )
@@ -502,6 +518,9 @@ if rol == "Administrador":
 # --- ROL EMPLEADO ---
 elif rol == "Empleado":
   st.title("Portal del Empleado - Mis Evaluaciones")
+
+  # Obtener el valor objetivo de aprobación desde config_prompts_eval en SQL
+  media_objetivo_sql = obtener_media_objetivo()
 
   emps = supabase.table("empleados").select("id, nombre").execute().data
   emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
@@ -560,7 +579,6 @@ elif rol == "Empleado":
         if detalles:
           df_det = pd.DataFrame(detalles)
 
-          # Filtrar apartados y subapartados habilitados para este empleado
           df_det = df_det[
               df_det["apartado"].map(lambda x: apts_habilitados.get(x, True))
           ]
@@ -569,47 +587,39 @@ elif rol == "Empleado":
           if not df_det.empty:
             ptos_obtenidos = float(df_det["puntuacion"].sum())
 
-            # Máximo posible dinámico basado en subapartados únicos presentes en la base de datos
-            todos_sub_q = (
-                supabase.table("evaluacion_detalles")
-                .select("subapartado, puntuacion")
-                .eq("evaluacion_id", q["id"])
-                .execute()
-                .data
-            )
-            df_sub_all = pd.DataFrame(todos_sub_q)
-            df_sub_all = df_sub_all[
-                ~df_sub_all["subapartado"].isin(sub_ocultos)
-            ]
+            # Cálculo de los puntos máximos teóricos según las preguntas visibles
+            ptos_max_q = float(len(df_det) * 5.0)
 
-            # Si no hay valor de max cargado, se calcula sobre el total de subapartados habilitados (ejemplo: nota máx de cada uno)
-            ptos_max_q = float(
-                len(df_det) * 5.0
-            )  # Asume puntuación escala habitual si no es dinámica por fila
-
-            # Nota sobre 10
+            # Convertir nota obtenida a escala 0-10
             nota_10 = (
                 (ptos_obtenidos / ptos_max_q) * 10 if ptos_max_q > 0 else 0
             )
-            ptos_aprobar = ptos_max_q / 2.0  # Equivalente a 5.0 en escala 10
+
+            # Puntos necesarios en este Q según el objetivo SQL
+            ptos_aprobar = (media_objetivo_sql / 10.0) * ptos_max_q
 
             puntuaciones_obtenidas.append(ptos_obtenidos)
             puntuaciones_maximas.append(ptos_max_q)
             notas_sobre_10.append(nota_10)
 
-            estado_q = "🟢 APROBADO" if nota_10 >= 5.0 else "🔴 SUSPENSO"
+            estado_q = (
+                "🟢 APROBADO" if nota_10 >= media_objetivo_sql else "🔴 SUSPENSO"
+            )
 
             with st.expander(f"📊 {q_nombre} - Estado: {estado_q}", expanded=True):
               c1, c2, c3, c4 = st.columns(4)
               c1.metric("Puntos Obtenidos", f"{round(ptos_obtenidos, 2)} pts")
               c2.metric("Puntos Máximos Habilitados", f"{round(ptos_max_q, 2)} pts")
               c3.metric(
-                  "Mínimo para Aprobar (50%)", f"{round(ptos_aprobar, 2)} pts"
+                  f"Mínimo para Aprobar ({media_objetivo_sql}/10)",
+                  f"{round(ptos_aprobar, 2)} pts",
               )
               c4.metric(
                   "Nota (Escala 0 - 10)",
                   f"{round(nota_10, 2)} / 10",
-                  delta="Aprobado" if nota_10 >= 5.0 else "- Suspenso",
+                  delta="Aprobado"
+                  if nota_10 >= media_objetivo_sql
+                  else "- Suspenso",
               )
 
               if q.get("observaciones"):
@@ -628,14 +638,17 @@ elif rol == "Empleado":
                   col2.metric("Puntuación", f"{row['puntuacion']} pts")
                 st.divider()
 
-      # --- RESUMEN GLOBAL ANUAL EN ESCALA 10 ---
+      # --- RESUMEN GLOBAL ANUAL CON MEDIA OBJETIVO DESDE SQL ---
       if puntuaciones_obtenidas:
         total_puntos_obt = sum(puntuaciones_obtenidas)
         total_puntos_max = sum(puntuaciones_maximas)
         nota_media_anual = (
             sum(notas_sobre_10) / len(notas_sobre_10) if notas_sobre_10 else 0
         )
-        min_puntos_aprobar = total_puntos_max / 2.0
+
+        min_puntos_aprobar_anual = (
+            media_objetivo_sql / 10.0
+        ) * total_puntos_max
 
         st.markdown("---")
         st.subheader("🏆 Resumen Anual Global (Trimestres Habilitados)")
@@ -648,19 +661,22 @@ elif rol == "Empleado":
             "Puntuación Máxima Posible", f"{round(total_puntos_max, 2)} pts"
         )
         col_g3.metric(
-            "Mínimo Global para Aprobar", f"{round(min_puntos_aprobar, 2)} pts"
+            f"Mínimo Global para Aprobar ({media_objetivo_sql}/10)",
+            f"{round(min_puntos_aprobar_anual, 2)} pts",
         )
         col_g4.metric(
             "Nota Media Anual (Escala 0 - 10)", f"{round(nota_media_anual, 2)} / 10"
         )
 
-        if nota_media_anual >= 5.0:
+        if nota_media_anual >= media_objetivo_sql:
           st.success(
-              f"🎉 **ESTADO ANUAL: APROBADO** (Nota: {round(nota_media_anual, 2)}/10)"
+              f"🎉 **ESTADO ANUAL: APROBADO** (Nota: {round(nota_media_anual, 2)}/10"
+              f" - Objetivo Requerido: {media_objetivo_sql})"
           )
         else:
           st.error(
-              f"⚠️ **ESTADO ANUAL: SUSPENSO** (Nota: {round(nota_media_anual, 2)}/10 - Se requiere mínimo 5.0)"
+              f"⚠️ **ESTADO ANUAL: SUSPENSO** (Nota: {round(nota_media_anual, 2)}/10"
+              f" - Objetivo Requerido: {media_objetivo_sql})"
           )
       else:
         st.warning("No hay trimestres habilitados para mostrar.")
