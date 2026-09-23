@@ -2421,56 +2421,134 @@ else:
                     except Exception as err_man_m:
                         st.error(f"Error consultando manuales: {err_man_m}")
 
-                # TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS
-                with tab_g_cfg:
-                    st.markdown("### ⏱️ Ajustes Temporales y Parámetros Globales")
+# ADMIN CROMA - PESTAÑA: GESTIÓN Y CONFIGURACIÓN
+        if st.session_state.es_croma and tab_admin_gestion:
+            with tab_admin_gestion:
+                st.subheader("⚙️ Gestión y Configuración del Sistema")
+                
+                subtab_tiempos_prompts, subtab_autorizaciones, subtab_empleados = st.tabs([
+                    "⏱️ Tiempos y Prompts / Modelos IA", 
+                    "🔑 Autorizaciones de Examen",
+                    "👥 Gestión de Empleados"
+                ])
 
-                    current_timer = obtener_tiempo_pregunta_config()
-                    current_global_q = obtener_num_preguntas_config("global")
-                    current_manual_q = obtener_num_preguntas_config("manual")
-
-                    with st.form("form_cfg_global"):
-                        nuevo_timer_input = st.number_input("⏱️ Tiempo máximo por pregunta (segundos):", min_value=10, max_value=600, value=current_timer)
-                        num_preg_global_input = st.number_input("🌐 Cantidad de preguntas para Examen Global:", min_value=5, max_value=100, value=current_global_q)
-                        num_preg_manual_input = st.number_input("📘 Cantidad de preguntas para Examen por Manual:", min_value=5, max_value=100, value=current_manual_q)
-
-                        btn_cfg_save = st.form_submit_button("💾 Actualizar Parámetros Globales")
-
-                        if btn_cfg_save:
-                            ok_timer = guardar_tiempo_pregunta_config(nuevo_timer_input)
-                            ok_g = guardar_num_preguntas_config("global", num_preg_global_input)
-                            ok_m = guardar_num_preguntas_config("manual", num_preg_manual_input)
-
-                            if ok_timer and ok_g and ok_m:
-                                st.success("✅ Configuración guardada correctamente en la base de datos.")
+                # TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS (Y MODELOS IA)
+                with subtab_tiempos_prompts:
+                    st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
+                    
+                    with st.form("form_config_tiempos_preguntas"):
+                        col_t1, col_t2, col_t3 = st.columns(3)
+                        with col_t1:
+                            nuevo_tiempo_seg = st.number_input(
+                                "⏱️ Tiempo por pregunta (segundos):", 
+                                min_value=10, max_value=300, 
+                                value=TIEMPO_LIMITE_PREGUNTA
+                            )
+                        with col_t2:
+                            nuevo_num_global = st.number_input(
+                                "🌐 N.º Preguntas Examen Global:", 
+                                min_value=1, max_value=100, 
+                                value=NUM_PREG_GLOBAL
+                            )
+                        with col_t3:
+                            nuevo_num_manual = st.number_input(
+                                "📘 N.º Preguntas Examen Manual:", 
+                                min_value=1, max_value=100, 
+                                value=NUM_PREG_MANUAL
+                            )
+                        
+                        btn_guardar_tiempos = st.form_submit_button("💾 Guardar Tiempos y Parámetros")
+                        
+                        if btn_guardar_tiempos:
+                            ok_t = guardar_tiempo_pregunta_config(nuevo_tiempo_seg)
+                            ok_g = guardar_num_preguntas_config("global", nuevo_num_global)
+                            ok_m = guardar_num_preguntas_config("manual", nuevo_num_manual)
+                            if ok_t and ok_g and ok_m:
+                                st.success("✅ Configuración de tiempos y número de preguntas actualizada correctamente.")
                                 time.sleep(1)
                                 st.rerun()
 
                     st.markdown("---")
-                    st.markdown("### 💬 Prompts del Sistema")
+                    st.markdown("### 🤖 Configuración de Modelos de IA")
+                    st.caption("Modifica los modelos disponibles por proveedor. Puedes introducir varios modelos separados por comas.")
+
+                    # Cargar los valores actuales de los modelos desde la tabla config_prompts
+                    modelos_gemini_val = "gemini-2.5-pro, gemini-2.5-flash"
+                    modelos_claude_val = "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
+                    modelos_openai_val = "gpt-4o, gpt-4o-mini"
+                    config_prompts_id = None
 
                     try:
-                        res_prompts_all = supabase.table("config_prompts").select("*").execute()
-                        prompts_data = res_prompts_all.data if res_prompts_all.data else []
-                        prompts_data2 = res_prompts_all.data if res_prompts_all.data else []
-                        
+                        res_cfg_modelos = supabase.table("config_prompts").select("id, modelo_gemini, modelo_claude, modelo_openai").execute()
+                        if res_cfg_modelos.data:
+                            # Tomamos el primer registro existente con configuración de modelos
+                            fila_cfg = res_cfg_modelos.data[0]
+                            config_prompts_id = fila_cfg.get("id")
+                            if fila_cfg.get("modelo_gemini"):
+                                modelos_gemini_val = fila_cfg["modelo_gemini"]
+                            if fila_cfg.get("modelo_claude"):
+                                modelos_claude_val = fila_cfg["modelo_claude"]
+                            if fila_cfg.get("modelo_openai"):
+                                modelos_openai_val = fila_cfg["modelo_openai"]
+                    except Exception as e_cfg:
+                        st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
 
-                        if prompts_data:
-                            for p_row in prompts_data:
-                                p_id = p_row["id"]
-                                p_nom = p_row.get("nombre", "Sin Nombre")
-                                p_val = p_row.get("valor", "")
-                                p_val2 = p_row.get("modelo_gemini", "")
+                    with st.form("form_config_modelos_ia"):
+                        input_gemini = st.text_input("💎 Modelos Gemini (modelo_gemini):", value=modelos_gemini_val)
+                        input_claude = st.text_input("🧠 Modelos Claude / Anthropic (modelo_claude):", value=modelos_claude_val)
+                        input_openai = st.text_input("⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val)
 
-                                with st.expander(f"📝 Prompt Configurado: '{p_nom}'"):
-                                    nuevo_p_val = st.text_area("Contenido del Prompt:", value=p_val, value2=p_val2, height=150, key=f"prompt_ta_{p_id}")
-                                    if st.button("💾 Guardar Prompt", key=f"btn_p_save_{p_id}"):
-                                        guardar_prompt_config(p_nom, nuevo_p_val, nuevo_p_val2)
-                                        st.success(f"Prompt '{p_nom}' actualizado con éxito.")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                        else:
-                            st.info("No se encontraron registros de prompts configurados.")
+                        btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
+
+                        if btn_guardar_modelos:
+                            try:
+                                datos_actualizacion = {
+                                    "modelo_gemini": input_gemini.strip(),
+                                    "modelo_claude": input_claude.strip(),
+                                    "modelo_openai": input_openai.strip()
+                                }
+                                
+                                if config_prompts_id:
+                                    # Actualizar registro existente
+                                    supabase.table("config_prompts").update(datos_actualizacion).eq("id", config_prompts_id).execute()
+                                else:
+                                    # Insertar uno nuevo si la tabla está vacía
+                                    supabase.table("config_prompts").insert(datos_actualizacion).execute()
+
+                                st.success("✅ Modelos de IA actualizados correctamente en la base de datos.")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as err_m_save:
+                                st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
+
+                    st.markdown("---")
+                    st.markdown("### 💬 Prompts Predeterminados del Sistema")
+                    
+                    # Cargar Prompts Actuales
+                    prompt_actual_examen = PROMPT_DEFECTO_EXAMEN
+                    prompt_actual_eval = "Analiza los exámenes del empleado y genera una evaluación profesional estructurada."
+                    
+                    try:
+                        res_p1 = supabase.table("config_prompts").select("valor").eq("nombre", "prompt_examen").limit(1).execute()
+                        if res_p1.data and res_p1.data[0].get("valor"):
+                            prompt_actual_examen = res_p1.data[0]["valor"]
+                            
+                        res_p2 = supabase.table("config_prompts").select("valor").eq("nombre", "evaluacion_empleado").limit(1).execute()
+                        if res_p2.data and res_p2.data[0].get("valor"):
+                            prompt_actual_eval = res_p2.data[0]["valor"]
+                    except Exception:
+                        pass
+
+                    with st.form("form_prompts_sistema"):
+                        p_examen_val = st.text_area("📄 Prompt por defecto para Generación de Exámenes:", value=prompt_actual_examen, height=180)
+                        p_eval_val = st.text_area("📈 Prompt por defecto para Evaluación de Empleados con IA:", value=prompt_actual_eval, height=140)
                         
-                    except Exception as err_p_m:
-                        st.error(f"Error consultando prompts: {err_p_m}")
+                        btn_guardar_prompts = st.form_submit_button("💾 Guardar Prompts Predeterminados")
+                        
+                        if btn_guardar_prompts:
+                            ok_p1 = guardar_prompt_config("prompt_examen", p_examen_val)
+                            ok_p2 = guardar_prompt_config("evaluacion_empleado", p_eval_val)
+                            if ok_p1 and ok_p2:
+                                st.success("✅ Prompts del sistema actualizados correctamente.")
+                                time.sleep(1)
+                                st.rerun()
