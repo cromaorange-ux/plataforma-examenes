@@ -972,7 +972,7 @@ else:
             if deshabilitar_opciones:
                 st.session_state.tiempos_restantes_preguntas[idx] = 0
 
-            # Garantizar que la pregunta siempre sea visible para exámen por manual o global
+            # Garantizar que la pregunta siempre sea visible para examen por manual o global
             texto_pregunta = p_actual.get("pregunta", "Pregunta no disponible")
             st.markdown(f"<div class='pregunta-titulo'>{texto_pregunta}</div>", unsafe_allow_html=True)
 
@@ -981,32 +981,11 @@ else:
             if resp_previa and resp_previa in p_actual["opciones_barajadas"]:
                 idx_previa = p_actual["opciones_barajadas"].index(resp_previa)
 
-            eleccion = st.radio(
-                "Selecciona una opción:", 
-                p_actual["opciones_barajadas"], 
-                index=idx_previa, 
-                key=f"p_{idx}",
-                disabled=deshabilitar_opciones
-            )
-            
-            if idx in st.session_state.pistas_activadas:
-                pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
-                st.info(f"💡 **Pista:** {pista_texto}")
-            else:
-                if st.session_state.comodines_restantes > 0 and not deshabilitar_opciones:
-                    if st.button("💡 Pedir Ayuda (Gasta 1 comodín)", key=f"btn_pista_{idx}"):
-                        st.session_state.comodines_restantes -= 1
-                        st.session_state.pistas_activadas.add(idx)
-                        st.rerun()
-                elif deshabilitar_opciones:
-                    st.caption("🚫 Tiempo agotado. No se pueden pedir comodines.")
-                else:
-                    st.caption("🚫 Has agotado tus 3 comodines de ayuda.")
-
-            st.write("")
-            col_b1, col_b2, col_b3 = st.columns(3)
-            
-            def registrar_respuesta_pregunta(elec_val):
+            # Función para guardar automáticamente la selección del radio button cuando cambia
+            def registrar_respuesta_pregunta(elec_val=None):
+                if elec_val is None:
+                    elec_val = st.session_state.get(f"p_{idx}")
+                
                 if elec_val is not None and elec_val != "":
                     es_corr = (elec_val == p_actual["respuesta_correcta_texto"])
                     op_guardada = elec_val
@@ -1025,6 +1004,32 @@ else:
                     "opciones_posibles": p_actual["opciones_barajadas"],
                     "es_correcta": es_corr
                 })
+
+            eleccion = st.radio(
+                "Selecciona una opción:", 
+                p_actual["opciones_barajadas"], 
+                index=idx_previa, 
+                key=f"p_{idx}",
+                disabled=deshabilitar_opciones,
+                on_change=registrar_respuesta_pregunta
+            )
+            
+            if idx in st.session_state.pistas_activadas:
+                pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
+                st.info(f"💡 **Pista:** {pista_texto}")
+            else:
+                if st.session_state.comodines_restantes > 0 and not deshabilitar_opciones:
+                    if st.button("💡 Pedir Ayuda (Gasta 1 comodín)", key=f"btn_pista_{idx}"):
+                        st.session_state.comodines_restantes -= 1
+                        st.session_state.pistas_activadas.add(idx)
+                        st.rerun()
+                elif deshabilitar_opciones:
+                    st.caption("🚫 Tiempo agotado. No se pueden pedir comodines.")
+                else:
+                    st.caption("🚫 Has agotado tus 3 comodines de ayuda.")
+
+            st.write("")
+            col_b1, col_b2, col_b3 = st.columns(3)
 
             with col_b1:
                 lbl_btn = "Ir a Revisión" if st.session_state.modificando_desde_revision else "Responder / Siguiente"
@@ -2284,113 +2289,86 @@ else:
                     with st.form("form_nuevo_empleado", clear_on_submit=True):
                         nom_nuevo = st.text_input("Nombre completo del empleado:*")
                         pwd_nuevo = st.text_input("Contraseña de acceso:*", type="password")
-                        es_admin_nuevo = st.checkbox("Es Administrador CROMA")
+                        es_admin_nuevo = st.checkbox("Dar permisos de Administrador CROMA")
                         
                         btn_crear_emp = st.form_submit_button("Crear Empleado")
-                        
                         if btn_crear_emp:
                             if not nom_nuevo.strip() or not pwd_nuevo.strip():
-                                st.error("❌ Todos los campos son obligatorios.")
+                                st.error("❌ Todos los campos obligatorios deben rellenarse.")
                             else:
                                 try:
-                                    nuevo_reg = {
+                                    supabase.table("empleados").insert({
                                         "nombre": nom_nuevo.strip(),
                                         "password_hash": pwd_nuevo.strip(),
                                         "es_admin_croma": es_admin_nuevo,
                                         "activo": True
-                                    }
-                                    supabase.table("empleados").insert(nuevo_reg).execute()
-                                    st.success(f"✅ Empleado '{nom_nuevo.strip()}' creado exitosamente.")
+                                    }).execute()
+                                    st.success("✅ Empleado registrado correctamente.")
                                     time.sleep(1)
                                     st.rerun()
-                                except Exception as err_emp:
-                                    st.error(f"❌ Error al crear empleado: {err_emp}")
+                                except Exception as err_c:
+                                    st.error(f"Error al registrar empleado: {err_c}")
 
                     st.markdown("---")
-                    st.markdown("### 🔍 Marcar / Desmarcar Estado Activo de Empleados")
-                    filtro_estado_emp = st.radio("Mostrar empleados:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_emp_est")
-
+                    st.markdown("### 👥 Lista de Empleados Registrados")
                     try:
-                        q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
-                        if filtro_estado_emp == "Sólo Activos":
-                            q_emp = q_emp.eq("activo", True)
-                        elif filtro_estado_emp == "Sólo Desactivados":
-                            q_emp = q_emp.eq("activo", False)
-                        
-                        res_emp_mng = q_emp.execute()
-                        emp_mng_data = res_emp_mng.data if res_emp_mng.data else []
-                        
-                        if emp_mng_data:
-                            for emp_item in emp_mng_data:
-                                col1, col2 = st.columns([3, 1])
-                                with col1:
-                                    st.write(f"👤 **{emp_item['nombre']}** | ID: {emp_item['id']} | Rol: {'Admin' if emp_item.get('es_admin_croma') else 'Empleado'}")
-                                with col2:
-                                    estado_actual = emp_item.get("activo", True)
-                                    nuevo_est = st.checkbox("Activo", value=estado_actual, key=f"chk_emp_{emp_item['id']}")
-                                    if nuevo_est != estado_actual:
-                                        supabase.table("empleados").update({"activo": nuevo_est}).eq("id", emp_item["id"]).execute()
-                                        st.success(f"Estado actualizado para {emp_item['nombre']}")
-                                        time.sleep(0.5)
+                        res_emp_mng = supabase.table("empleados").select("*").order("id", desc=False).execute()
+                        if res_emp_mng.data:
+                            for emp_m in res_emp_mng.data:
+                                col_e1, col_e2, col_e3 = st.columns([3, 1, 1])
+                                with col_e1:
+                                    st.write(f"**{emp_m['nombre']}** ({'Admin' if emp_m.get('es_admin_croma') else 'Empleado'})")
+                                with col_e2:
+                                    est_actual_emp = emp_m.get("activo", True)
+                                    nuevo_est_emp = st.checkbox("Activo", value=est_actual_emp, key=f"chk_emp_act_{emp_m['id']}")
+                                    if nuevo_est_emp != est_actual_emp:
+                                        supabase.table("empleados").update({"activo": nuevo_est_emp}).eq("id", emp_m["id"]).execute()
                                         st.rerun()
-                        else:
-                            st.info("No se encontraron empleados con los filtros aplicados.")
-                    except Exception as err_g_emp:
-                        st.error(f"Error al cargar empleados: {err_g_emp}")
+                                with col_e3:
+                                    ia_actual = emp_m.get("analisis_ia_habilitado", True)
+                                    nueva_ia = st.checkbox("Análisis IA", value=ia_actual, key=f"chk_emp_ia_{emp_m['id']}")
+                                    if nueva_ia != ia_actual:
+                                        supabase.table("empleados").update({"analisis_ia_habilitado": nueva_ia}).eq("id", emp_m["id"]).execute()
+                                        st.rerun()
+                    except Exception as err_lem:
+                        st.error(f"Error al cargar lista de empleados: {err_lem}")
 
                 with tab_g_man:
-                    st.markdown("### 📄 Estado de Manuales Cargados")
-                    filtro_estado_man = st.radio("Mostrar manuales:", ["Todos", "Sólo Activos", "Sólo Desactivados"], horizontal=True, key="f_man_est")
-
+                    st.markdown("### 📘 Gestión de Manuales y Exámenes Cargados")
                     try:
-                        q_man = supabase.table("examenes").select("*").order("id", desc=True)
-                        if filtro_estado_man == "Sólo Activos":
-                            q_man = q_man.eq("activo", True)
-                        elif filtro_estado_man == "Sólo Desactivados":
-                            q_man = q_man.eq("activo", False)
-                        
-                        res_man_mng = q_man.execute()
-                        man_mng_data = res_man_mng.data if res_man_mng.data else []
-                        
-                        if man_mng_data:
-                            for man_item in man_mng_data:
-                                col1, col2 = st.columns([3, 1])
-                                with col1:
-                                    num_p = len(man_item.get("preguntas_json", [])) if isinstance(man_item.get("preguntas_json"), list) else 0
-                                    st.write(f"📘 **{man_item['apartado']}** | ID: {man_item['id']} | Preguntas: {num_p}")
-                                with col2:
-                                    estado_actual_m = man_item.get("activo", True)
-                                    nuevo_est_m = st.checkbox("Activo", value=estado_actual_m, key=f"chk_man_{man_item['id']}")
-                                    if nuevo_est_m != estado_actual_m:
-                                        supabase.table("examenes").update({"activo": nuevo_est_m}).eq("id", man_item["id"]).execute()
-                                        st.success(f"Estado actualizado para {man_item['apartado']}")
-                                        time.sleep(0.5)
+                        res_ex_mng = supabase.table("examenes").select("*").order("id", desc=False).execute()
+                        if res_ex_mng.data:
+                            for ex_m in res_ex_mng.data:
+                                col_m1, col_m2 = st.columns([4, 1])
+                                with col_m1:
+                                    p_cnt = len(ex_m.get("preguntas_json", [])) if isinstance(ex_m.get("preguntas_json"), list) else 0
+                                    st.write(f"**{ex_m['apartado']}** ({p_cnt} preguntas en banco)")
+                                with col_m2:
+                                    est_act_ex = ex_m.get("activo", True)
+                                    nuevo_est_ex = st.checkbox("Activo en Plataforma", value=est_act_ex, key=f"chk_ex_act_{ex_m['id']}")
+                                    if nuevo_est_ex != est_act_ex:
+                                        supabase.table("examenes").update({"activo": nuevo_est_ex}).eq("id", ex_m["id"]).execute()
                                         st.rerun()
-                        else:
-                            st.info("No se encontraron manuales con los filtros aplicados.")
-                    except Exception as err_g_man:
-                        st.error(f"Error al cargar manuales: {err_g_man}")
+                    except Exception as err_lm:
+                        st.error(f"Error al cargar lista de exámenes: {err_lm}")
 
                 with tab_g_cfg:
-                    st.markdown("### ⚙️ Ajustes Globales de Evaluación")
+                    st.markdown("### ⚙️ Parámetros Globales del Sistema")
                     
-                    seg_actual = obtener_tiempo_pregunta_config()
-                    num_g_actual = NUM_PREG_GLOBAL
-                    num_m_actual = NUM_PREG_MANUAL
-                    
-                    with st.form("form_cfg_tiempos_cantidades"):
-                        nuevos_seg = st.number_input("⏱️ Tiempo límite por pregunta (en segundos):", min_value=10, max_value=300, value=seg_actual)
-                        nuevas_preg_g = st.number_input("🌐 Preguntas en Examen Global:", min_value=1, max_value=100, value=num_g_actual)
-                        nuevas_preg_m = st.number_input("📘 Preguntas en Examen por Manual:", min_value=1, max_value=100, value=num_m_actual)
+                    t_actual_cfg = obtener_tiempo_pregunta_config()
+                    n_glob_cfg = obtener_num_preguntas_config("global")
+                    n_man_cfg = obtener_num_preguntas_config("manual")
+
+                    with st.form("form_cfg_globales"):
+                        nuevo_tiempo_p = st.number_input("⏱️ Tiempo límite por pregunta (segundos):", min_value=10, max_value=300, value=t_actual_cfg)
+                        nuevo_num_glob = st.number_input("🌐 Número de preguntas en Examen Global:", min_value=5, max_value=50, value=n_glob_cfg)
+                        nuevo_num_man = st.number_input("📘 Número de preguntas en Examen por Manual:", min_value=5, max_value=50, value=n_man_cfg)
                         
-                        btn_guardar_cfg = st.form_submit_button("Guardar Configuración General")
-                        
-                        if btn_guardar_cfg:
-                            o1 = guardar_tiempo_pregunta_config(nuevos_seg)
-                            o2 = guardar_num_preguntas_config("global", nuevas_preg_g)
-                            o3 = guardar_num_preguntas_config("manual", nuevas_preg_m)
-                            
-                            if o1 and o2 and o3:
-                                st.success("✅ Configuración actualizada con éxito.")
-                                time.sleep(1)
-                                st.rerun()
+                        btn_save_cfg = st.form_submit_button("Guardar Configuración Global")
+                        if btn_save_cfg:
+                            guardar_tiempo_pregunta_config(nuevo_tiempo_p)
+                            guardar_num_preguntas_config("global", nuevo_num_glob)
+                            guardar_num_preguntas_config("manual", nuevo_num_man)
+                            st.success("✅ Configuración guardada correctamente.")
+                            time.sleep(1)
+                            st.rerun()
