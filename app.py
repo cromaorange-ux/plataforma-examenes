@@ -344,6 +344,10 @@ if "mostrar_analisis_ia_exp" not in st.session_state:
 
 TIEMPO_LIMITE_PREGUNTA = obtener_tiempo_pregunta_config()
 UMBRAL_APROBADO_PORCENTAJE = 70.0
+NUM_PREG_GLOBAL = obtener_num_preguntas_config("global")
+NUM_PREG_MANUAL = obtener_num_preguntas_config("manual")
+
+
 
 PROMPT_DEFECTO = """Genera un banco de EXACTAMENTE 50 preguntas tipo test por cada temática/sección basadas en el documento. 
 
