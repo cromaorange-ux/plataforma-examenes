@@ -7,8 +7,8 @@ from datetime import datetime
 from supabase import create_client, Client
 
 # --- CONFIGURACIÓN DE CONEXIÓN A SUPABASE ---
-SUPABASE_URL = "TU_SUPABASE_URL"
-SUPABASE_KEY = "TU_SUPABASE_ANON_KEY"
+SUPABASE_URL = "https://vezkigrbksmsndasxldu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemtpZ3Jia3Ntc25kYXN4bGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTgyMjgsImV4cCI6MjEwMzgzNDIyOH0.0jkzfl0zceROHR0Xl00r-5TthJ7Z5neqY7b4h9PAyzw"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Sistema de Evaluaciones y Análisis IA", layout="wide")
