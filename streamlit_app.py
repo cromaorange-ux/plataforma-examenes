@@ -369,7 +369,8 @@ if rol == "Administrador":
         st.subheader("Gestión de Visibilidad de Resultados para Empleados")
         
         filtro_est = st.selectbox("Filtrar Estado:", ["Todos", "Habilitados", "Deshabilitados"])
-        res_query = supabase.table("resultados_evaluacion_ia").select("*").order("anio", ascending=False)
+        # Opción recomendada para Supabase Python SDK
+        res_query = supabase.table("resultados_evaluacion_ia").select("*").order("anio", desc=True)
         
         if filtro_est == "Habilitados":
             res_query = res_query.eq("visible_empleado", True)
