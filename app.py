@@ -2453,12 +2453,14 @@ else:
                         res_prompts_all = supabase.table("config_prompts").select("*").execute()
                         prompts_data = res_prompts_all.data if res_prompts_all.data else []
                         prompts_data2 = res_prompts_all.data if res_prompts_all.data else []
+                        
 
                         if prompts_data:
                             for p_row in prompts_data:
                                 p_id = p_row["id"]
                                 p_nom = p_row.get("nombre", "Sin Nombre")
                                 p_val = p_row.get("valor", "")
+                                p_val2 = p_row.get("modelo_gemini", "")
 
                                 with st.expander(f"📝 Prompt Configurado: '{p_nom}'"):
                                     nuevo_p_val = st.text_area("Contenido del Prompt:", value=p_val, height=150, key=f"prompt_ta_{p_id}")
@@ -2477,7 +2479,7 @@ else:
                                 p_val2 = p_row.get("modelo_gemini", "")
 
                                 with st.expander(f"📝 Prompt Configurado: '{p_nom2}'"):
-                                    nuevo_p_val = st.text_area("Contenido del Prompt:", value=p_val2, height=150, key=f"prompt_ta_{p_id2}")
+                                    nuevo_p_val2 = st.text_area("Contenido del Prompt:", value=p_val2, height=150, key=f"prompt_ta_{p_id2}")
                                     if st.button("💾 Guardar Prompt", key=f"btn_p_save_{p_id2}"):
                                         guardar_prompt_config(p_nom2, nuevo_p_val2)
                                         st.success(f"Prompt '{p_nom}2' actualizado con éxito.")
