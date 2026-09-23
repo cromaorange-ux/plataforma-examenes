@@ -9,10 +9,11 @@ from supabase import create_client, Client
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
 # ---------------------------------------------------------
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-CLAUDE_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
+# Inicializar la conexión con Supabase usando los Secrets de Streamlit
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Sistema de Evaluaciones y Análisis IA", layout="wide")
 
