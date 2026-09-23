@@ -657,10 +657,10 @@ def login_modal():
     usuario = st.session_state.usuario_modal_sel
     st.write(f"Accediendo como: **{usuario['nombre']}**")
     
-    usar_pwd_defecto = st.checkbox("Usar contraseña por defecto ('1234' / Hash asignado)")
+    # usar_pwd_defecto = st.checkbox("Usar contraseña por defecto ('1234' / Hash asignado)")
     
     with st.form("form_login_modal"):
-        valor_inicial = usuario.get("password_hash", "1234") if usar_pwd_defecto else ""
+        # valor_inicial = usuario.get("password_hash", "1234") if usar_pwd_defecto else ""
         pwd_input = st.text_input(
             "Introduce tu contraseña:", 
             value=valor_inicial,
@@ -670,15 +670,15 @@ def login_modal():
         )
         submitted = st.form_submit_button("Ingresar")
         
-        if submitted:
-            if usuario["password_hash"] == pwd_input or (usar_pwd_defecto and pwd_input == usuario.get("password_hash")):
-                st.session_state.user_id = usuario["id"]
-                st.session_state.user_nombre = usuario["nombre"]
-                st.session_state.es_croma = usuario.get("es_admin_croma", False)
-                st.session_state.autenticado = True
-                st.rerun()
-            else:
-                st.error("❌ Contraseña incorrecta.")
+        # if submitted:
+            # if usuario["password_hash"] == pwd_input or (usar_pwd_defecto and pwd_input == usuario.get("password_hash")):
+                # st.session_state.user_id = usuario["id"]
+                # st.session_state.user_nombre = usuario["nombre"]
+                # st.session_state.es_croma = usuario.get("es_admin_croma", False)
+                # st.session_state.autenticado = True
+                # st.rerun()
+            # else:
+                # st.error("❌ Contraseña incorrecta.")
 
 # ---------------------------------------------------------
 # FRAGMENTOS DE TEMPORIZACIÓN DINÁMICA
