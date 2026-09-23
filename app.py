@@ -1076,7 +1076,7 @@ else:
                 tab_global, tab_manual = st.tabs(["🌐 Examen Global", "📘 Examen por Manual"])
                 
                 with tab_global:
-                    num_p_global = 15
+                    num_p_global = NUM_PREG_GLOBAL
                     st.info(f"El Examen Global seleccionará exactamente **{num_p_global} preguntas aleatorias** distribuidas equitativamente entre los manuales.")
                     
                     texto_global_bd = TEXTO_EXAMEN_GLOBAL_INFO
@@ -1149,7 +1149,7 @@ else:
 
                 with tab_manual:
                     st.subheader("📘 Manuales y Exámenes Disponibles")
-                    num_p_manual = 10
+                    num_p_manual = NUM_PREG_MANUAL
                     
                     cols = st.columns(3)
                     for idx_ex, ex_obj in enumerate(examenes_disponibles):
