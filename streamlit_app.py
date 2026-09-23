@@ -5,6 +5,17 @@ import pandas as pd
 from supabase import Client, create_client
 import streamlit as st
 
+# Importaciones de Inteligencia Artificial
+try:
+  import openai
+except ImportError:
+  openai = None
+
+try:
+  import google.generativeai as genai
+except ImportError:
+  genai = None
+
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
 # ---------------------------------------------------------
@@ -13,16 +24,37 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Configuración de cliente para IA (OpenAI como estándar de Streamlit)
-try:
-    import openai
-    openai.api_key = st.secrets.get("OPENAI_API_KEY", "")
-except Exception:
-    pass
-
 st.set_page_config(
     page_title="Sistema de Evaluaciones y Análisis IA", layout="wide"
 )
+
+
+# --- FUNCIÓN PARA OBTENER EL MODELO IA DESDE LA TABLA config_prompts ---
+def obtener_modelo_ia_config():
+  try:
+    # Buscar registros que definan modelos en la tabla config_prompts
+    res = (
+        supabase.table("config_prompts")
+        .select("nombre, valor, modelo_openai, modelo_gemini")
+        .in_("nombre", ["modelo_OpenAI", "modelo_gemini", "modelo_claude"])
+        .execute()
+        .data
+    )
+
+    if res:
+      for r in res:
+        # Prioridad a OpenAI si está configurado
+        if "openai" in r["nombre"].lower():
+          modelo = r.get("valor") or r.get("modelo_openai")
+          return "openai", modelo if modelo else "gpt-4o"
+        # Si está configurado Gemini
+        elif "gemini" in r["nombre"].lower():
+          modelo = r.get("valor") or r.get("modelo_gemini")
+          return "gemini", modelo if modelo else "gemini-1.5-flash"
+
+    return "openai", "gpt-4o-mini"
+  except Exception:
+    return "openai", "gpt-4o-mini"
 
 
 # --- FUNCIONES DE VISIBILIDAD POR EMPLEADO ---
@@ -90,10 +122,24 @@ def obtener_media_objetivo():
 def generar_y_guardar_informe_ia(empleado_id, nombre_emp, anio):
   # 1. Obtener prompt base
   try:
-    cfg = supabase.table("config_prompts_eval").select("*").limit(1).execute().data
-    prompt_base = cfg[0]["prompt_texto"] if cfg else "Realiza un informe evaluativo profesional basado en estos datos:"
+    cfg = (
+        supabase.table("config_prompts_eval")
+        .select("*")
+        .limit(1)
+        .execute()
+        .data
+    )
+    prompt_base = (
+        cfg[0]["prompt_texto"]
+        if cfg
+        else (
+            "Realiza un informe evaluativo profesional basado en estos datos:"
+        )
+    )
   except Exception:
-    prompt_base = "Realiza un informe evaluativo profesional basado en estos datos:"
+    prompt_base = (
+        "Realiza un informe evaluativo profesional basado en estos datos:"
+    )
 
   # 2. Obtener datos filtrados del empleado
   vis_emp = obtener_visibilidad_empleado(empleado_id, anio)
@@ -101,14 +147,27 @@ def generar_y_guardar_informe_ia(empleado_id, nombre_emp, anio):
   apts_hab = vis_emp.get("apartados_habilitados", {})
   sub_ocultos = vis_emp.get("subapartados_deshabilitados", [])
 
-  q_evals = supabase.table("evaluaciones_trimestrales").select("*").eq("empleado_id", empleado_id).eq("anio", anio).execute().data
+  q_evals = (
+      supabase.table("evaluaciones_trimestrales")
+      .select("*")
+      .eq("empleado_id", empleado_id)
+      .eq("anio", anio)
+      .execute()
+      .data
+  )
 
   resumen_datos = []
   for q in q_evals:
     q_nom = q["trimestre"]
     if not qs_hab.get(q_nom, True):
       continue
-    detalles = supabase.table("evaluacion_detalles").select("*").eq("evaluacion_id", q["id"]).execute().data
+    detalles = (
+        supabase.table("evaluacion_detalles")
+        .select("*")
+        .eq("evaluacion_id", q["id"])
+        .execute()
+        .data
+    )
     if detalles:
       df_det = pd.DataFrame(detalles)
       df_det = df_det[df_det["apartado"].map(lambda x: apts_hab.get(x, True))]
@@ -119,13 +178,16 @@ def generar_y_guardar_informe_ia(empleado_id, nombre_emp, anio):
             "apartado": r["apartado"],
             "subapartado": r["subapartado"],
             "puntuacion": r["puntuacion"],
-            "observaciones": r.get("observaciones", "")
+            "observaciones": r.get("observaciones", ""),
         })
 
   if not resumen_datos:
-    return False, "No existen datos de evaluaciones habilitadas para generar el informe."
+    return (
+        False,
+        "No existen datos de evaluaciones habilitadas para generar el informe.",
+    )
 
-  # 3. Construir prompt para LLM
+  # 3. Construir prompt completo
   prompt_completo = f"""
 {prompt_base}
 
@@ -138,31 +200,59 @@ Datos de evaluaciones del año:
 Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
 """
 
-  # 4. Llamar a OpenAI o fallback sintético
+  # 4. Consultar el proveedor y nombre del modelo de IA desde config_prompts
+  proveedor, nombre_modelo = obtener_modelo_ia_config()
+
+  informe_generado = ""
+
   try:
-    if hasattr(openai, "Client"):
-      client = openai.Client(api_key=st.secrets.get("OPENAI_API_KEY", ""))
+    if proveedor == "openai":
+      api_key = st.secrets.get("OPENAI_API_KEY", "")
+      if not api_key:
+        return False, "Falta configurar 'OPENAI_API_KEY' en st.secrets."
+      if openai is None:
+        return (
+            False,
+            "Librería 'openai' no instalada. Revisa tu requirements.txt.",
+        )
+
+      client = openai.OpenAI(api_key=api_key)
       response = client.chat.completions.create(
-          model="gpt-4o-mini",
+          model=nombre_modelo,
           messages=[{"role": "user", "content": prompt_completo}],
-          temperature=0.7
+          temperature=0.7,
       )
       informe_generado = response.choices[0].message.content
-    else:
-      # Fallback si no hay API Key configurada
-      informe_generado = f"### Informe de Evaluación Anual - {nombre_emp} ({anio})\n\n"
-      informe_generado += f"**Resumen General:** El empleado {nombre_emp} ha sido evaluado en los trimestres correspondientes al año {anio}.\n\n"
-      informe_generado += f"**Detalle de Desempeño:** Se registraron un total de {len(resumen_datos)} puntos evaluados con éxito."
+
+    elif proveedor == "gemini":
+      api_key = st.secrets.get("GEMINI_API_KEY", "")
+      if not api_key:
+        return False, "Falta configurar 'GEMINI_API_KEY' en st.secrets."
+      if genai is None:
+        return (
+            False,
+            "Librería 'google-generativeai' no instalada. Revisa tu"
+            " requirements.txt.",
+        )
+
+      genai.configure(api_key=api_key)
+      model = genai.GenerativeModel(nombre_modelo)
+      response = model.generate_content(prompt_completo)
+      informe_generado = response.text
+
   except Exception as e:
-    return False, f"Error al conectar con la IA: {e}"
+    return False, f"Error al conectar con la IA ({nombre_modelo}): {e}"
 
   # 5. Guardar/Actualizar en Supabase (SQL)
   try:
-    supabase.table("informes_evaluacion").upsert({
-        "empleado_id": empleado_id,
-        "anio": anio,
-        "informe_texto": informe_generado
-    }, on_conflict="empleado_id, anio").execute()
+    supabase.table("informes_evaluacion").upsert(
+        {
+            "empleado_id": empleado_id,
+            "anio": anio,
+            "informe_texto": informe_generado,
+        },
+        on_conflict="empleado_id, anio",
+    ).execute()
     return True, informe_generado
   except Exception as err:
     return False, f"Error al guardar el informe en la BD: {err}"
@@ -217,9 +307,7 @@ def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
           ptos_obtenidos = float(df_det["puntuacion"].sum())
           ptos_max_q = float(len(df_det) * 5.0)
 
-          nota_10 = (
-              (ptos_obtenidos / ptos_max_q) * 10 if ptos_max_q > 0 else 0
-          )
+          nota_10 = (ptos_obtenidos / ptos_max_q) * 10 if ptos_max_q > 0 else 0
           ptos_aprobar = (media_objetivo_sql / 10.0) * ptos_max_q
 
           puntuaciones_obtenidas.append(ptos_obtenidos)
@@ -316,7 +404,9 @@ def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
           st.markdown(inf_resp[0]["informe_texto"])
           st.caption(f"Informe actualizado el: {inf_resp[0]['created_at']}")
         else:
-          st.info("Aún no se ha generado e insertado el informe IA para este año.")
+          st.info(
+              "Aún no se ha generado e insertado el informe IA para este año."
+          )
       except Exception:
         st.info("Aún no existe la tabla o registro del informe IA.")
     else:
@@ -749,6 +839,14 @@ if rol == "Administrador":
   # --- 5. INFORMES IA ---
   elif menu_admin == "5. Generar e Informes IA":
     st.subheader("Generar y Guardar Informe Evaluativo con IA")
+
+    # Muestra el modelo detectado en la BD
+    prov, mod_nom = obtener_modelo_ia_config()
+    st.info(
+        f"🤖 **Modelo detectado en `config_prompts`**: Proveedor **{prov.upper()}**"
+        f" (`{mod_nom}`)"
+    )
+
     emps = supabase.table("empleados").select("id, nombre").execute().data
     emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
@@ -759,7 +857,9 @@ if rol == "Administrador":
       if sel_emp:
         emp_id = emp_dict[sel_emp]
         with st.spinner("Procesando datos y generando informe con IA..."):
-          exito, msg_o_texto = generar_y_guardar_informe_ia(emp_id, sel_emp, sel_anio)
+          exito, msg_o_texto = generar_y_guardar_informe_ia(
+              emp_id, sel_emp, sel_anio
+          )
           if exito:
             st.success("¡Informe generado y guardado exitosamente en SQL!")
             st.markdown("### Vista Previa del Informe Generado")
@@ -767,14 +867,16 @@ if rol == "Administrador":
           else:
             st.error(f"Error al generar informe: {msg_o_texto}")
 
-  # --- 6. DATOS EMPLEADO (VISTA IDÉNTICA AL PORTAL DEL EMPLEADO) ---
+  # --- 6. DATOS EMPLEADO ---
   elif menu_admin == "6. Datos empleado":
     st.subheader("🔍 Datos empleado (Vista Espejo del Portal de Empleados)")
     emps = supabase.table("empleados").select("id, nombre").execute().data
     emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
     col_e1, col_e2 = st.columns(2)
-    sel_emp = col_e1.selectbox("Seleccionar Empleado a consultar:", list(emp_dict.keys()))
+    sel_emp = col_e1.selectbox(
+        "Seleccionar Empleado a consultar:", list(emp_dict.keys())
+    )
 
     if sel_emp:
       emp_id = emp_dict[sel_emp]
@@ -792,7 +894,10 @@ if rol == "Administrador":
       )
       sel_anio = col_e2.selectbox("Seleccionar Año:", anios_disp)
 
-      st.markdown(f"### Portal del Empleado - Mis Evaluaciones (`{sel_emp}` - `{sel_anio}`)")
+      st.markdown(
+          f"### Portal del Empleado - Mis Evaluaciones (`{sel_emp}` -"
+          f" `{sel_anio}`)"
+      )
       renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
 
 
@@ -821,5 +926,4 @@ elif rol == "Empleado":
     )
     sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
 
-    # Renderiza exactamente la misma interfaz reutilizable que el Administrador en Opción 6
     renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
