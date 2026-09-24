@@ -288,6 +288,427 @@ def guardar_prompt_config(nombre_prompt, nuevo_valor):
         st.error(f"Error al actualizar el prompt '{nombre_prompt}': {e}")
         return False
 
+# --- FUNCIÓN PARA OBTENER LOS MODELOS DISPONIBLES DESDE config_prompts ---
+def obtener_modelos_disponibles_db():
+  modelos = []
+  try:
+    res = supabase.table("config_prompts").select("*").execute().data
+    if res:
+      for r in res:
+        mod_oa = r.get("modelo_openai") or (
+            r.get("valor") if "openai" in r.get("nombre", "").lower() else None
+        )
+        if mod_oa and mod_oa != "EMPTY":
+          modelos.append({"proveedor": "openai", "nombre_modelo": mod_oa})
+
+        mod_gem = r.get("modelo_gemini") or (
+            r.get("valor") if "gemini" in r.get("nombre", "").lower() else None
+        )
+        if mod_gem and mod_gem != "EMPTY":
+          modelos.append({"proveedor": "gemini", "nombre_modelo": mod_gem})
+
+    if not modelos:
+      modelos = [
+          {"proveedor": "openai", "nombre_modelo": "gpt-4o"},
+          {"proveedor": "openai", "nombre_modelo": "gpt-4o-mini"},
+          {"proveedor": "gemini", "nombre_modelo": "gemini-3.6-flash"},
+      ]
+
+    modelos_unicos = []
+    vistos = set()
+    for m in modelos:
+      clave = f"{m['proveedor']}:{m['nombre_modelo']}"
+      if clave not in vistos:
+        vistos.add(clave)
+        modelos_unicos.append(m)
+
+    return modelos_unicos
+  except Exception:
+    return [
+        {"proveedor": "openai", "nombre_modelo": "gpt-4o"},
+        {"proveedor": "gemini", "nombre_modelo": "gemini-3.6-flash"},
+    ]
+
+
+# --- FUNCIONES DE VISIBILIDAD POR EMPLEADO ---
+def obtener_visibilidad_empleado(empleado_id, anio):
+  default_config = {
+      "qs_habilitados": {"Q1": True, "Q2": True, "Q3": True, "Q4": True},
+      "apartados_habilitados": {
+          "Tareas realizar por turnos y todos los turnos": True,
+          "Tiempos respuesta Tbox": True,
+          "Tiempos respuesta Siemens": True,
+          "Iniciativa / Proactividad ante el trabajo": True,
+          "Conocimientos": True,
+          "Evaluacion": True,
+      },
+      "subapartados_deshabilitados": [],
+  }
+  try:
+    res = (
+        supabase.table("visibilidad_empleados")
+        .select("*")
+        .eq("empleado_id", empleado_id)
+        .eq("anio", anio)
+        .execute()
+        .data
+    )
+    if res:
+      return res[0]
+    return default_config
+  except Exception:
+    return default_config
+
+
+def guardar_visibilidad_empleado(
+    empleado_id, anio, qs, apartados, subapartados_ocultos
+):
+  datos = {
+      "empleado_id": empleado_id,
+      "anio": anio,
+      "qs_habilitados": qs,
+      "apartados_habilitados": apartados,
+      "subapartados_deshabilitados": subapartados_ocultos,
+  }
+  supabase.table("visibilidad_empleados").upsert(
+      datos, on_conflict="empleado_id, anio"
+  ).execute()
+
+
+def obtener_media_objetivo():
+  try:
+    res = (
+        supabase.table("config_prompts_eval")
+        .select("objetivo_media")
+        .limit(1)
+        .execute()
+        .data
+    )
+    if res and "objetivo_media" in res[0]:
+      return float(res[0]["objetivo_media"])
+    return 8.0
+  except Exception:
+    return 8.0
+
+
+# --- CONSULTA IA Y GENERACIÓN MULTIMODELO ---
+def consultar_ia(prompt_completo, proveedor, nombre_modelo):
+  try:
+    if proveedor == "openai":
+      api_key = st.secrets.get("OPENAI_API_KEY", "")
+      if not api_key:
+        return (
+            False,
+            "Falta configurar 'OPENAI_API_KEY' en los Secrets de Streamlit.",
+        )
+      if openai is None:
+        return (
+            False,
+            "Librería 'openai' no instalada. Revisa tu requirements.txt.",
+        )
+
+      client = openai.OpenAI(api_key=api_key)
+      response = client.chat.completions.create(
+          model=nombre_modelo,
+          messages=[{"role": "user", "content": prompt_completo}],
+          temperature=0.7,
+      )
+      return True, response.choices[0].message.content
+
+    elif proveedor == "gemini":
+      api_key = st.secrets.get("GEMINI_API_KEY", "")
+      if not api_key:
+        return (
+            False,
+            "Falta configurar 'GEMINI_API_KEY' en los Secrets de Streamlit.",
+        )
+      if genai is None:
+        return (
+            False,
+            "Librería 'google-generativeai' no instalada. Revisa tu"
+            " requirements.txt.",
+        )
+
+      genai.configure(api_key=api_key)
+      model = genai.GenerativeModel(nombre_modelo)
+      response = model.generate_content(prompt_completo)
+      return True, response.text
+
+    return False, f"Proveedor '{proveedor}' no reconocido."
+  except Exception as e:
+    return False, f"Error con el modelo {nombre_modelo}: {e}"
+
+
+def generar_y_guardar_informe_ia_multimodelo(
+    empleado_id, nombre_emp, anio, lista_modelos_info
+):
+  try:
+    cfg = (
+        supabase.table("config_prompts_eval")
+        .select("*")
+        .limit(1)
+        .execute()
+        .data
+    )
+    prompt_base = (
+        cfg[0]["prompt_texto"]
+        if cfg
+        else (
+            "Realiza un informe evaluativo profesional basado en estos datos:"
+        )
+    )
+  except Exception:
+    prompt_base = (
+        "Realiza un informe evaluativo profesional basado en estos datos:"
+    )
+
+  vis_emp = obtener_visibilidad_empleado(empleado_id, anio)
+  qs_hab = vis_emp.get("qs_habilitados", {})
+  apts_hab = vis_emp.get("apartados_habilitados", {})
+  sub_ocultos = vis_emp.get("subapartados_deshabilitados", [])
+
+  q_evals = (
+      supabase.table("evaluaciones_trimestrales")
+      .select("*")
+      .eq("empleado_id", empleado_id)
+      .eq("anio", anio)
+      .execute()
+      .data
+  )
+
+  resumen_datos = []
+  for q in q_evals:
+    q_nom = q["trimestre"]
+    if not qs_hab.get(q_nom, True):
+      continue
+    detalles = (
+        supabase.table("evaluacion_detalles")
+        .select("*")
+        .eq("evaluacion_id", q["id"])
+        .execute()
+        .data
+    )
+    if detalles:
+      df_det = pd.DataFrame(detalles)
+      df_det = df_det[df_det["apartado"].map(lambda x: apts_hab.get(x, True))]
+      df_det = df_det[~df_det["subapartado"].isin(sub_ocultos)]
+      for _, r in df_det.iterrows():
+        resumen_datos.append({
+            "trimestre": q_nom,
+            "apartado": r["apartado"],
+            "subapartado": r["subapartado"],
+            "puntuacion": r["puntuacion"],
+            "observaciones": r.get("observaciones", ""),
+        })
+
+  if not resumen_datos:
+    return (
+        False,
+        f"No existen datos de evaluaciones habilitadas para {nombre_emp} en"
+        f" {anio}.",
+    )
+
+  prompt_completo = f"""
+{prompt_base}
+
+Empleado: {nombre_emp}
+Año: {anio}
+
+Datos de evaluaciones del año:
+{json.dumps(resumen_datos, ensure_ascii=False, indent=2)}
+
+Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
+"""
+
+  textos_informes = []
+  errores = []
+
+  for mod_info in lista_modelos_info:
+    prov = mod_info["proveedor"]
+    mod_nom = mod_info["nombre_modelo"]
+
+    exito, res_texto = consultar_ia(prompt_completo, prov, mod_nom)
+    if exito:
+      if len(lista_modelos_info) > 1:
+        textos_informes.append(
+            f"### 🤖 Informe generado con {mod_nom} ({prov.upper()})\n\n{res_texto}"
+        )
+      else:
+        textos_informes.append(res_texto)
+    else:
+      errores.append(f"[{mod_nom}]: {res_texto}")
+
+  if not textos_informes:
+    return False, f"Fallaron todas las consultas de IA: {'; '.join(errores)}"
+
+  informe_final = "\n\n---\n\n".join(textos_informes)
+
+  try:
+    supabase.table("informes_evaluacion").upsert(
+        {
+            "empleado_id": empleado_id,
+            "anio": anio,
+            "informe_texto": informe_final,
+        },
+        on_conflict="empleado_id, anio",
+    ).execute()
+    return True, informe_final
+  except Exception as err:
+    return False, f"Error al guardar el informe en la BD: {err}"
+
+
+# --- VISTA COMPARTIDA DE EVALUACIONES ---
+def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
+  media_objetivo_sql = obtener_media_objetivo()
+  vis_emp = obtener_visibilidad_empleado(emp_id, sel_anio)
+  qs_habilitados = vis_emp.get("qs_habilitados", {})
+  apts_habilitados = vis_emp.get("apartados_habilitados", {})
+  sub_ocultos = vis_emp.get("subapartados_deshabilitados", [])
+
+  q_evals = (
+      supabase.table("evaluaciones_trimestrales")
+      .select("*")
+      .eq("empleado_id", emp_id)
+      .eq("anio", sel_anio)
+      .execute()
+      .data
+  )
+
+  if q_evals:
+    puntuaciones_obtenidas = []
+    puntuaciones_maximas = []
+    notas_sobre_10 = []
+
+    for q in sorted(q_evals, key=lambda x: x["trimestre"]):
+      q_nombre = q["trimestre"]
+
+      if not qs_habilitados.get(q_nombre, True):
+        continue
+
+      detalles = (
+          supabase.table("evaluacion_detalles")
+          .select("*")
+          .eq("evaluacion_id", q["id"])
+          .execute()
+          .data
+      )
+
+      if detalles:
+        df_det = pd.DataFrame(detalles)
+        df_det = df_det[
+            df_det["apartado"].map(lambda x: apts_habilitados.get(x, True))
+        ]
+        df_det = df_det[~df_det["subapartado"].isin(sub_ocultos)]
+
+        if not df_det.empty:
+          ptos_obtenidos = float(df_det["puntuacion"].sum())
+          ptos_max_q = float(len(df_det) * 5.0)
+          nota_10 = (ptos_obtenidos / ptos_max_q) * 10 if ptos_max_q > 0 else 0
+          ptos_aprobar = (media_objetivo_sql / 10.0) * ptos_max_q
+
+          puntuaciones_obtenidas.append(ptos_obtenidos)
+          puntuaciones_maximas.append(ptos_max_q)
+          notas_sobre_10.append(nota_10)
+
+          estado_q = (
+              "🟢 APROBADO" if nota_10 >= media_objetivo_sql else "🔴 SUSPENSO"
+          )
+
+          with st.expander(f"📊 {q_nombre} - Estado: {estado_q}", expanded=True):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Puntos Obtenidos", f"{round(ptos_obtenidos, 2)} pts")
+            c2.metric("Puntos Máximos Habilitados", f"{round(ptos_max_q, 2)} pts")
+            c3.metric(
+                f"Mínimo para Aprobar ({media_objetivo_sql}/10)",
+                f"{round(ptos_aprobar, 2)} pts",
+            )
+            c4.metric(
+                "Nota (Escala 0 - 10)",
+                f"{round(nota_10, 2)} / 10",
+                delta="Aprobado"
+                if nota_10 >= media_objetivo_sql
+                else "- Suspenso",
+            )
+
+            if q.get("observaciones"):
+              st.info(
+                  f"**Observaciones Generales del Q:** {q['observaciones']}"
+              )
+
+            st.markdown("**Desglose por Apartados:**")
+            for apartado, group in df_det.groupby("apartado"):
+              st.markdown(f"#### 📌 {apartado}")
+              for _, row in group.iterrows():
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"• **{row['subapartado']}**")
+                if row["observaciones"]:
+                  col1.caption(f"Obs: {row['observaciones']}")
+                col2.metric("Puntuación", f"{row['puntuacion']} pts")
+              st.divider()
+
+    if puntuaciones_obtenidas:
+      total_puntos_obt = sum(puntuaciones_obtenidas)
+      total_puntos_max = sum(puntuaciones_maximas)
+      nota_media_anual = (
+          sum(notas_sobre_10) / len(notas_sobre_10) if notas_sobre_10 else 0
+      )
+      min_puntos_aprobar_anual = (media_objetivo_sql / 10.0) * total_puntos_max
+
+      st.markdown("---")
+      st.subheader("🏆 Resumen Anual Global (Trimestres Habilitados)")
+
+      col_g1, col_g2, col_g3, col_g4 = st.columns(4)
+      col_g1.metric(
+          "Puntos Totales Obtenidos", f"{round(total_puntos_obt, 2)} pts"
+      )
+      col_g2.metric(
+          "Puntuación Máxima Posible", f"{round(total_puntos_max, 2)} pts"
+      )
+      col_g3.metric(
+          f"Mínimo Global para Aprobar ({media_objetivo_sql}/10)",
+          f"{round(min_puntos_aprobar_anual, 2)} pts",
+      )
+      col_g4.metric(
+          "Nota Media Anual (Escala 0 - 10)", f"{round(nota_media_anual, 2)} / 10"
+      )
+
+      if nota_media_anual >= media_objetivo_sql:
+        st.success(
+            f"🎉 **ESTADO ANUAL: APROBADO** (Nota: {round(nota_media_anual, 2)}/10"
+            f" - Objetivo Requerido: {media_objetivo_sql})"
+        )
+      else:
+        st.error(
+            f"⚠️ **ESTADO ANUAL: SUSPENSO** (Nota: {round(nota_media_anual, 2)}/10"
+            f" - Objetivo Requerido: {media_objetivo_sql})"
+        )
+
+      st.markdown("---")
+      st.subheader("🤖 Informe Evaluativo IA Guardado")
+      try:
+        inf_resp = (
+            supabase.table("informes_evaluacion")
+            .select("informe_texto, created_at")
+            .eq("empleado_id", emp_id)
+            .eq("anio", sel_anio)
+            .execute()
+            .data
+        )
+        if inf_resp:
+          st.markdown(inf_resp[0]["informe_texto"])
+          st.caption(f"Informe actualizado el: {inf_resp[0]['created_at']}")
+        else:
+          st.info(
+              "Aún no se ha generado e insertado el informe IA para este año."
+          )
+      except Exception:
+        st.info("Aún no existe la tabla o registro del informe IA.")
+    else:
+      st.warning("No hay trimestres habilitados para mostrar.")
+  else:
+    st.warning("No hay evaluaciones disponibles.")
+
+
 # ---------------------------------------------------------
 # ESTADO DE LA SESIÓN
 # ---------------------------------------------------------
