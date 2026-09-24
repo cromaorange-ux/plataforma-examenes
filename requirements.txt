@@ -8,3 +8,5 @@ reportlab
 anthropic
 pandas
 openpyxl
+openai
+google-generativeai
