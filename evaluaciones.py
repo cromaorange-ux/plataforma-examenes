@@ -2047,6 +2047,34 @@ else:
                     else:
                         st.warning(f"Aún no hay ningún informe de evaluación guardado y activo para ti en el año {anio_vigente}.")
 
+        # --- TAB EMPLEADO: EVALUACIONES TRIMESTRALES ---
+        if not st.session_state.es_croma and tab_emp_trimestral:
+          with tab_emp_trimestral:
+            st.header("📋 Mis Evaluaciones Trimestrales")
+
+            emps = supabase.table("empleados").select("id, nombre").execute().data
+            emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+            # Por defecto selecciona al empleado autenticado en la sesión
+            sel_emp = st.session_state.user_nombre
+            emp_id = st.session_state.user_id
+
+            evals_emp = (
+                supabase.table("evaluaciones_trimestrales")
+                .select("anio")
+                .eq("empleado_id", emp_id)
+                .execute()
+                .data
+            )
+            anios_disp = (
+                sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
+                if evals_emp
+                else [2025]
+            )
+        sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
+
+        renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
+
         # ADMIN CROMA - RESULTADOS Y EDICIÓN
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
