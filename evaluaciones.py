@@ -3235,72 +3235,72 @@ else:
                     resp_json = json.loads(resp_raw)
                   except Exception:
                     resp_json = []
-                  elif isinstance(resp_raw, list):
-                    resp_json = resp_raw
-                  else:
-                    resp_json = []
+                elif isinstance(resp_raw, list):
+                  resp_json = resp_raw
+                else:
+                  resp_json = []
 
-                  minutos_val = row.get("minutes")
-                  if not pd.isna(minutos_val) and minutos_val is not None:
-                    t_limite = int(minutos_val) * 60
-                  else:
-                    t_limite = int(row.get("tiempo_limite") or row.get("tiempo_limite_segundos") or 0)
+                minutos_val = row.get("minutes")
+                if not pd.isna(minutos_val) and minutos_val is not None:
+                  t_limite = int(minutos_val) * 60
+                else:
+                  t_limite = int(row.get("tiempo_limite") or row.get("tiempo_limite_segundos") or 0)
 
-                  fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
-                  fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
+                fecha_inicio_clean = limpiar_timestamp_sql(row.get("fecha_inicio"))
+                fecha_fin_clean = limpiar_timestamp_sql(row.get("fecha_fin"))
 
-                  sobrepasado = False
-                  duracion_seg = 0
-                  if fecha_inicio_clean and fecha_fin_clean:
-                    try:
-                      dt_ini = pd.to_datetime(fecha_inicio_clean)
-                      dt_fin = pd.to_datetime(fecha_fin_clean)
-                      duracion_seg = int((dt_fin - dt_ini).total_seconds())
-                      if t_limite > 0 and duracion_seg > t_limite:
-                        sobrepasado = True
-                      except Exception:
-                        pass
-
-                  # Mapeo correcto del porcentaje de aciertos en la posición 7 (porcentaje_obtenido)
-                  if len(row) >= 8 and not pd.isna(row.iloc[7]):
-                    porcentaje_val = float(row.iloc[7])
-                  else:
-                    porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
-
-                  nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
-
-                  if sobrepasado:
-                    nota_val = 0.0
-                    porcentaje_val = 0.0
-
-                  registro_nuevo = {
-                    "empleado_id": emp_id,
-                    "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
-                    "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
-                    "fecha_inicio": fecha_inicio_clean,
-                    "fecha_fin": fecha_fin_clean,
-                    "tiempo_total_segundos": duracion_seg if duracion_seg > 0 else int(row.get("tiempo_total_segundos", 0)),
-                    "tiempo_limite": t_limite,
-                    "porcentaje_obtenido": porcentaje_val,
-                    "nota": nota_val,
-                    "respuestas_usuario": resp_json,
-                    "sobrepasado_tiempo": sobrepasado,
-                    "activo": True
-                  }
-
+                sobrepasado = False
+                duracion_seg = 0
+                if fecha_inicio_clean and fecha_fin_clean:
                   try:
-                    supabase.table("intentos_examen").insert(registro_nuevo).execute()
-                    registros_insertados += 1
-                  except Exception as err_ins:
-                    st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
-                    errores_import += 1
+                    dt_ini = pd.to_datetime(fecha_inicio_clean)
+                    dt_fin = pd.to_datetime(fecha_fin_clean)
+                    duracion_seg = int((dt_fin - dt_ini).total_seconds())
+                    if t_limite > 0 and duracion_seg > t_limite:
+                      sobrepasado = True
+                  except Exception:
+                    pass
 
-                  if registros_insertados > 0:
-                    st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
-                    time.sleep(1.5)
-                    st.rerun()
+                # Mapeo correcto del porcentaje de aciertos en la posición 7 (porcentaje_obtenido)
+                if len(row) >= 8 and not pd.isna(row.iloc[7]):
+                  porcentaje_val = float(row.iloc[7])
+                else:
+                  porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
 
-                  except Exception as e_csv:
-                    st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
+                nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
+
+                if sobrepasado:
+                  nota_val = 0.0
+                  porcentaje_val = 0.0
+
+                registro_nuevo = {
+                  "empleado_id": emp_id,
+                  "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
+                  "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
+                  "fecha_inicio": fecha_inicio_clean,
+                  "fecha_fin": fecha_fin_clean,
+                  "tiempo_total_segundos": duracion_seg if duracion_seg > 0 else int(row.get("tiempo_total_segundos", 0)),
+                  "tiempo_limite": t_limite,
+                  "porcentaje_obtenido": porcentaje_val,
+                  "nota": nota_val,
+                  "respuestas_usuario": resp_json,
+                  "sobrepasado_tiempo": sobrepasado,
+                  "activo": True
+                }
+
+                try:
+                  supabase.table("intentos_examen").insert(registro_nuevo).execute()
+                  registros_insertados += 1
+                except Exception as err_ins:
+                  st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
+                  errores_import += 1
+
+                if registros_insertados > 0:
+                  st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
+                  time.sleep(1.5)
+                  st.rerun()
+
+                except Exception as e_csv:
+                  st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
 
             st.markdown("---")
