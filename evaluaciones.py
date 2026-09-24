@@ -2366,17 +2366,19 @@ else:
                             archivo_csv_import.seek(0)
                             df_csv = pd.read_csv(archivo_csv_import, sep=',')
                     except Exception:
-                    # Intento 2 (Fallback): Leer con separador ','
-                    archivo_csv_import.seek(0)
-                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
-            
-                        res_emp_all = supabase.table("empleados").select("id, nombre").execute()
-                        map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
+                        # Intento 2 (Fallback): Leer con separador ','
+                        archivo_csv_import.seek(0)
+                        df_csv = pd.read_csv(archivo_csv_import, sep=',')
 
-                        registros_insertados = 0
-                        errores_import = 0
+                # Estas líneas van fuera del try/except, pero alineadas con el nivel del botón
+                res_emp_all = supabase.table("empleados").select("id, nombre").execute()
+                map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
 
-                    for idx_row, row in df_csv.iterrows():
+                registros_insertados = 0
+                errores_import = 0
+
+            # ... resto del código del bucle ...
+            for idx_row, row in df_csv.iterrows():
                                 nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
                                 emp_id = map_empleados.get(nombre_emp.lower(), None)
                                 
