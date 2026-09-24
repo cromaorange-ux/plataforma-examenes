@@ -3565,14 +3565,28 @@ else:
                 with tab_g_emp:
                     st.markdown("### 👥 Empleados Registrados")
 
-                    filtro_estado_emp = st.radio(
-                        "Filtrar empleados por estado:",
-                        ["Activos", "Deshabilitados", "Todos"],
-                        index=0,  # Por defecto Activos
-                        horizontal=True,
-                        key="f_emp_est"
-                    )
+                # 1. Componente de Streamlit
+                filtro_estado_emp = st.radio(
+                  "Filtrar empleados por estado:",
+                  ["Activos", "Deshabilitados", "Todos"],
+                  index=0,
+                  horizontal=True,
+                  key="f_emp_est_filtro"  # Key única para evitar duplicados
+                )
 
+                # 2. Construcción de la consulta en Supabase
+                query = supabase.table("empleados").select("*")
+
+                if filtro_estado_emp == "Activos":
+                  query = query.eq("activo", True)  # O eq("estado", "Activo") según tu columna
+                elif filtro_estado_emp == "Deshabilitados":
+                  query = query.eq("activo", False)
+
+                # 3. Ejecución
+                resultado = query.execute()
+                df_empleados = pd.DataFrame(resultado.data or [])
+
+                st.dataframe(df_empleados)
                     try:
                         q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
                         if filtro_estado_emp == "Activos":
