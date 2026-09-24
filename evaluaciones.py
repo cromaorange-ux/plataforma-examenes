@@ -2049,33 +2049,34 @@ else:
 
         # --- TAB EMPLEADO: EVALUACIONES TRIMESTRALES ---
         if not st.session_state.es_croma and tab_emp_trimestral:
-          with tab_emp_trimestral:
-            st.header("📋 Mis Evaluaciones Trimestrales")
+            with tab_emp_trimestral:
+                st.header("📋 Mis Evaluaciones Trimestrales")
 
-            emps = supabase.table("empleados").select("id, nombre").execute().data
-            emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+                emps = supabase.table("empleados").select("id, nombre").execute().data
+                emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
-            # Por defecto selecciona al empleado autenticado en la sesión
-            sel_emp = st.session_state.user_nombre
-            emp_id = st.session_state.user_id
+                # Por defecto selecciona al empleado autenticado en la sesión
+                sel_emp = st.session_state.user_nombre
+                emp_id = st.session_state.user_id
 
-            evals_emp = (
-                supabase.table("evaluaciones_trimestrales")
-                .select("anio")
-                .eq("empleado_id", emp_id)
-                .execute()
-                .data
-            )
-            anios_disp = (
-                sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
-                if evals_emp
-                else [2025]
-            )
-        sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
+                evals_emp = (
+                    supabase.table("evaluaciones_trimestrales")
+                    .select("anio")
+                    .eq("empleado_id", emp_id)
+                    .execute()
+                    .data
+                )
+                anios_disp = (
+                    sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
+                    if evals_emp
+                    else [2025]
+                )
+                sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
 
-        renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
-
+                renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
+                
         # ADMIN CROMA - RESULTADOS Y EDICIÓN
+        
         if st.session_state.es_croma and tab_admin_resultados:
             with tab_admin_resultados:
                 st.subheader("📊 Historial General y Edición por Usuario")
@@ -2374,7 +2375,7 @@ else:
                             registros_insertados = 0
                             errores_import = 0
 
-                            for idx_row, row in df_csv.iterrows():
+for idx_row, row in df_csv.iterrows():
                                 nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
                                 emp_id = map_empleados.get(nombre_emp.lower(), None)
                                 
@@ -2410,46 +2411,32 @@ else:
                                     except Exception:
                                         pass
 
-                                if len(row) >= 8 and not pd.isna(row.iloc[7]):
-                                    porcentaje_val = float(row.iloc[7])
-                                else:
-                                    porcentaje_val = float(row.get("porcentaje_obtenido", 0)) if not pd.isna(row.get("porcentaje_obtenido")) else 0.0
-
-                                nota_val = float(row.get("nota", 0)) if not pd.isna(row.get("nota")) else 0.0
-
-                                if sobrepasado:
-                                    nota_val = 0.0
-                                    porcentaje_val = 0.0
-
-                                registro_nuevo = {
-                                    "empleado_id": emp_id,
-                                    "nombre_empleado": nombre_emp if nombre_emp else "Desconocido",
-                                    "apartado": str(row.get("Apartado") or row.get("apartado") or ""),
-                                    "fecha_inicio": fecha_inicio_clean,
-                                    "fecha_fin": fecha_fin_clean,
-                                    "tiempo_total_segundos": duracion_seg if duracion_seg > 0 else int(row.get("tiempo_total_segundos", 0)),
-                                    "tiempo_limite": t_limite,
-                                    "porcentaje_obtenido": porcentaje_val,
-                                    "nota": nota_val,
-                                    "respuestas_usuario": resp_json,
-                                    "sobrepasado_tiempo": sobrepasado,
-                                    "activo": True
-                                }
-
                                 try:
-                                    supabase.table("intentos_examen").insert(registro_nuevo).execute()
+                                    registro_csv = {
+                                        "empleado_id": emp_id,
+                                        "nombre_empleado": nombre_emp,
+                                        "apartado": str(row.get("apartado") or "GLOBAL COMPLETO"),
+                                        "nota": float(row.get("nota") or 0.0),
+                                        "porcentaje_obtenido": float(row.get("porcentaje_obtenido") or row.get("porcentaje") or 0.0),
+                                        "respuestas_usuario": resp_json,
+                                        "fecha_inicio": fecha_inicio_clean,
+                                        "fecha_fin": fecha_fin_clean,
+                                        "tiempo_total_segundos": duracion_seg,
+                                        "tiempo_limite": t_limite,
+                                        "sobrepasado_tiempo": sobrepasado,
+                                        "activo": True
+                                    }
+                                    supabase.table("intentos_examen").insert(registro_csv).execute()
                                     registros_insertados += 1
-                                except Exception as err_ins:
-                                    st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
+                                except Exception as err_row:
                                     errores_import += 1
 
-                            if registros_insertados > 0:
-                                st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
-                                time.sleep(1.5)
-                                st.rerun()
+                            st.success(f"✅ Proceso finalizado: {registros_insertados} registros importados correctamente.")
+                            if errores_import > 0:
+                                st.warning(f"⚠️ Se produjeron {errores_import} errores durante la importación.")
 
-                        except Exception as e_csv:
-                            st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
+                        except Exception as e_import:
+                            st.error(f"❌ Error al procesar el archivo CSV: {e_import}")
 
                 st.subheader("📄 Cargar Banco de Preguntas desde JSON (Soporta múltiples archivos)")
                 nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
