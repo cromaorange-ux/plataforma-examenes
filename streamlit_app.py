@@ -483,14 +483,13 @@ if rol == "Administrador":
         )
         if st.button("Procesar y Guardar en Base de Datos"):
           st.info("Procesando datos...")
-          # Lógica de carga a Supabase
           st.success("¡Datos procesados y guardados con éxito!")
       except Exception as e:
         st.error(f"Error al leer el archivo Excel: {e}")
 
-  # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO ---
+  # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO (PERSONALIZACIÓN COMPLETA) ---
   elif menu_admin == "2. Edición y Visibilidad por Empleado":
-    st.subheader("👁️ Ajustar Visibilidad y Filtros por Empleado")
+    st.subheader("👁️ Ajustar Visibilidad Personalizada por Empleado")
     emps = supabase.table("empleados").select("id, nombre").execute().data
     emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
@@ -502,7 +501,8 @@ if rol == "Administrador":
       emp_id = emp_dict[sel_emp]
       vis_actual = obtener_visibilidad_empleado(emp_id, sel_anio)
 
-      st.markdown("#### Habilitar Trimestres (Q)")
+      # 1. Habilitación de Trimestres
+      st.markdown("#### 1. Trimestres (Q) Habilitados")
       q_cols = st.columns(4)
       qs_hab = {}
       for idx, q_name in enumerate(["Q1", "Q2", "Q3", "Q4"]):
@@ -511,15 +511,125 @@ if rol == "Administrador":
             value=vis_actual.get("qs_habilitados", {}).get(q_name, True),
         )
 
-      if st.button("Guardar Preferencias de Visibilidad", type="primary"):
+      st.divider()
+
+      # 2. Consultar estructura de Apartados y Subapartados en la BD
+      evals = (
+          supabase.table("evaluaciones_trimestrales")
+          .select("id")
+          .eq("empleado_id", emp_id)
+          .eq("anio", sel_anio)
+          .execute()
+          .data
+      )
+      eval_ids = [e["id"] for e in evals] if evals else []
+
+      detalles = []
+      if eval_ids:
+        detalles = (
+            supabase.table("evaluacion_detalles")
+            .select("apartado, subapartado")
+            .in_("evaluacion_id", eval_ids)
+            .execute()
+            .data
+        )
+
+      # Estructura por defecto si no existen evaluaciones cargadas aún
+      estructura_apartados = {}
+      if detalles:
+        for d in detalles:
+          ap = d["apartado"]
+          sub = d["subapartado"]
+          if ap not in estructura_apartados:
+            estructura_apartados[ap] = set()
+          if sub:
+            estructura_apartados[ap].add(sub)
+        for ap in estructura_apartados:
+          estructura_apartados[ap] = sorted(list(estructura_apartados[ap]))
+      else:
+        estructura_apartados = {
+            "Tareas realizar por turnos y todos los turnos": [
+                "Realiza las tareas asignadas a su turno",
+                "Entrega de turno y comunicación",
+            ],
+            "Tiempos respuesta Tbox": [
+                "Atención inmediata a alertas",
+                "Tiempo medio de resolución",
+            ],
+            "Tiempos respuesta Siemens": [
+                "Respuesta en sistema Siemens",
+                "Gestión de incidencias",
+            ],
+            "Iniciativa / Proactividad ante el trabajo": [
+                "Proactividad en resolución de problemas",
+                "Aportación de mejoras",
+            ],
+            "Conocimientos": [
+                "Manejo de herramientas",
+                "Dominio de procedimientos",
+            ],
+            "Evaluacion": ["Evaluación global y desempeño general"],
+        }
+
+      apts_vis_guardados = vis_actual.get("apartados_habilitados", {})
+      sub_ocultos_guardados = set(
+          vis_actual.get("subapartados_deshabilitados", [])
+      )
+
+      st.markdown(
+          "#### 2. Selección Personalizada de Apartados y Subapartados"
+      )
+      st.caption(
+          "Desmarca los apartados o subapartados que no desees incluir en las"
+          " notas e informes de este empleado."
+      )
+
+      apartados_finales = {}
+      subapartados_deshabilitados_finales = []
+
+      for apt, subs in estructura_apartados.items():
+        st.markdown(f"##### 📌 Apartado: **{apt}**")
+
+        # Estado del apartado completo
+        ap_activo = st.checkbox(
+            f"Habilitar apartado completo: '{apt}'",
+            value=apts_vis_guardados.get(apt, True),
+            key=f"apt_{apt}",
+        )
+        apartados_finales[apt] = ap_activo
+
+        # Si el apartado está activo y tiene subapartados, dar la opción individual
+        if ap_activo and subs:
+          with st.indent if hasattr(st, "indent") else st.container():
+            st.write("    *Subapartados de este apartado:*")
+            cols_sub = st.columns(min(len(subs), 2) if len(subs) > 1 else 1)
+            for idx, sub_name in enumerate(subs):
+              col = cols_sub[idx % len(cols_sub)]
+              sub_activo = col.checkbox(
+                  f"• {sub_name}",
+                  value=(sub_name not in sub_ocultos_guardados),
+                  key=f"sub_{apt}_{sub_name}",
+              )
+              if not sub_activo:
+                subapartados_deshabilitados_finales.append(sub_name)
+        elif not ap_activo and subs:
+          # Si el apartado se deshabilita completo, marcar sus subapartados como deshabilitados
+          subapartados_deshabilitados_finales.extend(subs)
+
+        st.markdown("---")
+
+      # Botón de guardado
+      if st.button("💾 Guardar Configuración de Visibilidad", type="primary"):
         guardar_visibilidad_empleado(
             emp_id,
             sel_anio,
             qs_hab,
-            vis_actual.get("apartados_habilitados", {}),
-            vis_actual.get("subapartados_deshabilitados", []),
+            apartados_finales,
+            list(set(subapartados_deshabilitados_finales)),
         )
-        st.success("Configuración de visibilidad guardada con éxito.")
+        st.success(
+            "¡Configuración de apartados y subapartados guardada correctamente!"
+        )
 
   # --- 3. RESUMEN ANUAL Y DESGLOSE ---
   elif menu_admin == "3. Resumen Anual y Desglose":
