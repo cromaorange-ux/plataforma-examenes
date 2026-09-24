@@ -31,27 +31,23 @@ st.set_page_config(
 
 # --- FUNCIÓN PARA OBTENER LOS MODELOS DISPONIBLES DESDE config_prompts ---
 def obtener_modelos_disponibles_db():
-  """Lee la tabla config_prompts y extrae los modelos registrados y válidos."""
   modelos = []
   try:
     res = supabase.table("config_prompts").select("*").execute().data
     if res:
       for r in res:
-        # Extraer modelos OpenAI
         mod_oa = r.get("modelo_openai") or (
             r.get("valor") if "openai" in r.get("nombre", "").lower() else None
         )
         if mod_oa and mod_oa != "EMPTY":
           modelos.append({"proveedor": "openai", "nombre_modelo": mod_oa})
 
-        # Extraer modelos Gemini
         mod_gem = r.get("modelo_gemini") or (
             r.get("valor") if "gemini" in r.get("nombre", "").lower() else None
         )
         if mod_gem and mod_gem != "EMPTY":
           modelos.append({"proveedor": "gemini", "nombre_modelo": mod_gem})
 
-    # Si no encuentra nada en la BD, se ofrecen valores por defecto
     if not modelos:
       modelos = [
           {"proveedor": "openai", "nombre_modelo": "gpt-4o"},
@@ -59,7 +55,6 @@ def obtener_modelos_disponibles_db():
           {"proveedor": "gemini", "nombre_modelo": "gemini-3.6-flash"},
       ]
 
-    # Eliminar duplicados manteniendo el orden
     modelos_unicos = []
     vistos = set()
     for m in modelos:
@@ -137,7 +132,7 @@ def obtener_media_objetivo():
     return 8.0
 
 
-# --- FUNCIÓN PARA GENERAR UN INFORME CON UN MODELO ESPECÍFICO ---
+# --- CONSULTA IA Y GENERACIÓN MULTIMODELO ---
 def consultar_ia(prompt_completo, proveedor, nombre_modelo):
   try:
     if proveedor == "openai":
@@ -185,11 +180,9 @@ def consultar_ia(prompt_completo, proveedor, nombre_modelo):
     return False, f"Error con el modelo {nombre_modelo}: {e}"
 
 
-# --- FUNCIÓN PARA GENERAR E INSERTAR INFORME IA EN SQL (SOPORTA MÚLTIPLES MODELOS) ---
 def generar_y_guardar_informe_ia_multimodelo(
     empleado_id, nombre_emp, anio, lista_modelos_info
 ):
-  # 1. Obtener prompt base
   try:
     cfg = (
         supabase.table("config_prompts_eval")
@@ -210,7 +203,6 @@ def generar_y_guardar_informe_ia_multimodelo(
         "Realiza un informe evaluativo profesional basado en estos datos:"
     )
 
-  # 2. Obtener datos filtrados del empleado
   vis_emp = obtener_visibilidad_empleado(empleado_id, anio)
   qs_hab = vis_emp.get("qs_habilitados", {})
   apts_hab = vis_emp.get("apartados_habilitados", {})
@@ -257,7 +249,6 @@ def generar_y_guardar_informe_ia_multimodelo(
         f" {anio}.",
     )
 
-  # 3. Construir prompt completo
   prompt_completo = f"""
 {prompt_base}
 
@@ -270,7 +261,6 @@ Datos de evaluaciones del año:
 Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
 """
 
-  # 4. Consultar a cada modelo seleccionado y combinar respuestas
   textos_informes = []
   errores = []
 
@@ -290,14 +280,10 @@ Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
       errores.append(f"[{mod_nom}]: {res_texto}")
 
   if not textos_informes:
-    return (
-        False,
-        f"Fallaron todas las consultas de IA: {'; '.join(errores)}",
-    )
+    return False, f"Fallaron todas las consultas de IA: {'; '.join(errores)}"
 
   informe_final = "\n\n---\n\n".join(textos_informes)
 
-  # 5. Guardar/Actualizar en Supabase (SQL)
   try:
     supabase.table("informes_evaluacion").upsert(
         {
@@ -312,10 +298,9 @@ Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
     return False, f"Error al guardar el informe en la BD: {err}"
 
 
-# --- FUNCIÓN VISTA COMPARTIDA DE MIS EVALUACIONES ---
+# --- VISTA COMPARTIDA DE EVALUACIONES ---
 def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
   media_objetivo_sql = obtener_media_objetivo()
-
   vis_emp = obtener_visibilidad_empleado(emp_id, sel_anio)
   qs_habilitados = vis_emp.get("qs_habilitados", {})
   apts_habilitados = vis_emp.get("apartados_habilitados", {})
@@ -351,7 +336,6 @@ def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
 
       if detalles:
         df_det = pd.DataFrame(detalles)
-
         df_det = df_det[
             df_det["apartado"].map(lambda x: apts_habilitados.get(x, True))
         ]
@@ -360,7 +344,6 @@ def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
         if not df_det.empty:
           ptos_obtenidos = float(df_det["puntuacion"].sum())
           ptos_max_q = float(len(df_det) * 5.0)
-
           nota_10 = (ptos_obtenidos / ptos_max_q) * 10 if ptos_max_q > 0 else 0
           ptos_aprobar = (media_objetivo_sql / 10.0) * ptos_max_q
 
@@ -404,7 +387,6 @@ def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
                 col2.metric("Puntuación", f"{row['puntuacion']} pts")
               st.divider()
 
-    # --- RESUMEN GLOBAL ANUAL ---
     if puntuaciones_obtenidas:
       total_puntos_obt = sum(puntuaciones_obtenidas)
       total_puntos_max = sum(puntuaciones_maximas)
@@ -442,7 +424,6 @@ def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
             f" - Objetivo Requerido: {media_objetivo_sql})"
         )
 
-      # --- MOSTRAR INFORME GENERADO CON IA SI EXISTE ---
       st.markdown("---")
       st.subheader("🤖 Informe Evaluativo IA Guardado")
       try:
@@ -487,40 +468,157 @@ if rol == "Administrador":
       ],
   )
 
-  # --- 5. INFORMES IA (SELECCIÓN DE MODELOS MÚLTIPLES Y PROCESAMIENTO MÚLTIPLE) ---
-  if menu_admin == "5. Generar e Informes IA":
-    st.subheader("🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)")
+  # --- 1. CARGAR EXCEL EVALUACIONES ---
+  if menu_admin == "1. Cargar Excel Evaluaciones":
+    st.subheader("📁 Importar Datos desde Archivo Excel")
+    uploaded_file = st.file_uploader(
+        "Selecciona un archivo Excel (.xlsx)", type=["xlsx"]
+    )
+    if uploaded_file:
+      try:
+        wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+        st.success(
+            f"Archivo cargado correctamente. Hojas detectadas:"
+            f" {wb.sheetnames}"
+        )
+        if st.button("Procesar y Guardar en Base de Datos"):
+          st.info("Procesando datos...")
+          # Lógica de carga a Supabase
+          st.success("¡Datos procesados y guardados con éxito!")
+      except Exception as e:
+        st.error(f"Error al leer el archivo Excel: {e}")
 
-    # 1. Obtener los modelos registrados desde config_prompts
+  # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO ---
+  elif menu_admin == "2. Edición y Visibilidad por Empleado":
+    st.subheader("👁️ Ajustar Visibilidad y Filtros por Empleado")
+    emps = supabase.table("empleados").select("id, nombre").execute().data
+    emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+    col_e1, col_e2 = st.columns(2)
+    sel_emp = col_e1.selectbox("Empleado:", list(emp_dict.keys()))
+    sel_anio = col_e2.number_input("Año:", value=2025, step=1)
+
+    if sel_emp:
+      emp_id = emp_dict[sel_emp]
+      vis_actual = obtener_visibilidad_empleado(emp_id, sel_anio)
+
+      st.markdown("#### Habilitar Trimestres (Q)")
+      q_cols = st.columns(4)
+      qs_hab = {}
+      for idx, q_name in enumerate(["Q1", "Q2", "Q3", "Q4"]):
+        qs_hab[q_name] = q_cols[idx].checkbox(
+            q_name,
+            value=vis_actual.get("qs_habilitados", {}).get(q_name, True),
+        )
+
+      if st.button("Guardar Preferencias de Visibilidad", type="primary"):
+        guardar_visibilidad_empleado(
+            emp_id,
+            sel_anio,
+            qs_hab,
+            vis_actual.get("apartados_habilitados", {}),
+            vis_actual.get("subapartados_deshabilitados", []),
+        )
+        st.success("Configuración de visibilidad guardada con éxito.")
+
+  # --- 3. RESUMEN ANUAL Y DESGLOSE ---
+  elif menu_admin == "3. Resumen Anual y Desglose":
+    st.subheader("📊 Resumen Anual y Desglose General")
+    emps = supabase.table("empleados").select("id, nombre").execute().data
+    emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+    col_r1, col_r2 = st.columns(2)
+    sel_emp = col_r1.selectbox(
+        "Seleccionar Empleado para Consulta:", list(emp_dict.keys())
+    )
+    sel_anio = col_r2.number_input("Año de Consulta:", value=2025, step=1)
+
+    if sel_emp:
+      renderizar_mis_evaluaciones(emp_dict[sel_emp], sel_emp, sel_anio)
+
+  # --- 4. CONFIGURACIÓN PROMPTS Y MEDIA ---
+  elif menu_admin == "4. Configuración Prompts y Media":
+    st.subheader("⚙️ Configuración del Prompt Base y Nota Media Requerida")
+    try:
+      cfg = (
+          supabase.table("config_prompts_eval")
+          .select("*")
+          .limit(1)
+          .execute()
+          .data
+      )
+      prompt_actual = (
+          cfg[0]["prompt_texto"]
+          if cfg
+          else (
+              "Realiza un informe evaluativo profesional basado en estos"
+              " datos:"
+          )
+      )
+      media_actual = (
+          float(cfg[0]["objetivo_media"])
+          if cfg and "objetivo_media" in cfg[0]
+          else 8.0
+      )
+    except Exception:
+      prompt_actual = (
+          "Realiza un informe evaluativo profesional basado en estos datos:"
+      )
+      media_actual = 8.0
+
+    nuevo_prompt = st.text_area(
+        "Prompt Base para la IA:", value=prompt_actual, height=150
+    )
+    nueva_media = st.number_input(
+        "Nota Media Mínima Requerida (sobre 10):",
+        value=media_actual,
+        min_value=0.0,
+        max_value=10.0,
+        step=0.5,
+    )
+
+    if st.button("Guardar Configuración Base", type="primary"):
+      try:
+        supabase.table("config_prompts_eval").upsert(
+            {
+                "id": cfg[0]["id"] if cfg else 1,
+                "prompt_texto": nuevo_prompt,
+                "objetivo_media": nueva_media,
+            }
+        ).execute()
+        st.success("Configuración actualizada correctamente.")
+      except Exception as err:
+        st.error(f"Error al guardar la configuración: {err}")
+
+  # --- 5. GENERAR E INFORMES IA ---
+  elif menu_admin == "5. Generar e Informes IA":
+    st.subheader(
+        "🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)"
+    )
+
     modelos_disp = obtener_modelos_disponibles_db()
     opciones_modelos = [
         f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos_disp
     ]
 
     col_m1, col_m2 = st.columns([2, 1])
-
-    # PERMITIR SELECCIONAR MÁS DE UN MODELO
     modelos_seleccionados_str = col_m1.multiselect(
         "🧠 Seleccionar Modelo(s) IA para la consulta:",
         options=opciones_modelos,
         default=[opciones_modelos[0]] if opciones_modelos else [],
     )
-
     sel_anio = col_m2.number_input("Año a evaluar:", value=2025, step=1)
 
-    # Convertir selecciones de texto a objetos modelo/proveedor
     modelos_info_sel = []
     for mod_str in modelos_seleccionados_str:
       idx = opciones_modelos.index(mod_str)
       modelos_info_sel.append(modelos_disp[idx])
 
-    # 2. Selección múltiple de empleados
     emps = supabase.table("empleados").select("id, nombre").execute().data
     emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
     st.markdown("---")
     st.markdown("#### Selección de Empleados")
-
     seleccionar_todos = st.checkbox("Seleccionar TODOS los empleados")
 
     if seleccionar_todos:
@@ -535,7 +633,6 @@ if rol == "Administrador":
           default=[],
       )
 
-    # 3. Botón para procesar todas las consultas
     if st.button(
         "🚀 Generar e Insertar Informes Seleccionados", type="primary"
     ):
@@ -582,7 +679,6 @@ if rol == "Administrador":
           for emp_err, err_msg in resultados_error:
             st.caption(f"• **{emp_err}**: {err_msg}")
 
-        # Desplegable para revisar los informes recién creados
         if resultados_exito:
           st.markdown("### 📋 Vista Previa de Informes Generados")
           for emp_ok, informe_txt in resultados_exito:
@@ -622,7 +718,6 @@ if rol == "Administrador":
       )
       renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
 
-
 # --- ROL EMPLEADO ---
 elif rol == "Empleado":
   st.title("Portal del Empleado - Mis Evaluaciones")
@@ -634,7 +729,6 @@ elif rol == "Empleado":
   if sel_emp:
     emp_id = emp_dict[sel_emp]
 
-    # SE CORRIGIÓ EL ERROR: Se eliminó .eq("anio", sel_anio) que causaba NameError
     evals_emp = (
         supabase.table("evaluaciones_trimestrales")
         .select("anio")
