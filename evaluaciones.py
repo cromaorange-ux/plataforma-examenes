@@ -3295,12 +3295,12 @@ else:
                   st.error(f"Error importando fila {idx_row + 1} ({nombre_emp}): {err_ins}")
                   errores_import += 1
 
-                if registros_insertados > 0:
-                  st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
-                  time.sleep(1.5)
-                  st.rerun()
+              if registros_insertados > 0:
+                st.success(f"✅ Importación completada: Se insertaron **{registros_insertados}** registros correctamente.")
+                time.sleep(1.5)
+                st.rerun()
 
-                except Exception as e_csv:
-                  st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
+              except Exception as e_csv:
+                st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
 
             st.markdown("---")
