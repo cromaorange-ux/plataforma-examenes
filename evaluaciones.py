@@ -2357,25 +2357,26 @@ else:
                 st.subheader("📥 Importar Registro de Exámenes (CSV)")
                 archivo_csv_import = st.file_uploader("Seleccionar archivo CSV", type=["csv"], key="csv_import_uploader")
                 
-                if archivo_csv_import is not None:
-                    if st.button("🚀 Procesar e Importar CSV a la Base de Datos", use_container_width=True):
-                        try:
-                            try:
-                                df_csv = pd.read_csv(archivo_csv_import, sep=';')
-                                if len(df_csv.columns) <= 1:
-                                    archivo_csv_import.seek(0)
-                                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
-                            except Exception:
-                                archivo_csv_import.seek(0)
-                                df_csv = pd.read_csv(archivo_csv_import, sep=',')
+            if archivo_csv_import is not None:
+                if st.button("🚀 Procesar e Importar CSV a la Base de Datos", use_container_width=True):
+                    try:
+                        # Intento 1: Leer con separador ';'
+                        df_csv = pd.read_csv(archivo_csv_import, sep=';')
+                        if len(df_csv.columns) <= 1:
+                            archivo_csv_import.seek(0)
+                            df_csv = pd.read_csv(archivo_csv_import, sep=',')
+                    except Exception:
+                    # Intento 2 (Fallback): Leer con separador ','
+                    archivo_csv_import.seek(0)
+                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
+            
+                        res_emp_all = supabase.table("empleados").select("id, nombre").execute()
+                        map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
 
-                            res_emp_all = supabase.table("empleados").select("id, nombre").execute()
-                            map_empleados = {emp["nombre"].strip().lower(): emp["id"] for emp in (res_emp_all.data or [])}
+                        registros_insertados = 0
+                        errores_import = 0
 
-                            registros_insertados = 0
-                            errores_import = 0
-
-for idx_row, row in df_csv.iterrows():
+                    for idx_row, row in df_csv.iterrows():
                                 nombre_emp = str(row.get("nombre empleado") or row.get("nombre_empleado") or "").strip()
                                 emp_id = map_empleados.get(nombre_emp.lower(), None)
                                 
