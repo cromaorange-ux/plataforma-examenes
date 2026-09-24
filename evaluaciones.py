@@ -126,7 +126,7 @@ def guardar_visibilidad_empleado(
       datos, on_conflict="empleado_id, anio"
   ).execute()
 
-+
+
 def obtener_media_objetivo():
   try:
     res = (
