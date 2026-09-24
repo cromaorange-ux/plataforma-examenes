@@ -137,9 +137,57 @@ def obtener_media_objetivo():
     return 8.0
 
 
-# --- FUNCIÓN PARA GENERAR E INSERTAR/ACTUALIZAR INFORME IA EN SQL ---
-def generar_y_guardar_informe_ia(
-    empleado_id, nombre_emp, anio, proveedor, nombre_modelo
+# --- FUNCIÓN PARA GENERAR UN INFORME CON UN MODELO ESPECÍFICO ---
+def consultar_ia(prompt_completo, proveedor, nombre_modelo):
+  try:
+    if proveedor == "openai":
+      api_key = st.secrets.get("OPENAI_API_KEY", "")
+      if not api_key:
+        return (
+            False,
+            "Falta configurar 'OPENAI_API_KEY' en los Secrets de Streamlit.",
+        )
+      if openai is None:
+        return (
+            False,
+            "Librería 'openai' no instalada. Revisa tu requirements.txt.",
+        )
+
+      client = openai.OpenAI(api_key=api_key)
+      response = client.chat.completions.create(
+          model=nombre_modelo,
+          messages=[{"role": "user", "content": prompt_completo}],
+          temperature=0.7,
+      )
+      return True, response.choices[0].message.content
+
+    elif proveedor == "gemini":
+      api_key = st.secrets.get("GEMINI_API_KEY", "")
+      if not api_key:
+        return (
+            False,
+            "Falta configurar 'GEMINI_API_KEY' en los Secrets de Streamlit.",
+        )
+      if genai is None:
+        return (
+            False,
+            "Librería 'google-generativeai' no instalada. Revisa tu"
+            " requirements.txt.",
+        )
+
+      genai.configure(api_key=api_key)
+      model = genai.GenerativeModel(nombre_modelo)
+      response = model.generate_content(prompt_completo)
+      return True, response.text
+
+    return False, f"Proveedor '{proveedor}' no reconocido."
+  except Exception as e:
+    return False, f"Error con el modelo {nombre_modelo}: {e}"
+
+
+# --- FUNCIÓN PARA GENERAR E INSERTAR INFORME IA EN SQL (SOPORTA MÚLTIPLES MODELOS) ---
+def generar_y_guardar_informe_ia_multimodelo(
+    empleado_id, nombre_emp, anio, lista_modelos_info
 ):
   # 1. Obtener prompt base
   try:
@@ -222,52 +270,32 @@ Datos de evaluaciones del año:
 Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
 """
 
-  # 4. Consultar a la IA según el proveedor seleccionado
-  informe_generado = ""
+  # 4. Consultar a cada modelo seleccionado y combinar respuestas
+  textos_informes = []
+  errores = []
 
-  try:
-    if proveedor == "openai":
-      api_key = st.secrets.get("OPENAI_API_KEY", "")
-      if not api_key:
-        return (
-            False,
-            "Falta configurar 'OPENAI_API_KEY' en los Secrets de Streamlit.",
+  for mod_info in lista_modelos_info:
+    prov = mod_info["proveedor"]
+    mod_nom = mod_info["nombre_modelo"]
+
+    exito, res_texto = consultar_ia(prompt_completo, prov, mod_nom)
+    if exito:
+      if len(lista_modelos_info) > 1:
+        textos_informes.append(
+            f"### 🤖 Informe generado con {mod_nom} ({prov.upper()})\n\n{res_texto}"
         )
-      if openai is None:
-        return (
-            False,
-            "Librería 'openai' no instalada. Revisa tu requirements.txt.",
-        )
+      else:
+        textos_informes.append(res_texto)
+    else:
+      errores.append(f"[{mod_nom}]: {res_texto}")
 
-      client = openai.OpenAI(api_key=api_key)
-      response = client.chat.completions.create(
-          model=nombre_modelo,
-          messages=[{"role": "user", "content": prompt_completo}],
-          temperature=0.7,
-      )
-      informe_generado = response.choices[0].message.content
+  if not textos_informes:
+    return (
+        False,
+        f"Fallaron todas las consultas de IA: {'; '.join(errores)}",
+    )
 
-    elif proveedor == "gemini":
-      api_key = st.secrets.get("GEMINI_API_KEY", "")
-      if not api_key:
-        return (
-            False,
-            "Falta configurar 'GEMINI_API_KEY' en los Secrets de Streamlit.",
-        )
-      if genai is None:
-        return (
-            False,
-            "Librería 'google-generativeai' no instalada. Revisa tu"
-            " requirements.txt.",
-        )
-
-      genai.configure(api_key=api_key)
-      model = genai.GenerativeModel(nombre_modelo)
-      response = model.generate_content(prompt_completo)
-      informe_generado = response.text
-
-  except Exception as e:
-    return False, f"Error al conectar con la IA ({nombre_modelo}): {e}"
+  informe_final = "\n\n---\n\n".join(textos_informes)
 
   # 5. Guardar/Actualizar en Supabase (SQL)
   try:
@@ -275,11 +303,11 @@ Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
         {
             "empleado_id": empleado_id,
             "anio": anio,
-            "informe_texto": informe_generado,
+            "informe_texto": informe_final,
         },
         on_conflict="empleado_id, anio",
     ).execute()
-    return True, informe_generado
+    return True, informe_final
   except Exception as err:
     return False, f"Error al guardar el informe en la BD: {err}"
 
@@ -459,11 +487,9 @@ if rol == "Administrador":
       ],
   )
 
-  # ... (resto de opciones 1 a 4 permanecen iguales)
-
-  # --- 5. INFORMES IA (CON SELECCIÓN DE MODELO Y PROCESAMIENTO MÚLTIPLE) ---
+  # --- 5. INFORMES IA (SELECCIÓN DE MODELOS MÚLTIPLES Y PROCESAMIENTO MÚLTIPLE) ---
   if menu_admin == "5. Generar e Informes IA":
-    st.subheader("🤖 Generar e Insertar Informes IA (Procesamiento Múltiple)")
+    st.subheader("🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)")
 
     # 1. Obtener los modelos registrados desde config_prompts
     modelos_disp = obtener_modelos_disponibles_db()
@@ -473,17 +499,20 @@ if rol == "Administrador":
 
     col_m1, col_m2 = st.columns([2, 1])
 
-    modelo_seleccionado_str = col_m1.selectbox(
-        "🧠 Seleccionar Modelo IA para la consulta:", opciones_modelos
+    # PERMITIR SELECCIONAR MÁS DE UN MODELO
+    modelos_seleccionados_str = col_m1.multiselect(
+        "🧠 Seleccionar Modelo(s) IA para la consulta:",
+        options=opciones_modelos,
+        default=[opciones_modelos[0]] if opciones_modelos else [],
     )
 
-    # Identificar el modelo y proveedor seleccionado
-    idx_sel = opciones_modelos.index(modelo_seleccionado_str)
-    mod_info = modelos_disp[idx_sel]
-    proveedor_sel = mod_info["proveedor"]
-    modelo_nombre_sel = mod_info["nombre_modelo"]
-
     sel_anio = col_m2.number_input("Año a evaluar:", value=2025, step=1)
+
+    # Convertir selecciones de texto a objetos modelo/proveedor
+    modelos_info_sel = []
+    for mod_str in modelos_seleccionados_str:
+      idx = opciones_modelos.index(mod_str)
+      modelos_info_sel.append(modelos_disp[idx])
 
     # 2. Selección múltiple de empleados
     emps = supabase.table("empleados").select("id, nombre").execute().data
@@ -512,6 +541,8 @@ if rol == "Administrador":
     ):
       if not empleados_seleccionados:
         st.warning("Debes seleccionar al menos un empleado.")
+      elif not modelos_info_sel:
+        st.warning("Debes seleccionar al menos un modelo de IA.")
       else:
         total_emp = len(empleados_seleccionados)
         progreso_bar = st.progress(0)
@@ -524,11 +555,11 @@ if rol == "Administrador":
           emp_id = emp_dict[emp_nom]
           status_text.markdown(
               f"⌛ Procesando **{emp_nom}** ({idx + 1}/{total_emp}) con"
-              f" `{modelo_nombre_sel}`..."
+              f" **{len(modelos_info_sel)}** modelo(s)..."
           )
 
-          exito, msg = generar_y_guardar_informe_ia(
-              emp_id, emp_nom, sel_anio, proveedor_sel, modelo_nombre_sel
+          exito, msg = generar_y_guardar_informe_ia_multimodelo(
+              emp_id, emp_nom, sel_anio, modelos_info_sel
           )
 
           if exito:
@@ -603,11 +634,11 @@ elif rol == "Empleado":
   if sel_emp:
     emp_id = emp_dict[sel_emp]
 
+    # SE CORRIGIÓ EL ERROR: Se eliminó .eq("anio", sel_anio) que causaba NameError
     evals_emp = (
         supabase.table("evaluaciones_trimestrales")
         .select("anio")
         .eq("empleado_id", emp_id)
-        .eq("anio", sel_anio)
         .execute()
         .data
     )
