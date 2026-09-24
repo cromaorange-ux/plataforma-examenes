@@ -3307,6 +3307,249 @@ else:
             st.markdown("---")
 
 
+        # ADMIN CROMA - PESTAÑA: GESTIÓN DE INFORMES IA
+        if st.session_state.es_croma and tab_admin_informes_ia:
+            with tab_admin_informes_ia:
+                st.subheader("🤖 Gestión e Informes Generados por IA")
+                st.caption(
+                    "Consulta, activa o deshabilita la visibilidad de los informes"
+                    " almacenados en la base de datos (analisis_ia_empleados)."
+                )
+
+                # Obtener la lista de años disponibles en los informes
+                res_anios = supabase.table("analisis_ia_empleados").select("anio").execute()
+                anios_set = sorted(list(set(item.get("anio") for item in (res_anios.data or []) if item.get("anio"))), reverse=True)
+                
+                col_f_est, col_f_anio = st.columns([2, 1])
+
+                with col_f_est:
+                    filtro_estado_ia = st.radio(
+                        "Filtrar informes por estado:",
+                        ["Activos", "Deshabilitados", "Todos"],
+                        index=0,  # Por defecto Activos
+                        horizontal=True,
+                        key="f_ia_informes_est",
+                    )
+                
+                with col_f_anio:
+                    opciones_anios = ["Todos"] + [str(a) for a in anios_set]
+                    filtro_anio_ia = st.selectbox(
+                        "Filtrar por año:",
+                        options=opciones_anios,
+                        index=0,
+                        key="f_ia_informes_anio"
+                    )
+
+                try:
+                    q_ia = supabase.table("analisis_ia_empleados").select("*").order("fecha_generacion", desc=True)
+
+                    if filtro_estado_ia == "Activos":
+                        q_ia = q_ia.eq("activo", True)
+                    elif filtro_estado_ia == "Deshabilitados":
+                        q_ia = q_ia.eq("activo", False)
+
+                    if filtro_anio_ia != "Todos":
+                        q_ia = q_ia.eq("anio", int(filtro_anio_ia))
+
+                    res_ia_mng = q_ia.execute()
+                    ia_informes_data = res_ia_mng.data if res_ia_mng.data else []
+
+                    if ia_informes_data:
+                        for inf in ia_informes_data:
+                            inf_id = inf["id"]
+                            nombre_emp = inf.get("nombre_empleado", "Desconocido")
+                            anio_inf = inf.get("anio", "N/A")
+                            mod_ia = inf.get("modelo_ia", "IA")
+                            est_activo = inf.get("activo", True)
+                            fecha_gen = str(inf.get("fecha_generacion", ""))[:10]
+
+                            label_expander = (
+                                f"📄 Informe #{inf_id} | {nombre_emp} | Año: {anio_inf} | Modelo: {mod_ia} "
+                                f"({'🟢 Visibilidad Activa' if est_activo else '🔴 Deshabilitado'})"
+                            )
+
+                            with st.expander(label_expander):
+                                col_txt, col_ctrl = st.columns([3, 1])
+
+                                with col_txt:
+                                    st.markdown(
+                                        f"**Creado por:** {inf.get('creado_por', 'Sistema')} el `{fecha_gen}`"
+                                    )
+                                    st.info(inf.get("analisis_texto", "Sin texto disponible."))
+
+                                with col_ctrl:
+                                    st.markdown("### ⚙️ Control")
+                                    nuevo_est_ia = st.checkbox(
+                                        "Mostrar al empleado (Activo)",
+                                        value=est_activo,
+                                        key=f"chk_ia_inf_{inf_id}",
+                                    )
+
+                                    if nuevo_est_ia != est_activo:
+                                        try:
+                                            supabase.table("analisis_ia_empleados").update(
+                                                {"activo": nuevo_est_ia}
+                                            ).eq("id", inf_id).execute()
+
+                                            st.success("Estado actualizado correctamente.")
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        except Exception as err_upd:
+                                            st.error(f"Error al actualizar la base de datos: {err_upd}")
+
+                                    pdf_bytes = generar_pdf_evaluacion_ia(
+                                        nombre_emp, inf.get("analisis_texto", ""), anio_inf
+                                    )
+                                    if pdf_bytes:
+                                        st.download_button(
+                                            label="📄 Descargar PDF",
+                                            data=pdf_bytes,
+                                            file_name=f"Informe_IA_{nombre_emp}_{anio_inf}.pdf",
+                                            mime="application/pdf",
+                                            key=f"btn_dl_ia_{inf_id}",
+                                            use_container_width=True,
+                                        )
+                    else:
+                        st.info("No se encontraron informes de IA con los filtros seleccionados.")
+
+                except Exception as err_mng_ia:
+                    st.error(f"Error al consultar la tabla 'analisis_ia_empleados': {err_mng_ia}")
+
+        # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
+        if st.session_state.es_croma and tab_admin_gestion:
+            with tab_admin_gestion:
+                st.subheader("⚙️ Gestión de Usuarios, Manuales, Exámenes y Estado Activo")
+                
+                tab_g_emp, tab_g_man, tab_g_cfg = st.tabs([
+                    "👥 Lista de Empleados Registrados",
+                    "📘 Gestión de Manuales y Exámenes Cargados",
+                    "⏱️ Configuración de Tiempos y Prompts"
+                ])
+
+                # TAB 1: GESTIÓN DE EMPLEADOS
+                with tab_g_emp:
+                    st.markdown("### 👥 Empleados Registrados")
+
+                    filtro_estado_emp = st.radio(
+                        "Filtrar empleados por estado:",
+                        ["Activos", "Deshabilitados", "Todos"],
+                        index=0,  # Por defecto Activos
+                        horizontal=True,
+                        key="f_emp_est"
+                    )
+
+                    try:
+                        q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
+                        if filtro_estado_emp == "Activos":
+                            q_emp = q_emp.eq("activo", True)
+                        elif filtro_estado_emp == "Deshabilitados":
+                            q_emp = q_emp.eq("activo", False)
+
+                        res_emp_mgmt = q_emp.execute()
+
+                        if empleados_data:
+                            for emp in empleados_data:
+                                emp_id = emp["id"]
+                                emp_nom = emp.get("nombre", "Sin Nombre")
+                                emp_act = emp.get("activo", True)
+                                emp_admin = emp.get("es_admin_croma", False)
+                                emp_ia_hab = emp.get("analisis_ia_habilitado", True)
+
+                                with st.expander(f"👤 {emp_nom} ({'Administrador' if emp_admin else 'Empleado'}) - {'🟢 Activo' if emp_act else '🔴 Deshabilitado'}"):
+                                    col_e1, col_e2 = st.columns(2)
+                                    with col_e1:
+                                        nuevo_nom = st.text_input("Nombre completo:", value=emp_nom, key=f"emp_nom_in_{emp_id}")
+                                        chk_act = st.checkbox("Cuenta Activa en Plataforma", value=emp_act, key=f"emp_act_chk_{emp_id}")
+                                    with col_e2:
+                                        chk_adm = st.checkbox("Es Administrador CROMA", value=emp_admin, key=f"emp_adm_chk_{emp_id}")
+                                        chk_ia_hab = st.checkbox("Permitir Análisis IA a este usuario", value=emp_ia_hab, key=f"emp_ia_chk_{emp_id}")
+
+                                    if st.button("💾 Guardar Cambios de Empleado", key=f"btn_save_emp_{emp_id}"):
+                                        try:
+                                            supabase.table("empleados").update({
+                                                "nombre": nuevo_nom.strip(),
+                                                "activo": chk_act,
+                                                "es_admin_croma": chk_adm,
+                                                "analisis_ia_habilitado": chk_ia_hab
+                                            }).eq("id", emp_id).execute()
+                                            st.success("✅ Cambios actualizados correctamente.")
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        except Exception as err_u_e:
+                                            st.error(f"Error actualizando usuario: {err_u_e}")
+                        else:
+                            st.info("No se encontraron empleados registrados con el filtro seleccionado.")
+
+                    except Exception as err_emp_m:
+                        st.error(f"Error consultando empleados: {err_emp_m}")
+                        
+                
+
+                # TAB 2: GESTIÓN DE MANUALES
+                with tab_g_man:
+                    st.markdown("### 📘 Manuales y Bancos de Preguntas")
+
+                    filtro_estado_man = st.radio(
+                        "Filtrar manuales por estado:",
+                        ["Activos", "Deshabilitados", "Todos"],
+                        index=0,  # Por defecto Activos
+                        horizontal=True,
+                        key="f_man_est"
+                    )
+
+                    try:
+                        q_man = supabase.table("examenes").select("*").order("id", desc=True)
+                        if filtro_estado_man == "Activos":
+                            q_man = q_man.eq("activo", True)
+                        elif filtro_estado_man == "Deshabilitados":
+                            q_man = q_man.eq("activo", False)
+
+                        res_ex_mgmt = q_man.execute()
+                        examenes_mng_data = res_ex_mgmt.data if res_ex_mgmt.data else []
+
+                        if examenes_mng_data:
+                            for ex_m in examenes_mng_data:
+                                ex_id = ex_m["id"]
+                                apt_nom = ex_m.get("apartado", "Sin Nombre")
+                                act_status = ex_m.get("activo", True)
+                                pregs_json_val = ex_m.get("preguntas_json", [])
+                                num_p_tot = len(pregs_json_val) if isinstance(pregs_json_val, list) else 0
+
+                                label_man = f"📘 Examen/Manual #{ex_id}: {apt_nom} ({num_p_tot} preguntas) - {'🟢 Activo' if act_status else '🔴 Deshabilitado'}"
+
+                                with st.expander(label_man):
+                                    nuevo_apt = st.text_input("Nombre del Manual / Apartado:", value=apt_nom, key=f"ex_apt_in_{ex_id}")
+                                    chk_man_act = st.checkbox("Manual Activo en Plataforma", value=act_status, key=f"ex_act_chk_{ex_id}")
+
+                                    col_m1, col_m2 = st.columns(2)
+                                    with col_m1:
+                                        if st.button("💾 Guardar Cambios de Manual", key=f"btn_save_ex_{ex_id}"):
+                                            try:
+                                                supabase.table("examenes").update({
+                                                    "apartado": nuevo_apt.strip(),
+                                                    "activo": chk_man_act
+                                                }).eq("id", ex_id).execute()
+                                                st.success("✅ Manual actualizado correctamente.")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            except Exception as err_u_m:
+                                                st.error(f"Error actualizando manual: {err_u_m}")
+                                    with col_m2:
+                                        if st.button("🗑️ Eliminar Examen Permanentemente", key=f"btn_del_ex_{ex_id}"):
+                                            try:
+                                                supabase.table("examenes").delete().eq("id", ex_id).execute()
+                                                st.warning("⚠️ Examen eliminado de la base de datos.")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            except Exception as err_d_m:
+                                                st.error(f"Error eliminando manual: {err_d_m}")
+                        else:
+                            st.info("No se encontraron manuales con el filtro seleccionado.")
+
+                    except Exception as err_man_m:
+                        st.error(f"Error consultando manuales: {err_man_m}")
+
+
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
