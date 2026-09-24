@@ -3305,3 +3305,237 @@ else:
                     st.error(f"❌ Error al procesar el archivo CSV: {e_csv}")
 
             st.markdown("---")
+
+                        if empleados_data:
+                            for emp in empleados_data:
+                                emp_id = emp["id"]
+                                emp_nom = emp.get("nombre", "Sin Nombre")
+                                emp_act = emp.get("activo", True)
+                                emp_admin = emp.get("es_admin_croma", False)
+                                emp_ia_hab = emp.get("analisis_ia_habilitado", True)
+
+                                with st.expander(f"👤 {emp_nom} ({'Administrador' if emp_admin else 'Empleado'}) - {'🟢 Activo' if emp_act else '🔴 Deshabilitado'}"):
+                                    col_e1, col_e2 = st.columns(2)
+                                    with col_e1:
+                                        nuevo_nom = st.text_input("Nombre completo:", value=emp_nom, key=f"emp_nom_in_{emp_id}")
+                                        chk_act = st.checkbox("Cuenta Activa en Plataforma", value=emp_act, key=f"emp_act_chk_{emp_id}")
+                                    with col_e2:
+                                        chk_adm = st.checkbox("Es Administrador CROMA", value=emp_admin, key=f"emp_adm_chk_{emp_id}")
+                                        chk_ia_hab = st.checkbox("Permitir Análisis IA a este usuario", value=emp_ia_hab, key=f"emp_ia_chk_{emp_id}")
+
+                                    if st.button("💾 Guardar Cambios de Empleado", key=f"btn_save_emp_{emp_id}"):
+                                        try:
+                                            supabase.table("empleados").update({
+                                                "nombre": nuevo_nom.strip(),
+                                                "activo": chk_act,
+                                                "es_admin_croma": chk_adm,
+                                                "analisis_ia_habilitado": chk_ia_hab
+                                            }).eq("id", emp_id).execute()
+                                            st.success("✅ Cambios actualizados correctamente.")
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        except Exception as err_u_e:
+                                            st.error(f"Error actualizando usuario: {err_u_e}")
+                        else:
+                            st.info("No se encontraron empleados registrados con el filtro seleccionado.")
+
+                    except Exception as err_emp_m:
+                        st.error(f"Error consultando empleados: {err_emp_m}")
+                        
+                
+
+                # TAB 2: GESTIÓN DE MANUALES
+                with tab_g_man:
+                    st.markdown("### 📘 Manuales y Bancos de Preguntas")
+
+                    filtro_estado_man = st.radio(
+                        "Filtrar manuales por estado:",
+                        ["Activos", "Deshabilitados", "Todos"],
+                        index=0,  # Por defecto Activos
+                        horizontal=True,
+                        key="f_man_est"
+                    )
+
+                    try:
+                        q_man = supabase.table("examenes").select("*").order("id", desc=True)
+                        if filtro_estado_man == "Activos":
+                            q_man = q_man.eq("activo", True)
+                        elif filtro_estado_man == "Deshabilitados":
+                            q_man = q_man.eq("activo", False)
+
+                        res_ex_mgmt = q_man.execute()
+                        examenes_mng_data = res_ex_mgmt.data if res_ex_mgmt.data else []
+
+                        if examenes_mng_data:
+                            for ex_m in examenes_mng_data:
+                                ex_id = ex_m["id"]
+                                apt_nom = ex_m.get("apartado", "Sin Nombre")
+                                act_status = ex_m.get("activo", True)
+                                pregs_json_val = ex_m.get("preguntas_json", [])
+                                num_p_tot = len(pregs_json_val) if isinstance(pregs_json_val, list) else 0
+
+                                label_man = f"📘 Examen/Manual #{ex_id}: {apt_nom} ({num_p_tot} preguntas) - {'🟢 Activo' if act_status else '🔴 Deshabilitado'}"
+
+                                with st.expander(label_man):
+                                    nuevo_apt = st.text_input("Nombre del Manual / Apartado:", value=apt_nom, key=f"ex_apt_in_{ex_id}")
+                                    chk_man_act = st.checkbox("Manual Activo en Plataforma", value=act_status, key=f"ex_act_chk_{ex_id}")
+
+                                    col_m1, col_m2 = st.columns(2)
+                                    with col_m1:
+                                        if st.button("💾 Guardar Cambios de Manual", key=f"btn_save_ex_{ex_id}"):
+                                            try:
+                                                supabase.table("examenes").update({
+                                                    "apartado": nuevo_apt.strip(),
+                                                    "activo": chk_man_act
+                                                }).eq("id", ex_id).execute()
+                                                st.success("✅ Manual actualizado correctamente.")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            except Exception as err_u_m:
+                                                st.error(f"Error actualizando manual: {err_u_m}")
+                                    with col_m2:
+                                        if st.button("🗑️ Eliminar Examen Permanentemente", key=f"btn_del_ex_{ex_id}"):
+                                            try:
+                                                supabase.table("examenes").delete().eq("id", ex_id).execute()
+                                                st.warning("⚠️ Examen eliminado de la base de datos.")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            except Exception as err_d_m:
+                                                st.error(f"Error eliminando manual: {err_d_m}")
+                        else:
+                            st.info("No se encontraron manuales con el filtro seleccionado.")
+
+                    except Exception as err_man_m:
+                        st.error(f"Error consultando manuales: {err_man_m}")
+
+# ADMIN CROMA - PESTAÑA: GESTIÓN Y CONFIGURACIÓN
+        if st.session_state.es_croma and tab_admin_gestion:
+            with tab_admin_gestion:
+                st.subheader("⚙️ Gestión y Configuración del Sistema")
+                
+                subtab_tiempos_prompts, subtab_autorizaciones, subtab_empleados = st.tabs([
+                    "⏱️ Tiempos y Prompts / Modelos IA", 
+                    "🔑 Autorizaciones de Examen",
+                    "👥 Gestión de Empleados"
+                ])
+
+                # TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS (Y MODELOS IA)
+                with subtab_tiempos_prompts:
+                    st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
+                    
+                    with st.form("form_config_tiempos_preguntas"):
+                        col_t1, col_t2, col_t3 = st.columns(3)
+                        with col_t1:
+                            nuevo_tiempo_seg = st.number_input(
+                                "⏱️ Tiempo por pregunta (segundos):", 
+                                min_value=10, max_value=300, 
+                                value=TIEMPO_LIMITE_PREGUNTA
+                            )
+                        with col_t2:
+                            nuevo_num_global = st.number_input(
+                                "🌐 N.º Preguntas Examen Global:", 
+                                min_value=1, max_value=100, 
+                                value=NUM_PREG_GLOBAL
+                            )
+                        with col_t3:
+                            nuevo_num_manual = st.number_input(
+                                "📘 N.º Preguntas Examen Manual:", 
+                                min_value=1, max_value=100, 
+                                value=NUM_PREG_MANUAL
+                            )
+                        
+                        btn_guardar_tiempos = st.form_submit_button("💾 Guardar Tiempos y Parámetros")
+                        
+                        if btn_guardar_tiempos:
+                            ok_t = guardar_tiempo_pregunta_config(nuevo_tiempo_seg)
+                            ok_g = guardar_num_preguntas_config("global", nuevo_num_global)
+                            ok_m = guardar_num_preguntas_config("manual", nuevo_num_manual)
+                            if ok_t and ok_g and ok_m:
+                                st.success("✅ Configuración de tiempos y número de preguntas actualizada correctamente.")
+                                time.sleep(1)
+                                st.rerun()
+
+                    st.markdown("---")
+                    st.markdown("### 🤖 Configuración de Modelos de IA")
+                    st.caption("Modifica los modelos disponibles por proveedor. Puedes introducir varios modelos separados por comas.")
+
+                    # Cargar los valores actuales de los modelos desde la tabla config_prompts
+                    modelos_gemini_val = "gemini-2.5-pro, gemini-2.5-flash"
+                    modelos_claude_val = "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
+                    modelos_openai_val = "gpt-4o, gpt-4o-mini"
+                    config_prompts_id = None
+
+                    try:
+                        res_cfg_modelos = supabase.table("config_prompts").select("id, modelo_gemini, modelo_claude, modelo_openai").execute()
+                        if res_cfg_modelos.data:
+                            # Tomamos el primer registro existente con configuración de modelos
+                            fila_cfg = res_cfg_modelos.data[0]
+                            config_prompts_id = fila_cfg.get("id")
+                            if fila_cfg.get("modelo_gemini"):
+                                modelos_gemini_val = fila_cfg["modelo_gemini"]
+                            if fila_cfg.get("modelo_claude"):
+                                modelos_claude_val = fila_cfg["modelo_claude"]
+                            if fila_cfg.get("modelo_openai"):
+                                modelos_openai_val = fila_cfg["modelo_openai"]
+                    except Exception as e_cfg:
+                        st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
+
+                    with st.form("form_config_modelos_ia"):
+                        input_gemini = st.text_input("💎 Modelos Gemini (modelo_gemini):", value=modelos_gemini_val)
+                        input_claude = st.text_input("🧠 Modelos Claude / Anthropic (modelo_claude):", value=modelos_claude_val)
+                        input_openai = st.text_input("⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val)
+
+                        btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
+
+                        if btn_guardar_modelos:
+                            try:
+                                datos_actualizacion = {
+                                    "modelo_gemini": input_gemini.strip(),
+                                    "modelo_claude": input_claude.strip(),
+                                    "modelo_openai": input_openai.strip()
+                                }
+                                
+                                if config_prompts_id:
+                                    # Actualizar registro existente
+                                    supabase.table("config_prompts").update(datos_actualizacion).eq("id", config_prompts_id).execute()
+                                else:
+                                    # Insertar uno nuevo si la tabla está vacía
+                                    supabase.table("config_prompts").insert(datos_actualizacion).execute()
+
+                                st.success("✅ Modelos de IA actualizados correctamente en la base de datos.")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as err_m_save:
+                                st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
+
+                    st.markdown("---")
+                    st.markdown("### 💬 Prompts Predeterminados del Sistema")
+                    
+                    # Cargar Prompts Actuales
+                    prompt_actual_examen = PROMPT_DEFECTO_EXAMEN
+                    prompt_actual_eval = "Analiza los exámenes del empleado y genera una evaluación profesional estructurada."
+                    
+                    try:
+                        res_p1 = supabase.table("config_prompts").select("valor").eq("nombre", "prompt_examen").limit(1).execute()
+                        if res_p1.data and res_p1.data[0].get("valor"):
+                            prompt_actual_examen = res_p1.data[0]["valor"]
+                            
+                        res_p2 = supabase.table("config_prompts").select("valor").eq("nombre", "evaluacion_empleado").limit(1).execute()
+                        if res_p2.data and res_p2.data[0].get("valor"):
+                            prompt_actual_eval = res_p2.data[0]["valor"]
+                    except Exception:
+                        pass
+
+                    with st.form("form_prompts_sistema"):
+                        p_examen_val = st.text_area("📄 Prompt por defecto para Generación de Exámenes:", value=prompt_actual_examen, height=180)
+                        p_eval_val = st.text_area("📈 Prompt por defecto para Evaluación de Empleados con IA:", value=prompt_actual_eval, height=140)
+                        
+                        btn_guardar_prompts = st.form_submit_button("💾 Guardar Prompts Predeterminados")
+                        
+                        if btn_guardar_prompts:
+                            ok_p1 = guardar_prompt_config("prompt_examen", p_examen_val)
+                            ok_p2 = guardar_prompt_config("evaluacion_empleado", p_eval_val)
+                            if ok_p1 and ok_p2:
+                                st.success("✅ Prompts del sistema actualizados correctamente.")
+                                time.sleep(1)
+                                st.rerun()
