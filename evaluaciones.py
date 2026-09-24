@@ -3212,9 +3212,9 @@ else:
             try:
               try:
                 df_csv = pd.read_csv(archivo_csv_import, sep=';')
-                  if len(df_csv.columns) <= 1:
-                    archivo_csv_import.seek(0)
-                    df_csv = pd.read_csv(archivo_csv_import, sep=',')
+                if len(df_csv.columns) <= 1:
+                  archivo_csv_import.seek(0)
+                  df_csv = pd.read_csv(archivo_csv_import, sep=',')
               except Exception:
                 archivo_csv_import.seek(0)
                 df_csv = pd.read_csv(archivo_csv_import, sep=',')
