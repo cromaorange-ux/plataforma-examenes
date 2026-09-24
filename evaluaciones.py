@@ -2222,7 +2222,7 @@ else:
                                             registros_guardados += 1
 
                                     st.success(f"✅ Informe guardado en SQL exitosamente para {registros_guardados} empleado(s). El usuario ya puede visualizarlo.")
-                                me/except Exception as err_save_sql:
+                                except Exception as err_save_sql:
                                     st.error(f"❌ Error al guardar en SQL: {err_save_sql}")
 
         # ADMIN CROMA - PESTAÑA: GESTIÓN DE INFORMES IA
