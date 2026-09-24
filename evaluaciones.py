@@ -3306,6 +3306,39 @@ else:
 
             st.markdown("---")
 
+
+        # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
+        if st.session_state.es_croma and tab_admin_gestion:
+            with tab_admin_gestion:
+                st.subheader("⚙️ Gestión de Usuarios, Manuales, Exámenes y Estado Activo")
+                
+                tab_g_emp, tab_g_man, tab_g_cfg = st.tabs([
+                    "👥 Lista de Empleados Registrados",
+                    "📘 Gestión de Manuales y Exámenes Cargados",
+                    "⏱️ Configuración de Tiempos y Prompts"
+                ])
+
+                # TAB 1: GESTIÓN DE EMPLEADOS
+                with tab_g_emp:
+                    st.markdown("### 👥 Empleados Registrados")
+
+                    filtro_estado_emp = st.radio(
+                        "Filtrar empleados por estado:",
+                        ["Activos", "Deshabilitados", "Todos"],
+                        index=0,  # Por defecto Activos
+                        horizontal=True,
+                        key="f_emp_est"
+                    )
+
+                    try:
+                        q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
+                        if filtro_estado_emp == "Activos":
+                            q_emp = q_emp.eq("activo", True)
+                        elif filtro_estado_emp == "Deshabilitados":
+                            q_emp = q_emp.eq("activo", False)
+
+                        res_emp_mgmt = q_emp.execute()
+
                         if empleados_data:
                             for emp in empleados_data:
                                 emp_id = emp["id"]
