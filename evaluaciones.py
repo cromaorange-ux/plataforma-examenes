@@ -2438,8 +2438,8 @@ else:
                             if errores_import > 0:
                                 st.warning(f"⚠️ Se produjeron {errores_import} errores durante la importación.")
 
-                        except Exception as e_import:
-                            st.error(f"❌ Error al procesar el archivo CSV: {e_import}")
+                            except Exception as e_import:
+                                st.error(f"❌ Error al procesar el archivo CSV: {e_import}")
 
                 st.subheader("📄 Cargar Banco de Preguntas desde JSON (Soporta múltiples archivos)")
                 nombre_apartado_json = st.text_input("Nombre del Manual / Apartado para este JSON:")
