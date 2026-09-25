@@ -3686,33 +3686,33 @@ else:
 
 # ADMIN CROMA - PESTAÑA: GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
-            with tab_admin_gestion:
-                st.subheader("⚙️ Gestión y Configuración del Sistema")
+          with tab_admin_gestion:
+            st.subheader("⚙️ Gestión y Configuración del Sistema")
                 
-                subtab_tiempos_prompts, subtab_autorizaciones, subtab_empleados = st.tabs([
-                    "⏱️ Tiempos y Prompts / Modelos IA", 
-                    "🔑 Autorizaciones de Examen",
-                    "👥 Gestión de Empleados"
-                ])
+              subtab_tiempos_prompts, subtab_autorizaciones, subtab_empleados = st.tabs([
+                "⏱️ Tiempos y Prompts / Modelos IA", 
+                "🔑 Autorizaciones de Examen",
+                "👥 Gestión de Empleados"
+              ])
 
-                # TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS (Y MODELOS IA)
-                with subtab_tiempos_prompts:
-                    st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
+              # TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS (Y MODELOS IA)
+              with subtab_tiempos_prompts:
+                st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
                     
-                    with st.form("form_config_tiempos_preguntas"):
-                        col_t1, col_t2, col_t3 = st.columns(3)
-                        with col_t1:
-                            nuevo_tiempo_seg = st.number_input(
-                                "⏱️ Tiempo por pregunta (segundos):", 
-                                min_value=10, max_value=300, 
-                                value=TIEMPO_LIMITE_PREGUNTA
-                            )
-                        with col_t2:
-                            nuevo_num_global = st.number_input(
-                                "🌐 N.º Preguntas Examen Global:", 
-                                min_value=1, max_value=100, 
-                                value=NUM_PREG_GLOBAL
-                            )
+                  with st.form("form_config_tiempos_preguntas"):
+                    col_t1, col_t2, col_t3 = st.columns(3)
+                      with col_t1:
+                        nuevo_tiempo_seg = st.number_input(
+                          "⏱️ Tiempo por pregunta (segundos):", 
+                          min_value=10, max_value=300, 
+                          value=TIEMPO_LIMITE_PREGUNTA
+                        )
+                      with col_t2:
+                        nuevo_num_global = st.number_input(
+                          "🌐 N.º Preguntas Examen Global:", 
+                          min_value=1, max_value=100, 
+                          value=NUM_PREG_GLOBAL
+                        )
                         with col_t3:
                             nuevo_num_manual = st.number_input(
                                 "📘 N.º Preguntas Examen Manual:", 
