@@ -3308,7 +3308,7 @@ else:
 
 
 # TAB 3: INFORMES IA Y ANALÍTICA
-with tab_informes_ia:
+with tab_admin_informes_ia:
     st.header("📊 Informes IA y Analítica de Desempeño")
     st.caption("Filtra los manuales y exámenes evaluados para generar análisis mediante Inteligencia Artificial.")
 
