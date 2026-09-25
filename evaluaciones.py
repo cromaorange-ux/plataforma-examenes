@@ -3480,7 +3480,7 @@ else:
                         ["Activos", "Deshabilitados", "Todos"],
                         index=0,  # Por defecto Activos
                         horizontal=True,
-                        key="f_man_est"
+                        key="f_man_est_manuales"
                     )
 
                     try:
@@ -3629,7 +3629,7 @@ else:
                         ["Activos", "Deshabilitados", "Todos"],
                         index=0,  # Por defecto Activos
                         horizontal=True,
-                        key="f_man_est"
+                        key="f_man_est_gestion"
                     )
 
                     try:
