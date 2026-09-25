@@ -3755,39 +3755,39 @@ else:
                           modelos_claude_val = fila_cfg["modelo_claude"]
                           if fila_cfg.get("modelo_openai"):
                             modelos_openai_val = fila_cfg["modelo_openai"]
-                    except Exception as e_cfg:
-                        st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
+                  except Exception as e_cfg:
+                    st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
 
-                    with st.form("form_config_modelos_ia"):
-                        input_gemini = st.text_input("💎 Modelos Gemini (modelo_gemini):", value=modelos_gemini_val)
-                        input_claude = st.text_input("🧠 Modelos Claude / Anthropic (modelo_claude):", value=modelos_claude_val)
-                        input_openai = st.text_input("⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val)
+                  with st.form("form_config_modelos_ia"):
+                    input_gemini = st.text_input("💎 Modelos Gemini (modelo_gemini):", value=modelos_gemini_val)
+                    input_claude = st.text_input("🧠 Modelos Claude / Anthropic (modelo_claude):", value=modelos_claude_val)
+                    input_openai = st.text_input("⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val)
 
-                        btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
+                    btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
 
-                        if btn_guardar_modelos:
-                            try:
-                                datos_actualizacion = {
-                                    "modelo_gemini": input_gemini.strip(),
-                                    "modelo_claude": input_claude.strip(),
-                                    "modelo_openai": input_openai.strip()
-                                }
+                    if btn_guardar_modelos:
+                      try:
+                        datos_actualizacion = {
+                          "modelo_gemini": input_gemini.strip(),
+                          "modelo_claude": input_claude.strip(),
+                          "modelo_openai": input_openai.strip()
+                        }
                                 
-                                if config_prompts_id:
-                                    # Actualizar registro existente
-                                    supabase.table("config_prompts").update(datos_actualizacion).eq("id", config_prompts_id).execute()
-                                else:
-                                    # Insertar uno nuevo si la tabla está vacía
-                                    supabase.table("config_prompts").insert(datos_actualizacion).execute()
+                        if config_prompts_id:
+                          # Actualizar registro existente
+                          supabase.table("config_prompts").update(datos_actualizacion).eq("id", config_prompts_id).execute()
+                        else:
+                          # Insertar uno nuevo si la tabla está vacía
+                          supabase.table("config_prompts").insert(datos_actualizacion).execute()
 
-                                st.success("✅ Modelos de IA actualizados correctamente en la base de datos.")
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as err_m_save:
-                                st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
+                        st.success("✅ Modelos de IA actualizados correctamente en la base de datos.")
+                        time.sleep(1)
+                        st.rerun()
+                      except Exception as err_m_save:
+                        st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
 
-                    st.markdown("---")
-                    st.markdown("### 💬 Prompts Predeterminados del Sistema")
+                      st.markdown("---")
+                      st.markdown("### 💬 Prompts Predeterminados del Sistema")
                     
                     # Cargar Prompts Actuales
                     prompt_actual_examen = PROMPT_DEFECTO_EXAMEN
