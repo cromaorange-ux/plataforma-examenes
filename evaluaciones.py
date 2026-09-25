@@ -4340,44 +4340,44 @@ else:
                 )
                 prompt_actual = (
                     cfg[0]["prompt_texto"]
-                if cfg
-                else (
-                    "Realiza un informe evaluativo profesional basado en estos"
-                    " datos:"
-                )
-            )
-            media_actual = (
-                float(cfg[0]["objetivo_media"])
-                if cfg and "objetivo_media" in cfg[0]
-                else 8.0
-            )
-          except Exception:
-            prompt_actual = (
-                "Realiza un informe evaluativo profesional basado en estos datos:"
-            )
-            media_actual = 8.0
+					if cfg
+					else (
+						"Realiza un informe evaluativo profesional basado en estos"
+						" datos:"
+					)
+				)
+				media_actual = (
+					float(cfg[0]["objetivo_media"])
+					if cfg and "objetivo_media" in cfg[0]
+					else 8.0
+				)
+			except Exception:
+				prompt_actual = (
+					"Realiza un informe evaluativo profesional basado en estos datos:"
+				)
+				media_actual = 8.0
 
-          nuevo_prompt = st.text_area(
+			nuevo_prompt = st.text_area(
               "Prompt Base para la IA:", value=prompt_actual, height=150
-          )
-          nueva_media = st.number_input(
+			)
+			nueva_media = st.number_input(
               "Nota Media Mínima Requerida (sobre 10):",
               value=media_actual,
               min_value=0.0,
               max_value=10.0,
               step=0.5,
-          )
+			)
 
-          if st.button("Guardar Configuración Base", type="primary"):
-            try:
-              supabase.table("config_prompts_eval").upsert({
-                  "id": cfg[0]["id"] if cfg else 1,
-                  "prompt_texto": nuevo_prompt,
-                  "objetivo_media": nueva_media,
-              }).execute()
-              st.success("Configuración actualizada correctamente.")
-            except Exception as err:
-              st.error(f"Error al guardar la configuración: {err}")
+			if st.button("Guardar Configuración Base", type="primary"):
+				try:
+					supabase.table("config_prompts_eval").upsert({
+						"id": cfg[0]["id"] if cfg else 1,
+						"prompt_texto": nuevo_prompt,
+						"objetivo_media": nueva_media,
+					}).execute()
+					st.success("Configuración actualizada correctamente.")
+				except Exception as err:
+					st.error(f"Error al guardar la configuración: {err}")
 
     # --- 5. GENERAR E INFORMES IA ---
         elif menu_admin == "5. Generar e Informes IA":
