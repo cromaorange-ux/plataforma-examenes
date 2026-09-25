@@ -3744,17 +3744,21 @@ else:
                   config_prompts_id = None
 
                   try:
-                    res_cfg_modelos = supabase.table("config_prompts").select("id, modelo_gemini, modelo_claude, modelo_openai").execute()
+                    res_cfg_modelos = (
+                      supabase.table("config_prompts")
+                      .select("id, modelo_gemini, modelo_claude, modelo_openai")
+                      .execute()
+                    )
                     if res_cfg_modelos.data:
                       # Tomamos el primer registro existente con configuración de modelos
                       fila_cfg = res_cfg_modelos.data[0]
                       config_prompts_id = fila_cfg.get("id")
                       if fila_cfg.get("modelo_gemini"):
                         modelos_gemini_val = fila_cfg["modelo_gemini"]
-                        if fila_cfg.get("modelo_claude"):
-                          modelos_claude_val = fila_cfg["modelo_claude"]
-                          if fila_cfg.get("modelo_openai"):
-                            modelos_openai_val = fila_cfg["modelo_openai"]
+                      if fila_cfg.get("modelo_claude"):
+                        modelos_claude_val = fila_cfg["modelo_claude"]
+                      if fila_cfg.get("modelo_openai"):
+                        modelos_openai_val = fila_cfg["modelo_openai"]
                   except Exception as e_cfg:
                     st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
 
@@ -3786,8 +3790,8 @@ else:
                       except Exception as err_m_save:
                         st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
 
-                      st.markdown("---")
-                      st.markdown("### 💬 Prompts Predeterminados del Sistema")
+                    st.markdown("---")
+                    st.markdown("### 💬 Prompts Predeterminados del Sistema")
                     
                     # Cargar Prompts Actuales
                     prompt_actual_examen = PROMPT_DEFECTO_EXAMEN
