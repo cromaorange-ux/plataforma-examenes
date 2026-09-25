@@ -4346,194 +4346,194 @@ else:
                     " datos:"
                 )
             )
-        media_actual = (
-            float(cfg[0]["objetivo_media"])
-            if cfg and "objetivo_media" in cfg[0]
-            else 8.0
-        )
-      except Exception:
-        prompt_actual = (
-            "Realiza un informe evaluativo profesional basado en estos datos:"
-        )
-        media_actual = 8.0
-
-      nuevo_prompt = st.text_area(
-          "Prompt Base para la IA:", value=prompt_actual, height=150
-      )
-      nueva_media = st.number_input(
-          "Nota Media Mínima Requerida (sobre 10):",
-          value=media_actual,
-          min_value=0.0,
-          max_value=10.0,
-          step=0.5,
-      )
-
-      if st.button("Guardar Configuración Base", type="primary"):
-        try:
-          supabase.table("config_prompts_eval").upsert({
-              "id": cfg[0]["id"] if cfg else 1,
-              "prompt_texto": nuevo_prompt,
-              "objetivo_media": nueva_media,
-          }).execute()
-          st.success("Configuración actualizada correctamente.")
-        except Exception as err:
-          st.error(f"Error al guardar la configuración: {err}")
-
-    # --- 5. GENERAR E INFORMES IA ---
-    elif menu_admin == "5. Generar e Informes IA":
-      st.subheader(
-          "🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)"
-      )
-
-      modelos_disp = obtener_modelos_disponibles_db()
-      opciones_modelos = [
-          f"{m['nombre_modelo']} ({m['proveedor'].upper()})"
-          for m in modelos_disp
-      ]
-
-      col_m1, col_m2 = st.columns([2, 1])
-      modelos_seleccionados_str = col_m1.multiselect(
-          "🧠 Seleccionar Modelo(s) IA para la consulta:",
-          options=opciones_modelos,
-          default=[opciones_modelos[0]] if opciones_modelos else [],
-      )
-      sel_anio = col_m2.number_input("Año a evaluar:", value=2025, step=1)
-
-      modelos_info_sel = []
-      for mod_str in modelos_seleccionados_str:
-        idx = opciones_modelos.index(mod_str)
-        modelos_info_sel.append(modelos_disp[idx])
-
-      emps = supabase.table("empleados").select("id, nombre").execute().data
-      emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
-
-      st.markdown("---")
-      st.markdown("#### Selección de Empleados")
-      seleccionar_todos = st.checkbox("Seleccionar TODOS los empleados")
-
-      if seleccionar_todos:
-        empleados_seleccionados = list(emp_dict.keys())
-        st.info(
-            f"Se han seleccionado **{len(empleados_seleccionados)}**"
-            " empleados."
-        )
-      else:
-        empleados_seleccionados = st.multiselect(
-            "Selecciona uno o más empleados:",
-            options=list(emp_dict.keys()),
-            default=[],
-        )
-
-      if st.button(
-          "🚀 Generar e Insertar Informes Seleccionados", type="primary"
-      ):
-        if not empleados_seleccionados:
-          st.warning("Debes seleccionar al menos un empleado.")
-        elif not modelos_info_sel:
-          st.warning("Debes seleccionar al menos un modelo de IA.")
-        else:
-          total_emp = len(empleados_seleccionados)
-          progreso_bar = st.progress(0)
-          status_text = st.empty()
-
-          resultados_exito = []
-          resultados_error = []
-
-          for idx, emp_nom in enumerate(empleados_seleccionados):
-            emp_id = emp_dict[emp_nom]
-            status_text.markdown(
-                f"⌛ Procesando **{emp_nom}** ({idx + 1}/{total_emp}) con"
-                f" **{len(modelos_info_sel)}** modelo(s)..."
+            media_actual = (
+                float(cfg[0]["objetivo_media"])
+                if cfg and "objetivo_media" in cfg[0]
+                else 8.0
             )
-
-            exito, msg = generar_y_guardar_informe_ia_multimodelo(
-                emp_id, emp_nom, sel_anio, modelos_info_sel
+          except Exception:
+            prompt_actual = (
+                "Realiza un informe evaluativo profesional basado en estos datos:"
             )
+            media_actual = 8.0
 
-            if exito:
-              resultados_exito.append((emp_nom, msg))
-            else:
-              resultados_error.append((emp_nom, msg))
-
-            progreso_bar.progress((idx + 1) / total_emp)
-
-          status_text.empty()
-          st.success(
-              f"✅ Proceso completado: {len(resultados_exito)} informe(s)"
-              " generado(s) correctamente."
+          nuevo_prompt = st.text_area(
+              "Prompt Base para la IA:", value=prompt_actual, height=150
+          )
+          nueva_media = st.number_input(
+              "Nota Media Mínima Requerida (sobre 10):",
+              value=media_actual,
+              min_value=0.0,
+              max_value=10.0,
+              step=0.5,
           )
 
-          if resultados_error:
-            st.error(
-                f"⚠️ {len(resultados_error)} informe(s) no se pudieron generar:"
-            )
-            for emp_err, err_msg in resultados_error:
-              st.caption(f"• **{emp_err}**: {err_msg}")
+          if st.button("Guardar Configuración Base", type="primary"):
+            try:
+              supabase.table("config_prompts_eval").upsert({
+                  "id": cfg[0]["id"] if cfg else 1,
+                  "prompt_texto": nuevo_prompt,
+                  "objetivo_media": nueva_media,
+              }).execute()
+              st.success("Configuración actualizada correctamente.")
+            except Exception as err:
+              st.error(f"Error al guardar la configuración: {err}")
 
-          if resultados_exito:
-            st.markdown("### 📋 Vista Previa de Informes Generados")
-            for emp_ok, informe_txt in resultados_exito:
-              with st.expander(f"📄 Informe IA - {emp_ok}"):
-                st.markdown(informe_txt)
+    # --- 5. GENERAR E INFORMES IA ---
+        elif menu_admin == "5. Generar e Informes IA":
+          st.subheader(
+              "🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)"
+          )
+
+          modelos_disp = obtener_modelos_disponibles_db()
+          opciones_modelos = [
+              f"{m['nombre_modelo']} ({m['proveedor'].upper()})"
+              for m in modelos_disp
+          ]
+
+          col_m1, col_m2 = st.columns([2, 1])
+          modelos_seleccionados_str = col_m1.multiselect(
+              "🧠 Seleccionar Modelo(s) IA para la consulta:",
+              options=opciones_modelos,
+              default=[opciones_modelos[0]] if opciones_modelos else [],
+          )
+          sel_anio = col_m2.number_input("Año a evaluar:", value=2025, step=1)
+
+          modelos_info_sel = []
+          for mod_str in modelos_seleccionados_str:
+            idx = opciones_modelos.index(mod_str)
+            modelos_info_sel.append(modelos_disp[idx])
+
+          emps = supabase.table("empleados").select("id, nombre").execute().data
+          emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+          st.markdown("---")
+          st.markdown("#### Selección de Empleados")
+          seleccionar_todos = st.checkbox("Seleccionar TODOS los empleados")
+
+          if seleccionar_todos:
+            empleados_seleccionados = list(emp_dict.keys())
+            st.info(
+                f"Se han seleccionado **{len(empleados_seleccionados)}**"
+                " empleados."
+            )
+          else:
+            empleados_seleccionados = st.multiselect(
+                "Selecciona uno o más empleados:",
+                options=list(emp_dict.keys()),
+                default=[],
+            )
+
+          if st.button(
+              "🚀 Generar e Insertar Informes Seleccionados", type="primary"
+          ):
+            if not empleados_seleccionados:
+              st.warning("Debes seleccionar al menos un empleado.")
+            elif not modelos_info_sel:
+              st.warning("Debes seleccionar al menos un modelo de IA.")
+            else:
+              total_emp = len(empleados_seleccionados)
+              progreso_bar = st.progress(0)
+              status_text = st.empty()
+
+              resultados_exito = []
+              resultados_error = []
+
+              for idx, emp_nom in enumerate(empleados_seleccionados):
+                emp_id = emp_dict[emp_nom]
+                status_text.markdown(
+                    f"⌛ Procesando **{emp_nom}** ({idx + 1}/{total_emp}) con"
+                    f" **{len(modelos_info_sel)}** modelo(s)..."
+                )
+
+                exito, msg = generar_y_guardar_informe_ia_multimodelo(
+                    emp_id, emp_nom, sel_anio, modelos_info_sel
+                )
+
+                if exito:
+                  resultados_exito.append((emp_nom, msg))
+                else:
+                  resultados_error.append((emp_nom, msg))
+
+                progreso_bar.progress((idx + 1) / total_emp)
+
+              status_text.empty()
+              st.success(
+                  f"✅ Proceso completado: {len(resultados_exito)} informe(s)"
+                  " generado(s) correctamente."
+              )
+
+              if resultados_error:
+                st.error(
+                    f"⚠️ {len(resultados_error)} informe(s) no se pudieron generar:"
+                )
+                for emp_err, err_msg in resultados_error:
+                  st.caption(f"• **{emp_err}**: {err_msg}")
+
+              if resultados_exito:
+                st.markdown("### 📋 Vista Previa de Informes Generados")
+                for emp_ok, informe_txt in resultados_exito:
+                  with st.expander(f"📄 Informe IA - {emp_ok}"):
+                    st.markdown(informe_txt)
 
     # --- 6. DATOS EMPLEADO ---
-    elif menu_admin == "6. Datos empleado":
-      st.subheader("🔍 Datos empleado (Vista Espejo del Portal de Empleados)")
-      emps = supabase.table("empleados").select("id, nombre").execute().data
-      emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+        elif menu_admin == "6. Datos empleado":
+          st.subheader("🔍 Datos empleado (Vista Espejo del Portal de Empleados)")
+          emps = supabase.table("empleados").select("id, nombre").execute().data
+          emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
-      col_e1, col_e2 = st.columns(2)
-      sel_emp = col_e1.selectbox(
-          "Seleccionar Empleado a consultar:", list(emp_dict.keys())
-      )
+          col_e1, col_e2 = st.columns(2)
+          sel_emp = col_e1.selectbox(
+              "Seleccionar Empleado a consultar:", list(emp_dict.keys())
+          )
 
-      if sel_emp:
-        emp_id = emp_dict[sel_emp]
-        evals_emp = (
-            supabase.table("evaluaciones_trimestrales")
-            .select("anio")
-            .eq("empleado_id", emp_id)
-            .execute()
-            .data
-        )
-        anios_disp = (
-            sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
-            if evals_emp
-            else [2025]
-        )
-        sel_anio = col_e2.selectbox("Seleccionar Año:", anios_disp)
+          if sel_emp:
+            emp_id = emp_dict[sel_emp]
+            evals_emp = (
+                supabase.table("evaluaciones_trimestrales")
+                .select("anio")
+                .eq("empleado_id", emp_id)
+                .execute()
+                .data
+            )
+            anios_disp = (
+                sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
+                if evals_emp
+                else [2025]
+            )
+            sel_anio = col_e2.selectbox("Seleccionar Año:", anios_disp)
 
-        st.markdown(
-            f"### Portal del Empleado - Mis Evaluaciones (`{sel_emp}` -"
-            f" `{sel_anio}`)"
-        )
-        renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
+            st.markdown(
+                f"### Portal del Empleado - Mis Evaluaciones (`{sel_emp}` -"
+                f" `{sel_anio}`)"
+            )
+            renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
 
 
 # --- TAB EMPLEADO: EVALUACIONES TRIMESTRALES ---
-if not st.session_state.es_croma and tab_emp_trimestral:
-  with tab_emp_trimestral:
-    st.header("📋 Mis Evaluaciones Trimestrales")
+        if not st.session_state.es_croma and tab_emp_trimestral:
+          with tab_emp_trimestral:
+            st.header("📋 Mis Evaluaciones Trimestrales")
 
-    emps = supabase.table("empleados").select("id, nombre").execute().data
-    emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+            emps = supabase.table("empleados").select("id, nombre").execute().data
+            emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
 
     # Por defecto selecciona al empleado autenticado en la sesión
-    sel_emp = st.session_state.user_nombre
-    emp_id = st.session_state.user_id
+            sel_emp = st.session_state.user_nombre
+            emp_id = st.session_state.user_id
 
-    evals_emp = (
-        supabase.table("evaluaciones_trimestrales")
-        .select("anio")
-        .eq("empleado_id", emp_id)
-        .execute()
-        .data
-    )
-    anios_disp = (
-        sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
-        if evals_emp
-        else [2025]
-    )
-    sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
+            evals_emp = (
+                supabase.table("evaluaciones_trimestrales")
+                .select("anio")
+                .eq("empleado_id", emp_id)
+                .execute()
+                .data
+            )
+            anios_disp = (
+                sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
+                if evals_emp
+                else [2025]
+            )
+            sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
 
-    renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
+            renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
