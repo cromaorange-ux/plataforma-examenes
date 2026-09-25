@@ -4328,18 +4328,18 @@ else:
             renderizar_mis_evaluaciones(emp_dict[sel_emp], sel_emp, sel_anio)
 
     # --- 4. CONFIGURACIÓN PROMPTS Y MEDIA ---
-        elif menu_admin == "4. Configuración Prompts y Media":
-            st.subheader("⚙️ Configuración del Prompt Base y Nota Media Requerida")
-            try:
-                cfg = (
-                    supabase.table("config_prompts_eval")
-                    .select("*")
-                    .limit(1)
-                    .execute()
-                    .data
-                )
-                prompt_actual = (
-                    cfg[0]["prompt_texto"]
+		elif menu_admin == "4. Configuración Prompts y Media":
+			st.subheader("⚙️ Configuración del Prompt Base y Nota Media Requerida")
+			try:
+				cfg = (
+					supabase.table("config_prompts_eval")
+					.select("*")
+					.limit(1)
+					.execute()
+					.data
+				)
+				prompt_actual = (
+					cfg[0]["prompt_texto"]
 					if cfg
 					else (
 						"Realiza un informe evaluativo profesional basado en estos"
