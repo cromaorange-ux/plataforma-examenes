@@ -4139,29 +4139,29 @@ else:
 
             # --- TAB ADMINISTRADOR: EVALUACIONES TRIMESTRALES ---
         if st.session_state.es_croma and tab_admin_trimestral:
-        with tab_admin_trimestral:
-            st.header("📋 Gestión de Evaluaciones Trimestrales")
+            with tab_admin_trimestral:
+                st.header("📋 Gestión de Evaluaciones Trimestrales")
 
-            menu_admin = st.radio(
-                "Opción:",
-                [
-                    "1. Cargar Excel Evaluaciones",
-                    "2. Edición y Visibilidad por Empleado",
-                    "3. Resumen Anual y Desglose",
-                    "4. Configuración Prompts y Media",
-                    "5. Generar e Informes IA",
-                    "6. Datos empleado",
-                ],
-            horizontal=True,
-        )
+                menu_admin = st.radio(
+                    "Opción:",
+                    [
+                        "1. Cargar Excel Evaluaciones",
+                        "2. Edición y Visibilidad por Empleado",
+                        "3. Resumen Anual y Desglose",
+                        "4. Configuración Prompts y Media",
+                        "5. Generar e Informes IA",
+                        "6. Datos empleado",
+                    ],
+                horizontal=True,
+            )
 
     # --- 1. CARGAR EXCEL EVALUACIONES ---
-    if menu_admin == "1. Cargar Excel Evaluaciones":
-      st.subheader("📁 Importar Datos desde Archivo Excel")
-      uploaded_file = st.file_uploader(
-          "Selecciona un archivo Excel (.xlsx)", type=["xlsx"]
-      )
-      if uploaded_file:
+        if menu_admin == "1. Cargar Excel Evaluaciones":
+              st.subheader("📁 Importar Datos desde Archivo Excel")
+              uploaded_file = st.file_uploader(
+                  "Selecciona un archivo Excel (.xlsx)", type=["xlsx"]
+              )
+              if uploaded_file:
         try:
           wb = openpyxl.load_workbook(uploaded_file, data_only=True)
           st.success(
