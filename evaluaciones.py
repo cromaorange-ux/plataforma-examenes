@@ -4135,3 +4135,405 @@ else:
                 st.success("✅ Prompts del sistema actualizados correctamente.")
                 time.sleep(1)
                 st.rerun()
+
+
+            # --- TAB ADMINISTRADOR: EVALUACIONES TRIMESTRALES ---
+        if st.session_state.es_croma and tab_admin_trimestral:
+        with tab_admin_trimestral:
+            st.header("📋 Gestión de Evaluaciones Trimestrales")
+
+            menu_admin = st.radio(
+                "Opción:",
+                [
+                    "1. Cargar Excel Evaluaciones",
+                    "2. Edición y Visibilidad por Empleado",
+                    "3. Resumen Anual y Desglose",
+                    "4. Configuración Prompts y Media",
+                    "5. Generar e Informes IA",
+                    "6. Datos empleado",
+                ],
+            horizontal=True,
+        )
+
+    # --- 1. CARGAR EXCEL EVALUACIONES ---
+    if menu_admin == "1. Cargar Excel Evaluaciones":
+      st.subheader("📁 Importar Datos desde Archivo Excel")
+      uploaded_file = st.file_uploader(
+          "Selecciona un archivo Excel (.xlsx)", type=["xlsx"]
+      )
+      if uploaded_file:
+        try:
+          wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+          st.success(
+              f"Archivo cargado correctamente. Hojas detectadas:"
+              f" {wb.sheetnames}"
+          )
+          if st.button("Procesar y Guardar en Base de Datos"):
+            st.info("Procesando datos...")
+            st.success("¡Datos procesados y guardados con éxito!")
+        except Exception as e:
+          st.error(f"Error al leer el archivo Excel: {e}")
+
+    # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO ---
+    elif menu_admin == "2. Edición y Visibilidad por Empleado":
+      st.subheader("👁️ Ajustar Visibilidad Personalizada por Empleado")
+      emps = supabase.table("empleados").select("id, nombre").execute().data
+      emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+      col_e1, col_e2 = st.columns(2)
+      sel_emp = col_e1.selectbox("Empleado:", list(emp_dict.keys()))
+      sel_anio = col_e2.number_input("Año:", value=2025, step=1)
+
+      if sel_emp:
+        emp_id = emp_dict[sel_emp]
+        vis_actual = obtener_visibilidad_empleado(emp_id, sel_anio)
+
+        st.markdown("#### 1. Trimestres (Q) Habilitados")
+        q_cols = st.columns(4)
+        qs_hab = {}
+        for idx, q_name in enumerate(["Q1", "Q2", "Q3", "Q4"]):
+          qs_hab[q_name] = q_cols[idx].checkbox(
+              q_name,
+              value=vis_actual.get("qs_habilitados", {}).get(q_name, True),
+          )
+
+        st.divider()
+
+        evals = (
+            supabase.table("evaluaciones_trimestrales")
+            .select("id")
+            .eq("empleado_id", emp_id)
+            .eq("anio", sel_anio)
+            .execute()
+            .data
+        )
+        eval_ids = [e["id"] for e in evals] if evals else []
+
+        detalles = []
+        if eval_ids:
+          detalles = (
+              supabase.table("evaluacion_detalles")
+              .select("apartado, subapartado")
+              .in_("evaluacion_id", eval_ids)
+              .execute()
+              .data
+          )
+
+        estructura_apartados = {}
+        if detalles:
+          for d in detalles:
+            ap = d["apartado"]
+            sub = d["subapartado"]
+            if ap not in estructura_apartados:
+              estructura_apartados[ap] = set()
+            if sub:
+              estructura_apartados[ap].add(sub)
+          for ap in estructura_apartados:
+            estructura_apartados[ap] = sorted(list(estructura_apartados[ap]))
+        else:
+          estructura_apartados = {
+              "Tareas realizar por turnos y todos los turnos": [
+                  "Realiza las tareas asignadas a su turno",
+                  "Entrega de turno y comunicación",
+              ],
+              "Tiempos respuesta Tbox": [
+                  "Atención inmediata a alertas",
+                  "Tiempo medio de resolución",
+              ],
+              "Tiempos respuesta Siemens": [
+                  "Respuesta en sistema Siemens",
+                  "Gestión de incidencias",
+              ],
+              "Iniciativa / Proactividad ante el trabajo": [
+                  "Proactividad en resolución de problemas",
+                  "Aportación de mejoras",
+              ],
+              "Conocimientos": [
+                  "Manejo de herramientas",
+                  "Dominio de procedimientos",
+              ],
+              "Evaluacion": ["Evaluación global y desempeño general"],
+          }
+
+        apts_vis_guardados = vis_actual.get("apartados_habilitados", {})
+        sub_ocultos_guardados = set(
+            vis_actual.get("subapartados_deshabilitados", [])
+        )
+
+        st.markdown(
+            "#### 2. Selección Personalizada de Apartados y Subapartados"
+        )
+        st.caption(
+            "Desmarca los apartados o subapartados que no desees incluir en las"
+            " notas e informes de este empleado."
+        )
+
+        apartados_finales = {}
+        subapartados_deshabilitados_finales = []
+
+        for apt, subs in estructura_apartados.items():
+          st.markdown(f"##### 📌 Apartado: **{apt}**")
+
+          ap_activo = st.checkbox(
+              f"Habilitar apartado completo: '{apt}'",
+              value=apts_vis_guardados.get(apt, True),
+              key=f"apt_{apt}",
+          )
+          apartados_finales[apt] = ap_activo
+
+          if ap_activo and subs:
+            with st.indent if hasattr(st, "indent") else st.container():
+              st.write("    *Subapartados de este apartado:*")
+              cols_sub = st.columns(min(len(subs), 2) if len(subs) > 1 else 1)
+              for idx, sub_name in enumerate(subs):
+                col = cols_sub[idx % len(cols_sub)]
+                sub_activo = col.checkbox(
+                    f"• {sub_name}",
+                    value=(sub_name not in sub_ocultos_guardados),
+                    key=f"sub_{apt}_{sub_name}",
+                )
+                if not sub_activo:
+                  subapartados_deshabilitados_finales.append(sub_name)
+          elif not ap_activo and subs:
+            subapartados_deshabilitados_finales.extend(subs)
+
+          st.markdown("---")
+
+        if st.button("💾 Guardar Configuración de Visibilidad", type="primary"):
+          guardar_visibilidad_empleado(
+              emp_id,
+              sel_anio,
+              qs_hab,
+              apartados_finales,
+              list(set(subapartados_deshabilitados_finales)),
+          )
+          st.success(
+              "¡Configuración de apartados y subapartados guardada"
+              " correctamente!"
+          )
+
+    # --- 3. RESUMEN ANUAL Y DESGLOSE ---
+    elif menu_admin == "3. Resumen Anual y Desglose":
+      st.subheader("📊 Resumen Anual y Desglose General")
+      emps = supabase.table("empleados").select("id, nombre").execute().data
+      emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+      col_r1, col_r2 = st.columns(2)
+      sel_emp = col_r1.selectbox(
+          "Seleccionar Empleado para Consulta:", list(emp_dict.keys())
+      )
+      sel_anio = col_r2.number_input("Año de Consulta:", value=2025, step=1)
+
+      if sel_emp:
+        renderizar_mis_evaluaciones(emp_dict[sel_emp], sel_emp, sel_anio)
+
+    # --- 4. CONFIGURACIÓN PROMPTS Y MEDIA ---
+    elif menu_admin == "4. Configuración Prompts y Media":
+      st.subheader("⚙️ Configuración del Prompt Base y Nota Media Requerida")
+      try:
+        cfg = (
+            supabase.table("config_prompts_eval")
+            .select("*")
+            .limit(1)
+            .execute()
+            .data
+        )
+        prompt_actual = (
+            cfg[0]["prompt_texto"]
+            if cfg
+            else (
+                "Realiza un informe evaluativo profesional basado en estos"
+                " datos:"
+            )
+        )
+        media_actual = (
+            float(cfg[0]["objetivo_media"])
+            if cfg and "objetivo_media" in cfg[0]
+            else 8.0
+        )
+      except Exception:
+        prompt_actual = (
+            "Realiza un informe evaluativo profesional basado en estos datos:"
+        )
+        media_actual = 8.0
+
+      nuevo_prompt = st.text_area(
+          "Prompt Base para la IA:", value=prompt_actual, height=150
+      )
+      nueva_media = st.number_input(
+          "Nota Media Mínima Requerida (sobre 10):",
+          value=media_actual,
+          min_value=0.0,
+          max_value=10.0,
+          step=0.5,
+      )
+
+      if st.button("Guardar Configuración Base", type="primary"):
+        try:
+          supabase.table("config_prompts_eval").upsert({
+              "id": cfg[0]["id"] if cfg else 1,
+              "prompt_texto": nuevo_prompt,
+              "objetivo_media": nueva_media,
+          }).execute()
+          st.success("Configuración actualizada correctamente.")
+        except Exception as err:
+          st.error(f"Error al guardar la configuración: {err}")
+
+    # --- 5. GENERAR E INFORMES IA ---
+    elif menu_admin == "5. Generar e Informes IA":
+      st.subheader(
+          "🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)"
+      )
+
+      modelos_disp = obtener_modelos_disponibles_db()
+      opciones_modelos = [
+          f"{m['nombre_modelo']} ({m['proveedor'].upper()})"
+          for m in modelos_disp
+      ]
+
+      col_m1, col_m2 = st.columns([2, 1])
+      modelos_seleccionados_str = col_m1.multiselect(
+          "🧠 Seleccionar Modelo(s) IA para la consulta:",
+          options=opciones_modelos,
+          default=[opciones_modelos[0]] if opciones_modelos else [],
+      )
+      sel_anio = col_m2.number_input("Año a evaluar:", value=2025, step=1)
+
+      modelos_info_sel = []
+      for mod_str in modelos_seleccionados_str:
+        idx = opciones_modelos.index(mod_str)
+        modelos_info_sel.append(modelos_disp[idx])
+
+      emps = supabase.table("empleados").select("id, nombre").execute().data
+      emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+      st.markdown("---")
+      st.markdown("#### Selección de Empleados")
+      seleccionar_todos = st.checkbox("Seleccionar TODOS los empleados")
+
+      if seleccionar_todos:
+        empleados_seleccionados = list(emp_dict.keys())
+        st.info(
+            f"Se han seleccionado **{len(empleados_seleccionados)}**"
+            " empleados."
+        )
+      else:
+        empleados_seleccionados = st.multiselect(
+            "Selecciona uno o más empleados:",
+            options=list(emp_dict.keys()),
+            default=[],
+        )
+
+      if st.button(
+          "🚀 Generar e Insertar Informes Seleccionados", type="primary"
+      ):
+        if not empleados_seleccionados:
+          st.warning("Debes seleccionar al menos un empleado.")
+        elif not modelos_info_sel:
+          st.warning("Debes seleccionar al menos un modelo de IA.")
+        else:
+          total_emp = len(empleados_seleccionados)
+          progreso_bar = st.progress(0)
+          status_text = st.empty()
+
+          resultados_exito = []
+          resultados_error = []
+
+          for idx, emp_nom in enumerate(empleados_seleccionados):
+            emp_id = emp_dict[emp_nom]
+            status_text.markdown(
+                f"⌛ Procesando **{emp_nom}** ({idx + 1}/{total_emp}) con"
+                f" **{len(modelos_info_sel)}** modelo(s)..."
+            )
+
+            exito, msg = generar_y_guardar_informe_ia_multimodelo(
+                emp_id, emp_nom, sel_anio, modelos_info_sel
+            )
+
+            if exito:
+              resultados_exito.append((emp_nom, msg))
+            else:
+              resultados_error.append((emp_nom, msg))
+
+            progreso_bar.progress((idx + 1) / total_emp)
+
+          status_text.empty()
+          st.success(
+              f"✅ Proceso completado: {len(resultados_exito)} informe(s)"
+              " generado(s) correctamente."
+          )
+
+          if resultados_error:
+            st.error(
+                f"⚠️ {len(resultados_error)} informe(s) no se pudieron generar:"
+            )
+            for emp_err, err_msg in resultados_error:
+              st.caption(f"• **{emp_err}**: {err_msg}")
+
+          if resultados_exito:
+            st.markdown("### 📋 Vista Previa de Informes Generados")
+            for emp_ok, informe_txt in resultados_exito:
+              with st.expander(f"📄 Informe IA - {emp_ok}"):
+                st.markdown(informe_txt)
+
+    # --- 6. DATOS EMPLEADO ---
+    elif menu_admin == "6. Datos empleado":
+      st.subheader("🔍 Datos empleado (Vista Espejo del Portal de Empleados)")
+      emps = supabase.table("empleados").select("id, nombre").execute().data
+      emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+      col_e1, col_e2 = st.columns(2)
+      sel_emp = col_e1.selectbox(
+          "Seleccionar Empleado a consultar:", list(emp_dict.keys())
+      )
+
+      if sel_emp:
+        emp_id = emp_dict[sel_emp]
+        evals_emp = (
+            supabase.table("evaluaciones_trimestrales")
+            .select("anio")
+            .eq("empleado_id", emp_id)
+            .execute()
+            .data
+        )
+        anios_disp = (
+            sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
+            if evals_emp
+            else [2025]
+        )
+        sel_anio = col_e2.selectbox("Seleccionar Año:", anios_disp)
+
+        st.markdown(
+            f"### Portal del Empleado - Mis Evaluaciones (`{sel_emp}` -"
+            f" `{sel_anio}`)"
+        )
+        renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
+
+
+# --- TAB EMPLEADO: EVALUACIONES TRIMESTRALES ---
+if not st.session_state.es_croma and tab_emp_trimestral:
+  with tab_emp_trimestral:
+    st.header("📋 Mis Evaluaciones Trimestrales")
+
+    emps = supabase.table("empleados").select("id, nombre").execute().data
+    emp_dict = {e["nombre"]: e["id"] for e in emps} if emps else {}
+
+    # Por defecto selecciona al empleado autenticado en la sesión
+    sel_emp = st.session_state.user_nombre
+    emp_id = st.session_state.user_id
+
+    evals_emp = (
+        supabase.table("evaluaciones_trimestrales")
+        .select("anio")
+        .eq("empleado_id", emp_id)
+        .execute()
+        .data
+    )
+    anios_disp = (
+        sorted(list(set([e["anio"] for e in evals_emp])), reverse=True)
+        if evals_emp
+        else [2025]
+    )
+    sel_anio = st.selectbox("Seleccionar Año:", anios_disp)
+
+    renderizar_mis_evaluaciones(emp_id, sel_emp, sel_anio)
