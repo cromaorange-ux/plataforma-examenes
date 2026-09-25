@@ -3695,9 +3695,9 @@ else:
               "👥 Gestión de Empleados"
             ])
 
-            # TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS (Y MODELOS IA)
-          with subtab_tiempos_prompts:
-            st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
+# TAB 3: CONFIGURACIÓN DE TIEMPOS Y PROMPTS (Y MODELOS IA)
+with subtab_tiempos_prompts:
+  st.markdown("### ⏱️ Configuración de Tiempos y Preguntas")
 
     # ---------------------------------------------------------
     # 1. FORMULARIO: TIEMPOS Y PREGUNTAS
