@@ -3629,8 +3629,8 @@ else:
                         else:
                             st.info("No se encontraron empleados registrados con el filtro seleccionado.")
 
-                      except Exception as err_emp_m:
-                        st.error(f"Error consultando empleados: {err_emp_m}")
+                          except Exception as err_emp_m:
+                            st.error(f"Error consultando empleados: {err_emp_m}")
                         
                 
 
