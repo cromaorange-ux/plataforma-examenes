@@ -3726,14 +3726,16 @@ else:
                     ok_t = guardar_tiempo_pregunta_config(nuevo_tiempo_seg)
                     ok_g = guardar_num_preguntas_config("global", nuevo_num_global)
                     ok_m = guardar_num_preguntas_config("manual", nuevo_num_manual)
-                  if ok_t and ok_g and ok_m:
-                    st.success("✅ Configuración de tiempos y número de preguntas actualizada correctamente.")
-                    time.sleep(1)
-                    st.rerun()
+    
+                    # Esta verificación debe estar DENTRO del bloque if btn_guardar_tiempos:
+                    if ok_t and ok_g and ok_m:
+                      st.success("✅ Configuración de tiempos y número de preguntas actualizada correctamente.")
+                      time.sleep(1)
+                      st.rerun()
 
-                    st.markdown("---")
-                    st.markdown("### 🤖 Configuración de Modelos de IA")
-                    st.caption("Modifica los modelos disponibles por proveedor. Puedes introducir varios modelos separados por comas.")
+                  st.markdown("---")
+                  st.markdown("### 🤖 Configuración de Modelos de IA")
+                  st.caption("Modifica los modelos disponibles por proveedor. Puedes introducir varios modelos separados por comas.")
 
                     # Cargar los valores actuales de los modelos desde la tabla config_prompts
                     modelos_gemini_val = "gemini-2.5-pro, gemini-2.5-flash"
