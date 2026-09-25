@@ -3775,32 +3775,32 @@ else:
                       "⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val
                     )
 
-    btn_guardar_modelos = st.form_submit_button(
-        "💾 Guardar Configuración de Modelos IA", use_container_width=True
-    )
+                  btn_guardar_modelos = st.form_submit_button(
+                    "💾 Guardar Configuración de Modelos IA", use_container_width=True
+                  )
 
-                    btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
+                  btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
 
-                    if btn_guardar_modelos:
-                      try:
-                        datos_actualizacion = {
-                          "modelo_gemini": input_gemini.strip(),
-                          "modelo_claude": input_claude.strip(),
-                          "modelo_openai": input_openai.strip()
-                        }
+                  if btn_guardar_modelos:
+                    try:
+                      datos_actualizacion = {
+                        "modelo_gemini": input_gemini.strip(),
+                        "modelo_claude": input_claude.strip(),
+                        "modelo_openai": input_openai.strip()
+                      }
                                 
-                        if config_prompts_id:
-                          # Actualizar registro existente
-                          supabase.table("config_prompts").update(datos_actualizacion).eq("id", config_prompts_id).execute()
-                        else:
-                          # Insertar uno nuevo si la tabla está vacía
-                          supabase.table("config_prompts").insert(datos_actualizacion).execute()
+                      if config_prompts_id:
+                        # Actualizar registro existente
+                        supabase.table("config_prompts").update(datos_actualizacion).eq("id", config_prompts_id).execute()
+                      else:
+                        # Insertar uno nuevo si la tabla está vacía
+                        supabase.table("config_prompts").insert(datos_actualizacion).execute()
 
-                        st.success("✅ Modelos de IA actualizados correctamente en la base de datos.")
-                        time.sleep(1)
-                        st.rerun()
-                      except Exception as err_m_save:
-                        st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
+                      st.success("✅ Modelos de IA actualizados correctamente en la base de datos.")
+                      time.sleep(1)
+                      st.rerun()
+                    except Exception as err_m_save:
+                      st.error(f"❌ Error al guardar los modelos de IA: {err_m_save}")
 
                     st.markdown("---")
                     st.markdown("### 💬 Prompts Predeterminados del Sistema")
