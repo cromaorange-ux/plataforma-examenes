@@ -3701,35 +3701,35 @@ else:
                     
               with st.form("form_config_tiempos_preguntas"):
                 col_t1, col_t2, col_t3 = st.columns(3)
-                  with col_t1:
-                    nuevo_tiempo_seg = st.number_input(
-                      "⏱️ Tiempo por pregunta (segundos):", 
-                      min_value=10, max_value=300, 
-                      value=TIEMPO_LIMITE_PREGUNTA
-                    )
-                  with col_t2:
-                    nuevo_num_global = st.number_input(
-                      "🌐 N.º Preguntas Examen Global:", 
+                with col_t1:
+                  nuevo_tiempo_seg = st.number_input(
+                    "⏱️ Tiempo por pregunta (segundos):", 
+                    min_value=10, max_value=300, 
+                    value=TIEMPO_LIMITE_PREGUNTA
+                  )
+                with col_t2:
+                  nuevo_num_global = st.number_input(
+                    "🌐 N.º Preguntas Examen Global:", 
+                    min_value=1, max_value=100, 
+                    value=NUM_PREG_GLOBAL
+                  )
+                  with col_t3:
+                    nuevo_num_manual = st.number_input(
+                      "📘 N.º Preguntas Examen Manual:", 
                       min_value=1, max_value=100, 
-                      value=NUM_PREG_GLOBAL
+                      value=NUM_PREG_MANUAL
                     )
-                    with col_t3:
-                      nuevo_num_manual = st.number_input(
-                        "📘 N.º Preguntas Examen Manual:", 
-                        min_value=1, max_value=100, 
-                        value=NUM_PREG_MANUAL
-                      )
                         
-                    btn_guardar_tiempos = st.form_submit_button("💾 Guardar Tiempos y Parámetros")
+                  btn_guardar_tiempos = st.form_submit_button("💾 Guardar Tiempos y Parámetros")
                         
-                    if btn_guardar_tiempos:
-                      ok_t = guardar_tiempo_pregunta_config(nuevo_tiempo_seg)
-                      ok_g = guardar_num_preguntas_config("global", nuevo_num_global)
-                      ok_m = guardar_num_preguntas_config("manual", nuevo_num_manual)
-                      if ok_t and ok_g and ok_m:
-                        st.success("✅ Configuración de tiempos y número de preguntas actualizada correctamente.")
-                        time.sleep(1)
-                        st.rerun()
+                  if btn_guardar_tiempos:
+                    ok_t = guardar_tiempo_pregunta_config(nuevo_tiempo_seg)
+                    ok_g = guardar_num_preguntas_config("global", nuevo_num_global)
+                    ok_m = guardar_num_preguntas_config("manual", nuevo_num_manual)
+                  if ok_t and ok_g and ok_m:
+                    st.success("✅ Configuración de tiempos y número de preguntas actualizada correctamente.")
+                    time.sleep(1)
+                    st.rerun()
 
                     st.markdown("---")
                     st.markdown("### 🤖 Configuración de Modelos de IA")
