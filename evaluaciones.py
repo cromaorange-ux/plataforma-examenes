@@ -4162,17 +4162,17 @@ else:
                   "Selecciona un archivo Excel (.xlsx)", type=["xlsx"]
               )
               if uploaded_file:
-        try:
-          wb = openpyxl.load_workbook(uploaded_file, data_only=True)
-          st.success(
-              f"Archivo cargado correctamente. Hojas detectadas:"
-              f" {wb.sheetnames}"
-          )
-          if st.button("Procesar y Guardar en Base de Datos"):
-            st.info("Procesando datos...")
-            st.success("¡Datos procesados y guardados con éxito!")
-        except Exception as e:
-          st.error(f"Error al leer el archivo Excel: {e}")
+            try:
+                wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+                st.success(
+                  f"Archivo cargado correctamente. Hojas detectadas:"
+                  f" {wb.sheetnames}"
+                )
+              if st.button("Procesar y Guardar en Base de Datos"):
+                st.info("Procesando datos...")
+                st.success("¡Datos procesados y guardados con éxito!")
+            except Exception as e:
+              st.error(f"Error al leer el archivo Excel: {e}")
 
     # --- 2. EDICIÓN Y VISIBILIDAD POR EMPLEADO ---
     elif menu_admin == "2. Edición y Visibilidad por Empleado":
