@@ -3622,7 +3622,7 @@ else:
                               "analisis_ia_habilitado": chk_ia_hab
                             }).eq("id", emp_id).execute()
                             st.success("✅ Cambios actualizados correctamente.")
-                              time.sleep(0.5)
+                            time.sleep(0.5)
                             st.rerun()
                           except Exception as err_u_e:
                             st.error(f"Error actualizando usuario: {err_u_e}")
