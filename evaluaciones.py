@@ -3956,31 +3956,31 @@ else:
         # ---------------------------------------------------------
                 with st.form("form_config_tiempos_preguntas"):
                     col_t1, col_t2, col_t3 = st.columns(3)
-                with col_t1:
-                    nuevo_tiempo_seg = st.number_input(
-                        "⏱️ Tiempo por pregunta (segundos):",
-                        min_value=10,
-                        max_value=300,
-                        value=TIEMPO_LIMITE_PREGUNTA,
-                    )
-                with col_t2:
-                    nuevo_num_global = st.number_input(
-                        "🌐 N.º Preguntas Examen Global:",
-                        min_value=1,
-                        max_value=100,
-                        value=NUM_PREG_GLOBAL,
-                    )
-                with col_t3:
-                    nuevo_num_manual = st.number_input(
-                        "📘 N.º Preguntas Examen Manual:",
-                        min_value=1,
-                        max_value=100,
-                        value=NUM_PREG_MANUAL,
-                    )
+                    with col_t1:
+                        nuevo_tiempo_seg = st.number_input(
+                            "⏱️ Tiempo por pregunta (segundos):",
+                            min_value=10,
+                            max_value=300,
+                            value=TIEMPO_LIMITE_PREGUNTA,
+                        )
+                    with col_t2:
+                        nuevo_num_global = st.number_input(
+                            "🌐 N.º Preguntas Examen Global:",
+                            min_value=1,
+                            max_value=100,
+                            value=NUM_PREG_GLOBAL,
+                        )
+                    with col_t3:
+                        nuevo_num_manual = st.number_input(
+                            "📘 N.º Preguntas Examen Manual:",
+                            min_value=1,
+                            max_value=100,
+                            value=NUM_PREG_MANUAL,
+                        )
 
-                btn_guardar_tiempos = st.form_submit_button(
-                    "💾 Guardar Tiempos y Parámetros"
-                )
+                    btn_guardar_tiempos = st.form_submit_button(
+                        "💾 Guardar Tiempos y Parámetros"
+                    )
 
         # Procesar envío del formulario 1
         if btn_guardar_tiempos:
