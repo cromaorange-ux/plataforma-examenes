@@ -1896,7 +1896,7 @@ else:
           tab_admin_resultados,
           tab_admin_export,
           tab_admin_analisis,
-          tab_admin_informes_ia,
+          tab_informes_ia,
           tab_admin_gestion,
           tab_admin_trimestral,  # <--- NUEVO TAB
       ) = st.tabs([
@@ -3308,7 +3308,7 @@ else:
 
 
 # TAB 3: INFORMES IA Y ANALÍTICA
-with tab_admin_informes_ia:
+with tab_informes_ia:
     st.header("📊 Informes IA y Analítica de Desempeño")
     st.caption("Filtra los manuales y exámenes evaluados para generar análisis mediante Inteligencia Artificial.")
 
