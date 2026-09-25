@@ -3586,7 +3586,7 @@ else:
                 resultado = query.execute()
                 df_empleados = pd.DataFrame(resultado.data or [])
 
-                st.dataframe(df_empleados)
+                  st.dataframe(df_empleados)
                   try:
                     q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
                       if filtro_estado_emp == "Activos":
