@@ -3586,26 +3586,26 @@ else:
                 resultado = query.execute()
                 df_empleados = pd.DataFrame(resultado.data or [])
 
-                  st.dataframe(df_empleados)
-                  try:
-                    q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
-                      if filtro_estado_emp == "Activos":
-                        q_emp = q_emp.eq("activo", True)
-                      elif filtro_estado_emp == "Deshabilitados":
-                        q_emp = q_emp.eq("activo", False)
+                st.dataframe(df_empleados)
+                try:
+                  q_emp = supabase.table("empleados").select("*").order("nombre", desc=False)
+                  if filtro_estado_emp == "Activos":
+                    q_emp = q_emp.eq("activo", True)
+                  elif filtro_estado_emp == "Deshabilitados":
+                    q_emp = q_emp.eq("activo", False)
 
-                      res_emp_mgmt = q_emp.execute()
+                  res_emp_mgmt = q_emp.execute()
 
-                      if empleados_data:
-                        for emp in empleados_data:
-                          emp_id = emp["id"]
-                          emp_nom = emp.get("nombre", "Sin Nombre")
-                          emp_act = emp.get("activo", True)
-                          emp_admin = emp.get("es_admin_croma", False)
-                          emp_ia_hab = emp.get("analisis_ia_habilitado", True)
+                  if empleados_data:
+                    for emp in empleados_data:
+                      emp_id = emp["id"]
+                      emp_nom = emp.get("nombre", "Sin Nombre")
+                      emp_act = emp.get("activo", True)
+                      emp_admin = emp.get("es_admin_croma", False)
+                      emp_ia_hab = emp.get("analisis_ia_habilitado", True)
 
-                        with st.expander(f"👤 {emp_nom} ({'Administrador' if emp_admin else 'Empleado'}) - {'🟢 Activo' if emp_act else '🔴 Deshabilitado'}"):
-                          col_e1, col_e2 = st.columns(2)
+                    with st.expander(f"👤 {emp_nom} ({'Administrador' if emp_admin else 'Empleado'}) - {'🟢 Activo' if emp_act else '🔴 Deshabilitado'}"):
+                      col_e1, col_e2 = st.columns(2)
                         with col_e1:
                           nuevo_nom = st.text_input("Nombre completo:", value=emp_nom, key=f"emp_nom_in_{emp_id}")
                           chk_act = st.checkbox("Cuenta Activa en Plataforma", value=emp_act, key=f"emp_act_chk_{emp_id}")
