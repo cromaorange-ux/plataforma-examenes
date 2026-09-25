@@ -3606,9 +3606,9 @@ else:
 
                     with st.expander(f"👤 {emp_nom} ({'Administrador' if emp_admin else 'Empleado'}) - {'🟢 Activo' if emp_act else '🔴 Deshabilitado'}"):
                       col_e1, col_e2 = st.columns(2)
-                        with col_e1:
-                          nuevo_nom = st.text_input("Nombre completo:", value=emp_nom, key=f"emp_nom_in_{emp_id}")
-                          chk_act = st.checkbox("Cuenta Activa en Plataforma", value=emp_act, key=f"emp_act_chk_{emp_id}")
+                      with col_e1:
+                        nuevo_nom = st.text_input("Nombre completo:", value=emp_nom, key=f"emp_nom_in_{emp_id}")
+                        chk_act = st.checkbox("Cuenta Activa en Plataforma", value=emp_act, key=f"emp_act_chk_{emp_id}")
                         with col_e2:
                           chk_adm = st.checkbox("Es Administrador CROMA", value=emp_admin, key=f"emp_adm_chk_{emp_id}")
                           chk_ia_hab = st.checkbox("Permitir Análisis IA a este usuario", value=emp_ia_hab, key=f"emp_ia_chk_{emp_id}")
