@@ -3337,17 +3337,17 @@ else:
             try:
               query_man = supabase.table("examenes").select("*").order("creado_el", desc=True)
 
-            if filtro_estado_man_inf == "Activos":
-              query_man = query_man.eq("activo", True)
-            elif filtro_estado_man_inf == "Deshabilitados":
-              query_man = query_man.eq("activo", False)
+              if filtro_estado_man_inf == "Activos":
+                query_man = query_man.eq("activo", True)
+              elif filtro_estado_man_inf == "Deshabilitados":
+                query_man = query_man.eq("activo", False)
 
-            res_man = query_man.execute()
-            lista_manuales = res_man.data or []
+              res_man = query_man.execute()
+              lista_manuales = res_man.data or []
 
-            if not lista_manuales:
-              st.info("No se encontraron manuales o exámenes con los filtros seleccionados.")
-            else:
+              if not lista_manuales:
+                st.info("No se encontraron manuales o exámenes con los filtros seleccionados.")
+              else:
               # 3. Selección del Manual para Analítica
               opciones_manuales = {f"{m.get('titulo', 'Sin título')} (ID: {m.get('id')})": m for m in lista_manuales}
               manual_sel_label = st.selectbox(
