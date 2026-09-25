@@ -3398,7 +3398,7 @@ else:
                         st.markdown("### 📝 Conclusiones de la IA")
                         st.write("Basado en el análisis de las evaluaciones, los empleados demuestran un alto nivel de comprensión en los aspectos teóricos básicos...")
 
-    except Exception as e_inf:
+      except Exception as e_inf:
         st.error(f"❌ Error al cargar los datos de Informes IA: {e_inf}")
       
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
