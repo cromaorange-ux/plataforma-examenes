@@ -3349,27 +3349,27 @@ else:
                 st.info("No se encontraron manuales o exámenes con los filtros seleccionados.")
               else:
               # 3. Selección del Manual para Analítica
-              opciones_manuales = {f"{m.get('titulo', 'Sin título')} (ID: {m.get('id')})": m for m in lista_manuales}
-              manual_sel_label = st.selectbox(
-                "Selecciona un manual para generar el informe:",
-                options=list(opciones_manuales.keys()),
-                key="sb_manual_informes_ia"
-              )
+                opciones_manuales = {f"{m.get('titulo', 'Sin título')} (ID: {m.get('id')})": m for m in lista_manuales}
+                manual_sel_label = st.selectbox(
+                  "Selecciona un manual para generar el informe:",
+                  options=list(opciones_manuales.keys()),
+                  key="sb_manual_informes_ia"
+                )
 
-            manual_seleccionado = opciones_manuales[manual_sel_label]
-            manual_id = manual_seleccionado["id"]
+              manual_seleccionado = opciones_manuales[manual_sel_label]
+              manual_id = manual_seleccionado["id"]
 
-            # 4. Obtención de Intentos y Evaluaciones para el Manual
-            res_intentos = supabase.table("intentos_examen") \
+              # 4. Obtención de Intentos y Evaluaciones para el Manual
+              res_intentos = supabase.table("intentos_examen") \
                 .select("*, empleados(nombre)") \
                 .eq("apartado", manual_seleccionado.get("titulo", "")) \
                 .execute()
 
-            df_intentos = pd.DataFrame(res_intentos.data or [])
+              df_intentos = pd.DataFrame(res_intentos.data or [])
 
-            if df_intentos.empty:
+              if df_intentos.empty:
                 st.warning("No hay intentos registrados para este manual.")
-            else:
+              else:
                 # Métricas rápidas
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Total Evaluaciones", len(df_intentos))
