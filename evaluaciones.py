@@ -3307,54 +3307,54 @@ else:
             st.markdown("---")
 
 
-# TAB 3: INFORMES IA Y ANALÍTICA
-with tab_informes_ia:
-    st.header("📊 Informes IA y Analítica de Desempeño")
-    st.caption("Filtra los manuales y exámenes evaluados para generar análisis mediante Inteligencia Artificial.")
+            # TAB 3: INFORMES IA Y ANALÍTICA
+            with tab_informes_ia:
+              st.header("📊 Informes IA y Analítica de Desempeño")
+              st.caption("Filtra los manuales y exámenes evaluados para generar análisis mediante Inteligencia Artificial.")
 
-    # 1. Filtros de Interfaz (usando keys únicas para esta pestaña)
-    col_f1, col_f2 = st.columns(2)
+              # 1. Filtros de Interfaz (usando keys únicas para esta pestaña)
+              col_f1, col_f2 = st.columns(2)
 
-    with col_f1:
-        filtro_estado_man_inf = st.radio(
-            "Filtrar manuales por estado:",
-            ["Activos", "Deshabilitados", "Todos"],
-            index=0,
-            horizontal=True,
-            key="f_man_est_informes_ia"  # 👈 Key única específica para esta sección
-        )
+              with col_f1:
+                filtro_estado_man_inf = st.radio(
+                  "Filtrar manuales por estado:",
+                  ["Activos", "Deshabilitados", "Todos"],
+                  index=0,
+                  horizontal=True,
+                  key="f_man_est_informes_ia"  # 👈 Key única específica para esta sección
+                )
 
-    with col_f2:
-        filtro_rango_fecha = st.date_input(
-            "Rango de evaluación:",
-            value=(),
-            key="f_fechas_informes_ia"
-        )
+            with col_f2:
+              filtro_rango_fecha = st.date_input(
+                "Rango de evaluación:",
+                value=(),
+                key="f_fechas_informes_ia"
+              )
 
-    st.markdown("---")
+            st.markdown("---")
 
-    # 2. Consulta de Manuales / Exámenes en Supabase
-    try:
-        query_man = supabase.table("examenes").select("*").order("creado_el", desc=True)
+            # 2. Consulta de Manuales / Exámenes en Supabase
+            try:
+              query_man = supabase.table("examenes").select("*").order("creado_el", desc=True)
 
-        if filtro_estado_man_inf == "Activos":
-            query_man = query_man.eq("activo", True)
-        elif filtro_estado_man_inf == "Deshabilitados":
-            query_man = query_man.eq("activo", False)
+            if filtro_estado_man_inf == "Activos":
+              query_man = query_man.eq("activo", True)
+            elif filtro_estado_man_inf == "Deshabilitados":
+              query_man = query_man.eq("activo", False)
 
-        res_man = query_man.execute()
-        lista_manuales = res_man.data or []
+            res_man = query_man.execute()
+            lista_manuales = res_man.data or []
 
-        if not lista_manuales:
-            st.info("No se encontraron manuales o exámenes con los filtros seleccionados.")
-        else:
-            # 3. Selección del Manual para Analítica
-            opciones_manuales = {f"{m.get('titulo', 'Sin título')} (ID: {m.get('id')})": m for m in lista_manuales}
-            manual_sel_label = st.selectbox(
+            if not lista_manuales:
+              st.info("No se encontraron manuales o exámenes con los filtros seleccionados.")
+            else:
+              # 3. Selección del Manual para Analítica
+              opciones_manuales = {f"{m.get('titulo', 'Sin título')} (ID: {m.get('id')})": m for m in lista_manuales}
+              manual_sel_label = st.selectbox(
                 "Selecciona un manual para generar el informe:",
                 options=list(opciones_manuales.keys()),
                 key="sb_manual_informes_ia"
-            )
+              )
 
             manual_seleccionado = opciones_manuales[manual_sel_label]
             manual_id = manual_seleccionado["id"]
