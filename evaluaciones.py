@@ -3762,10 +3762,22 @@ else:
                   except Exception as e_cfg:
                     st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
 
+                  # Formulario aislado para la configuración de modelos
                   with st.form("form_config_modelos_ia"):
-                    input_gemini = st.text_input("💎 Modelos Gemini (modelo_gemini):", value=modelos_gemini_val)
-                    input_claude = st.text_input("🧠 Modelos Claude / Anthropic (modelo_claude):", value=modelos_claude_val)
-                    input_openai = st.text_input("⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val)
+                    input_gemini = st.text_input(
+                      "💎 Modelos Gemini (modelo_gemini):", value=modelos_gemini_val
+                    )
+                    input_claude = st.text_input(
+                      "🧠 Modelos Claude / Anthropic (modelo_claude):",
+                      value=modelos_claude_val,
+                    )
+                    input_openai = st.text_input(
+                      "⚡ Modelos OpenAI (modelo_openai):", value=modelos_openai_val
+                    )
+
+    btn_guardar_modelos = st.form_submit_button(
+        "💾 Guardar Configuración de Modelos IA", use_container_width=True
+    )
 
                     btn_guardar_modelos = st.form_submit_button("💾 Guardar Configuración de Modelos IA", use_container_width=True)
 
