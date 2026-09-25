@@ -3753,8 +3753,8 @@ else:
                         modelos_gemini_val = fila_cfg["modelo_gemini"]
                         if fila_cfg.get("modelo_claude"):
                           modelos_claude_val = fila_cfg["modelo_claude"]
-                            if fila_cfg.get("modelo_openai"):
-                              modelos_openai_val = fila_cfg["modelo_openai"]
+                          if fila_cfg.get("modelo_openai"):
+                            modelos_openai_val = fila_cfg["modelo_openai"]
                     except Exception as e_cfg:
                         st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
 
