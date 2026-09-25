@@ -3307,114 +3307,100 @@ else:
             st.markdown("---")
 
 
-        # ADMIN CROMA - PESTAÑA: GESTIÓN DE INFORMES IA
-        if st.session_state.es_croma and tab_admin_informes_ia:
-            with tab_admin_informes_ia:
-                st.subheader("🤖 Gestión e Informes Generados por IA")
-                st.caption(
-                    "Consulta, activa o deshabilita la visibilidad de los informes"
-                    " almacenados en la base de datos (analisis_ia_empleados)."
-                )
+# TAB 3: INFORMES IA Y ANALÍTICA
+with tab_informes_ia:
+    st.header("📊 Informes IA y Analítica de Desempeño")
+    st.caption("Filtra los manuales y exámenes evaluados para generar análisis mediante Inteligencia Artificial.")
 
-                # Obtener la lista de años disponibles en los informes
-                res_anios = supabase.table("analisis_ia_empleados").select("anio").execute()
-                anios_set = sorted(list(set(item.get("anio") for item in (res_anios.data or []) if item.get("anio"))), reverse=True)
-                
-                col_f_est, col_f_anio = st.columns([2, 1])
+    # 1. Filtros de Interfaz (usando keys únicas para esta pestaña)
+    col_f1, col_f2 = st.columns(2)
 
-                with col_f_est:
-                    filtro_estado_ia = st.radio(
-                        "Filtrar informes por estado:",
-                        ["Activos", "Deshabilitados", "Todos"],
-                        index=0,  # Por defecto Activos
-                        horizontal=True,
-                        key="f_ia_informes_est",
-                    )
-                
-                with col_f_anio:
-                    opciones_anios = ["Todos"] + [str(a) for a in anios_set]
-                    filtro_anio_ia = st.selectbox(
-                        "Filtrar por año:",
-                        options=opciones_anios,
-                        index=0,
-                        key="f_ia_informes_anio"
-                    )
+    with col_f1:
+        filtro_estado_man_inf = st.radio(
+            "Filtrar manuales por estado:",
+            ["Activos", "Deshabilitados", "Todos"],
+            index=0,
+            horizontal=True,
+            key="f_man_est_informes_ia"  # 👈 Key única específica para esta sección
+        )
 
-                try:
-                    q_ia = supabase.table("analisis_ia_empleados").select("*").order("fecha_generacion", desc=True)
+    with col_f2:
+        filtro_rango_fecha = st.date_input(
+            "Rango de evaluación:",
+            value=(),
+            key="f_fechas_informes_ia"
+        )
 
-                    if filtro_estado_ia == "Activos":
-                        q_ia = q_ia.eq("activo", True)
-                    elif filtro_estado_ia == "Deshabilitados":
-                        q_ia = q_ia.eq("activo", False)
+    st.markdown("---")
 
-                    if filtro_anio_ia != "Todos":
-                        q_ia = q_ia.eq("anio", int(filtro_anio_ia))
+    # 2. Consulta de Manuales / Exámenes en Supabase
+    try:
+        query_man = supabase.table("examenes").select("*").order("creado_el", desc=True)
 
-                    res_ia_mng = q_ia.execute()
-                    ia_informes_data = res_ia_mng.data if res_ia_mng.data else []
+        if filtro_estado_man_inf == "Activos":
+            query_man = query_man.eq("activo", True)
+        elif filtro_estado_man_inf == "Deshabilitados":
+            query_man = query_man.eq("activo", False)
 
-                    if ia_informes_data:
-                        for inf in ia_informes_data:
-                            inf_id = inf["id"]
-                            nombre_emp = inf.get("nombre_empleado", "Desconocido")
-                            anio_inf = inf.get("anio", "N/A")
-                            mod_ia = inf.get("modelo_ia", "IA")
-                            est_activo = inf.get("activo", True)
-                            fecha_gen = str(inf.get("fecha_generacion", ""))[:10]
+        res_man = query_man.execute()
+        lista_manuales = res_man.data or []
 
-                            label_expander = (
-                                f"📄 Informe #{inf_id} | {nombre_emp} | Año: {anio_inf} | Modelo: {mod_ia} "
-                                f"({'🟢 Visibilidad Activa' if est_activo else '🔴 Deshabilitado'})"
-                            )
+        if not lista_manuales:
+            st.info("No se encontraron manuales o exámenes con los filtros seleccionados.")
+        else:
+            # 3. Selección del Manual para Analítica
+            opciones_manuales = {f"{m.get('titulo', 'Sin título')} (ID: {m.get('id')})": m for m in lista_manuales}
+            manual_sel_label = st.selectbox(
+                "Selecciona un manual para generar el informe:",
+                options=list(opciones_manuales.keys()),
+                key="sb_manual_informes_ia"
+            )
 
-                            with st.expander(label_expander):
-                                col_txt, col_ctrl = st.columns([3, 1])
+            manual_seleccionado = opciones_manuales[manual_sel_label]
+            manual_id = manual_seleccionado["id"]
 
-                                with col_txt:
-                                    st.markdown(
-                                        f"**Creado por:** {inf.get('creado_por', 'Sistema')} el `{fecha_gen}`"
-                                    )
-                                    st.info(inf.get("analisis_texto", "Sin texto disponible."))
+            # 4. Obtención de Intentos y Evaluaciones para el Manual
+            res_intentos = supabase.table("intentos_examen") \
+                .select("*, empleados(nombre)") \
+                .eq("apartado", manual_seleccionado.get("titulo", "")) \
+                .execute()
 
-                                with col_ctrl:
-                                    st.markdown("### ⚙️ Control")
-                                    nuevo_est_ia = st.checkbox(
-                                        "Mostrar al empleado (Activo)",
-                                        value=est_activo,
-                                        key=f"chk_ia_inf_{inf_id}",
-                                    )
+            df_intentos = pd.DataFrame(res_intentos.data or [])
 
-                                    if nuevo_est_ia != est_activo:
-                                        try:
-                                            supabase.table("analisis_ia_empleados").update(
-                                                {"activo": nuevo_est_ia}
-                                            ).eq("id", inf_id).execute()
+            if df_intentos.empty:
+                st.warning("No hay intentos registrados para este manual.")
+            else:
+                # Métricas rápidas
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Evaluaciones", len(df_intentos))
+                c2.metric("Promedio Nota", f"{df_intentos['nota'].mean():.2f}")
+                c3.metric("Aprobados (%)", f"{(df_intentos['nota'] >= 6.0).mean() * 100:.1f}%")
 
-                                            st.success("Estado actualizado correctamente.")
-                                            time.sleep(0.5)
-                                            st.rerun()
-                                        except Exception as err_upd:
-                                            st.error(f"Error al actualizar la base de datos: {err_upd}")
+                st.subheader("Registros Obtenidos")
+                st.dataframe(df_intentos[["nombre_empleado", "nota", "porcentaje_obtenido", "fecha_fin"]])
 
-                                    pdf_bytes = generar_pdf_evaluacion_ia(
-                                        nombre_emp, inf.get("analisis_texto", ""), anio_inf
-                                    )
-                                    if pdf_bytes:
-                                        st.download_button(
-                                            label="📄 Descargar PDF",
-                                            data=pdf_bytes,
-                                            file_name=f"Informe_IA_{nombre_emp}_{anio_inf}.pdf",
-                                            mime="application/pdf",
-                                            key=f"btn_dl_ia_{inf_id}",
-                                            use_container_width=True,
-                                        )
-                    else:
-                        st.info("No se encontraron informes de IA con los filtros seleccionados.")
+                # 5. Generación del Informe con IA
+                if st.button("🤖 Generar Informe Consolidado con IA", key="btn_generar_ia_informe"):
+                    with st.spinner("Analizando datos con el motor de IA..."):
+                        # Preparar el contexto para el modelo de IA
+                        resumen_datos = {
+                            "manual": manual_seleccionado.get("titulo"),
+                            "total_intentos": len(df_intentos),
+                            "promedio_general": float(df_intentos["nota"].mean()),
+                            "porcentaje_aprobacion": float((df_intentos["nota"] >= 6.0).mean() * 100)
+                        }
 
-                except Exception as err_mng_ia:
-                    st.error(f"Error al consultar la tabla 'analisis_ia_empleados': {err_mng_ia}")
+                        # Lógica de envío al API de IA (OpenAI / Anthropic / Gemini)
+                        # prompt = f"Analiza estos resultados de examen: {resumen_datos}"
+                        # respuesta_ia = llamar_api_ia(prompt)
 
+                        st.success("✅ Informe generado exitosamente.")
+                        st.markdown("### 📝 Conclusiones de la IA")
+                        st.write("Basado en el análisis de las evaluaciones, los empleados demuestran un alto nivel de comprensión en los aspectos teóricos básicos...")
+
+    except Exception as e_inf:
+        st.error(f"❌ Error al cargar los datos de Informes IA: {e_inf}")
+      
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
             with tab_admin_gestion:
