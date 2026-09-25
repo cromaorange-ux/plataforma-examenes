@@ -3737,24 +3737,24 @@ else:
                   st.markdown("### 🤖 Configuración de Modelos de IA")
                   st.caption("Modifica los modelos disponibles por proveedor. Puedes introducir varios modelos separados por comas.")
 
-                    # Cargar los valores actuales de los modelos desde la tabla config_prompts
-                    modelos_gemini_val = "gemini-2.5-pro, gemini-2.5-flash"
-                    modelos_claude_val = "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
-                    modelos_openai_val = "gpt-4o, gpt-4o-mini"
-                    config_prompts_id = None
+                  # Cargar los valores actuales de los modelos desde la tabla config_prompts
+                  modelos_gemini_val = "gemini-2.5-pro, gemini-2.5-flash"
+                  modelos_claude_val = "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
+                  modelos_openai_val = "gpt-4o, gpt-4o-mini"
+                  config_prompts_id = None
 
-                    try:
-                        res_cfg_modelos = supabase.table("config_prompts").select("id, modelo_gemini, modelo_claude, modelo_openai").execute()
-                        if res_cfg_modelos.data:
-                            # Tomamos el primer registro existente con configuración de modelos
-                            fila_cfg = res_cfg_modelos.data[0]
-                            config_prompts_id = fila_cfg.get("id")
-                            if fila_cfg.get("modelo_gemini"):
-                                modelos_gemini_val = fila_cfg["modelo_gemini"]
-                            if fila_cfg.get("modelo_claude"):
-                                modelos_claude_val = fila_cfg["modelo_claude"]
+                  try:
+                    res_cfg_modelos = supabase.table("config_prompts").select("id, modelo_gemini, modelo_claude, modelo_openai").execute()
+                    if res_cfg_modelos.data:
+                      # Tomamos el primer registro existente con configuración de modelos
+                      fila_cfg = res_cfg_modelos.data[0]
+                      config_prompts_id = fila_cfg.get("id")
+                      if fila_cfg.get("modelo_gemini"):
+                        modelos_gemini_val = fila_cfg["modelo_gemini"]
+                        if fila_cfg.get("modelo_claude"):
+                          modelos_claude_val = fila_cfg["modelo_claude"]
                             if fila_cfg.get("modelo_openai"):
-                                modelos_openai_val = fila_cfg["modelo_openai"]
+                              modelos_openai_val = fila_cfg["modelo_openai"]
                     except Exception as e_cfg:
                         st.warning(f"No se pudieron cargar los modelos actuales: {e_cfg}")
 
