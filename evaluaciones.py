@@ -1062,9 +1062,12 @@ def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
     return total
 
 def qt_obtener_modelos_ia():
-    """Lee directamente los modelos configurados en config_prompts.
-    No depende del formato de retorno de obtener_modelos_ia_disponibles(),
-    porque esa función histórica de app.py devuelve una lista de strings.
+    """Lee TODOS los modelos configurados en config_prompts.
+
+    La configuración de la aplicación guarda los modelos en las columnas
+    modelo_gemini, modelo_claude y modelo_openai. Puede haber varias filas y
+    cada columna puede contener uno o varios modelos separados por comas.
+    No se añaden modelos de respaldo que no estén en SQL.
     """
     columnas = [
         ("modelo_gemini", "gemini"),
@@ -1075,29 +1078,27 @@ def qt_obtener_modelos_ia():
     try:
         res = (supabase.table("config_prompts")
                .select("modelo_gemini, modelo_claude, modelo_openai")
-               .limit(1)
                .execute())
         filas = res.data or []
-        if not filas:
-            return salida
-        fila = filas[0]
-        for columna, proveedor in columnas:
-            valor = fila.get(columna)
-            if not valor:
-                continue
-            # La configuración permite varios modelos separados por comas.
-            for modelo in str(valor).split(","):
-                modelo = modelo.strip()
-                if not modelo:
+        for fila in filas:
+            for columna, proveedor in columnas:
+                valor = fila.get(columna)
+                if valor is None:
                     continue
-                clave = f"{proveedor}:{modelo}".lower()
-                if clave in vistos:
-                    continue
-                vistos.add(clave)
-                salida.append({
-                    "proveedor": proveedor,
-                    "nombre_modelo": modelo,
-                })
+                # Aceptamos texto separado por comas, saltos de línea o punto y coma.
+                texto = str(valor).replace("\n", ",").replace(";", ",")
+                for modelo in texto.split(","):
+                    modelo = modelo.strip()
+                    if not modelo:
+                        continue
+                    clave = f"{proveedor}:{modelo}".lower()
+                    if clave in vistos:
+                        continue
+                    vistos.add(clave)
+                    salida.append({
+                        "proveedor": proveedor,
+                        "nombre_modelo": modelo,
+                    })
     except Exception as e:
         st.error(f"No se pudieron cargar los modelos IA desde config_prompts: {e}")
     return salida
@@ -1392,9 +1393,17 @@ def render_admin_evaluaciones_trimestrales():
         f=st.file_uploader("Selecciona Excel (.xlsx)",type=["xlsx"],key="qt_excel")
         if f:
             st.success(f"Archivo leído: {f.name}")
-            if st.button("💾 Procesar y guardar evaluaciones",key="qt_save_excel",type="primary"):
-                try: st.success(f"Se han guardado {qt_cargar_excel(f,anio,st.session_state.user_nombre)} evaluación(es).")
-                except Exception as e: st.error(f"Error al guardar: {e}")
+            st.info("El Excel se procesa directamente al pulsar el botón. Las hojas válidas son Q1, Q2, Q3 y Q4; la hoja Resumen se ignora.")
+            st.markdown("### 💾 Guardar Excel en SQL")
+            st.caption("Si una evaluación Q ya existe, se actualiza con los datos del Excel. Las celdas vacías no generan puntuaciones artificiales.")
+            if st.button("💾 Guardar pestañas Q1-Q4 en SQL",key="qt_save_excel",type="primary",use_container_width=True):
+                try:
+                    with st.spinner("Guardando las evaluaciones en SQL…"):
+                        total_guardadas = qt_cargar_excel(f,anio,st.session_state.user_nombre)
+                    st.success(f"✅ Se han guardado correctamente {total_guardadas} pestaña(s) de evaluación en SQL.")
+                except Exception as e:
+                    st.error(f"❌ No se pudo guardar el Excel en SQL: {e}")
+                    st.exception(e)
     with t2:
         st.subheader("👁️ Visibilidad por empleado y año")
         emps = supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
