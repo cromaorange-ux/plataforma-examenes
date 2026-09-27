@@ -669,16 +669,94 @@ QT_APARTADOS_DEFECTO = [
     "Evaluacion",
 ]
 QT_SUBAPARTADOS_DEFECTO = {
-    "Tareas realizar por turnos y todos los turnos": ["Realiza las tareas asignadas a su turno", "Entrega de turno y comunicación"],
-    "Tiempos respuesta Tbox": ["Atención inmediata a alertas", "Tiempo medio de resolución"],
-    "Tiempos respuesta Siemens": ["Respuesta en sistema Siemens", "Gestión de incidencias"],
-    "Iniciativa / Proactividad ante el trabajo": ["Proactividad en resolución de problemas", "Aportación de mejoras"],
-    "Conocimientos": ["Manejo de herramientas", "Dominio de procedimientos"],
-    "Evaluacion": ["Evaluación global y desempeño general"],
+    "Tareas realizar por turnos y todos los turnos": [
+        "Turno mañana", "Turno Fin de semana Mañana", "Turno Tarde",
+        "Turno Noche", "Turno Fin de semana Noche", "Todos los turnos"
+    ],
+    "Tiempos respuesta Tbox": [
+        "% menos de 1 %", "tiempo mas de 20 minutos",
+        "Numero alarmas mas de 15 minutos (inferior a 10)"
+    ],
+    "Tiempos respuesta Siemens": [
+        "% menos de 1 %", "tiempo mas de 20 minutos",
+        "Numero alarmas mas de 15 minutos (inferior a 10)"
+    ],
+    "Iniciativa / Proactividad ante el trabajo": [
+        "Sugerencia de ideas / Mejoras / Realización de tabajos sin indicar nada"
+    ],
+    "Conocimientos": ["Conocimientos aplicados en puesto trabajo"],
+    "Evaluacion": ["Teorica (ANUAL)", "Practica (ANUAL)", "Herramienta (ANUAL)", "Dejar operativo portatil desde 0"],
 }
+QT_MAX_PUNTUACION_APARTADO = {
+    "Tareas realizar por turnos y todos los turnos": 3.0,
+    "Tiempos respuesta Tbox": 3.0,
+    "Tiempos respuesta Siemens": 3.0,
+    "Iniciativa / Proactividad ante el trabajo": 3.0,
+    "Conocimientos": 1.0,
+    "Evaluacion": 1.0,
+}
+
+QT_SUBAPARTADOS_MAX = {
+    qt_sub: maximo
+    for _ap, _subs in QT_SUBAPARTADOS_DEFECTO.items()
+    for qt_sub, maximo in [(s, QT_MAX_PUNTUACION_APARTADO[_ap]) for s in _subs]
+}
+
+def qt_clave_detalle(apartado, subapartado):
+    return f"{apartado}::{subapartado}"
+
+def qt_float(v):
+    try:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        return float(str(v).replace(',', '.'))
+    except Exception:
+        return None
+
+def qt_valores_iguales(a, b):
+    if a is None and b is None:
+        return True
+    if isinstance(a, str) or isinstance(b, str):
+        return str(a or '').strip() == str(b or '').strip()
+    fa, fb = qt_float(a), qt_float(b)
+    if fa is not None and fb is not None:
+        return abs(fa - fb) < 1e-9
+    return a == b
+
+def qt_registrar_auditoria(evaluacion_id, emp_id, anio, trimestre, apartado, subapartado, anterior, nuevo, usuario, motivo, campo='puntuacion', anterior_texto=None, nuevo_texto=None):
+    try:
+        supabase.table('auditoria_subapartados').insert({
+            'evaluacion_id': evaluacion_id, 'empleado_id': emp_id, 'anio': int(anio),
+            'trimestre': trimestre, 'seccion': apartado or 'CONFIGURACION',
+            'subapartado': subapartado or campo, 'valor_anterior': qt_float(anterior),
+            'valor_nuevo': qt_float(nuevo), 'usuario_modificador': usuario, 'motivo': motivo,
+            'campo_modificado': campo, 'valor_anterior_texto': None if anterior_texto is None else str(anterior_texto),
+            'valor_nuevo_texto': None if nuevo_texto is None else str(nuevo_texto)
+        }).execute()
+    except Exception as e:
+        st.warning(f'No se pudo registrar la auditoría de {apartado}/{subapartado}: {e}')
+
+def qt_registrar_auditoria_total(evaluacion_id, emp_id, nombre, anio, trimestre, anterior, nuevo, usuario, motivo, metrica='puntuacion_total'):
+    try:
+        supabase.table('auditoria_evaluaciones').insert({
+            'evaluacion_id': evaluacion_id, 'nombre_empleado': nombre, 'trimestre': trimestre,
+            'anio': int(anio), 'metrica': metrica, 'valor_anterior': qt_float(anterior),
+            'valor_nuevo': qt_float(nuevo), 'usuario_modificador': usuario, 'motivo': motivo
+        }).execute()
+    except Exception as e:
+        st.warning(f'No se pudo registrar la auditoría de la puntuación total: {e}')
+
+def qt_auditar_config(anio, campo, anterior, nuevo, usuario, motivo):
+    qt_registrar_auditoria(None, None, anio, 'CONFIG', 'CONFIGURACION', campo, anterior, nuevo, usuario, motivo, campo=campo, anterior_texto=anterior, nuevo_texto=nuevo)
 
 def qt_norm(v):
     return str(v).strip().lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
+
+def qt_sub_clave(apartado, subapartado):
+    return f"{apartado}::{subapartado}"
+
+def qt_sub_oculto(ocultos, apartado, subapartado):
+    return subapartado in set(ocultos or []) or qt_sub_clave(apartado, subapartado) in set(ocultos or [])
 
 def qt_obtener_visibilidad(empleado_id, anio):
     defecto={"qs_habilitados": {f"Q{i}": True for i in range(1,5)}, "apartados_habilitados": {x: True for x in QT_APARTADOS_DEFECTO}, "subapartados_deshabilitados": []}
@@ -689,7 +767,15 @@ def qt_obtener_visibilidad(empleado_id, anio):
         return defecto
 
 def qt_guardar_visibilidad(empleado_id, anio, qs, apartados, sub):
-    supabase.table("visibilidad_empleados").upsert({"empleado_id":empleado_id,"anio":int(anio),"qs_habilitados":qs,"apartados_habilitados":apartados,"subapartados_deshabilitados":sub}, on_conflict="empleado_id,anio").execute()
+    payload={"empleado_id":empleado_id,"anio":int(anio),"qs_habilitados":qs,"apartados_habilitados":apartados,"subapartados_deshabilitados":sub}
+    try:
+        existente=supabase.table("visibilidad_empleados").select("id").eq("empleado_id",empleado_id).eq("anio",int(anio)).limit(1).execute().data or []
+        if existente:
+            supabase.table("visibilidad_empleados").update(payload).eq("id",existente[0]["id"]).execute()
+        else:
+            supabase.table("visibilidad_empleados").insert(payload).execute()
+    except Exception as e:
+        raise RuntimeError(f"No se pudo guardar la visibilidad: {e}")
 
 def qt_obtener_pesos():
     """Obtiene los pesos base desde la estructura SQL existente."""
@@ -753,7 +839,7 @@ def qt_pesos_recalculados(pesos_base, apartados_habilitados, subapartados_por_ap
         subs = list(subapartados_por_apartado.get(ap, []) or [])
         if not subs:
             continue
-        subs_activos = [s for s in subs if s not in subapartados_deshabilitados and apartados_habilitados.get(ap, True)]
+        subs_activos = [s for s in subs if not qt_sub_oculto(subapartados_deshabilitados, ap, s) and apartados_habilitados.get(ap, True)]
         if subs_activos:
             peso_sub = peso_ap / len(subs_activos)
             pesos_subapartados[ap] = {s: (peso_sub if s in subs_activos else 0.0) for s in subs}
@@ -777,259 +863,139 @@ def qt_estructura(emp_id, anio):
     if not estructura: estructura={k:set(v) for k,v in QT_SUBAPARTADOS_DEFECTO.items()}
     return {k:sorted(v) for k,v in estructura.items()}
 
-def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
-    """Importa la plantilla real de evaluaciones trimestrales.
+def qt_max_puntuacion(apartado, subapartado=None):
+    """Máxima puntuación real por subapartado; si no se conoce, usa la del apartado."""
+    if subapartado is not None:
+        for ap, subs in QT_SUBAPARTADOS_DEFECTO.items():
+            if ap == apartado and subapartado in subs:
+                return float(QT_MAX_PUNTUACION_APARTADO.get(ap, 5.0))
+    return float(QT_MAX_PUNTUACION_APARTADO.get(apartado, 5.0))
 
-    Formato soportado:
-      - Hojas Q1, Q2, Q3 y Q4.
-      - Empleado en A8 y año en A10.
-      - Cabecera de evaluación en la fila 12.
-      - Apartados en columna A y criterios en las filas siguientes.
-      - Puntuación en columna C y observaciones en columna D.
-      - Observaciones generales en la fila 44.
-      - La hoja Resumen se ignora.
 
-    Se abre el libro dos veces: data_only=True permite obtener el valor
-    calculado de fórmulas como ='Q2'!A8, en lugar del texto de la fórmula.
-    """
+def qt_parsear_excel(uploaded_file, anio_defecto):
+    """Lee Q1-Q4 sin escribir en SQL. Devuelve registros listos para comparar/guardar."""
     if openpyxl is None:
-        raise RuntimeError("Falta openpyxl en requirements.txt")
-
+        raise RuntimeError('Falta openpyxl en requirements.txt')
     raw = uploaded_file.getvalue()
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
-    except Exception as e:
-        raise RuntimeError(f"No se pudo abrir el Excel: {e}")
+    wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+    hojas = [ws for ws in wb.worksheets if str(ws.title).strip().upper() in {'Q1','Q2','Q3','Q4'}]
+    if not hojas:
+        raise ValueError('El Excel debe contener hojas Q1, Q2, Q3 o Q4.')
+    empleados = supabase.table('empleados').select('id,nombre,activo').execute().data or []
+    by_name = {qt_norm(x.get('nombre')): x for x in empleados if x.get('nombre')}
 
-    hojas_validas = [ws for ws in wb.worksheets if str(ws.title).strip().upper() in {"Q1", "Q2", "Q3", "Q4"}]
-    if not hojas_validas:
-        raise ValueError("El Excel debe contener al menos una hoja Q1, Q2, Q3 o Q4.")
+    def txt(v): return '' if v is None else str(v).strip()
+    def num(v):
+        if v is None or isinstance(v, bool): return None
+        try: return float(str(v).strip().replace(',','.'))
+        except Exception: return None
 
-    # Apartados que existen en la plantilla entregada. También se acepta
-    # cualquier apartado nuevo si aparece en columna A de una fila de criterio.
-    apartados_conocidos = {
-        "Tareas realizar por turnos y todos los turnos",
-        "Tiempos respuesta Tbox",
-        "Tiempos respuesta Siemens",
-        "Iniciativa / Proactividad ante el trabajo",
-        "Conocimientos",
-        "Evaluacion",
-    }
-
-    def celda_texto(ws, fila, columna):
-        valor = ws.cell(fila, columna).value
-        if valor is None:
-            return ""
-        return str(valor).strip()
-
-    def numero_puntuacion(valor):
-        if valor is None or isinstance(valor, bool):
-            return None
-        try:
-            if isinstance(valor, str):
-                texto = valor.strip().replace(",", ".")
-                if not texto:
-                    return None
-                # Fórmulas de Excel ya no llegan aquí como fórmula porque
-                # el libro se abrió con data_only=True.
-                return float(texto)
-            return float(valor)
-        except Exception:
-            return None
-
-    # Empleados existentes en SQL.
-    empleados = supabase.table("empleados").select("id,nombre,activo").execute().data or []
-    by_id = {str(x["id"]): x for x in empleados}
-    by_name = {qt_norm(x.get("nombre")): x for x in empleados if x.get("nombre")}
-
-    grupos = {}
-    hojas_importadas = []
-
-    for ws in hojas_validas:
-        trimestre = str(ws.title).strip().upper()
-
-        # En esta plantilla las fórmulas de Q1/Q3/Q4 apuntan a Q2. Al usar
-        # data_only=True openpyxl nos entrega directamente "Carlos Perez" y 2025.
-        nombre_excel = celda_texto(ws, 8, 1)
-        anio_excel = ws.cell(10, 1).value
-        evaluador = celda_texto(ws, 10, 2)
-        fecha_evaluacion = ws.cell(8, 2).value
-
-        nombre_normalizado = qt_norm(nombre_excel)
-        emp = by_name.get(nombre_normalizado) if nombre_normalizado else None
-
-        if emp is None:
-            raise ValueError(
-                f"Empleado no encontrado en SQL para la hoja {trimestre}: '{nombre_excel}'. "
-                "Comprueba que el nombre de la hoja coincide con empleados.nombre."
-            )
-
-        try:
-            anio = int(float(anio_excel)) if anio_excel is not None else int(anio_defecto)
-        except Exception:
-            anio = int(anio_defecto)
-
-        detalles = []
-        apartado_actual = None
-
-        # La plantilla empieza la evaluación en la fila 14.
-        for fila in range(14, ws.max_row + 1):
-            nombre_a = celda_texto(ws, fila, 1)
-            valor_c = ws.cell(fila, 3).value
-            observacion = ws.cell(fila, 4).value
-
-            # Filas de cálculo: C21, C26, C31, C34, C37, C43, C45, etc.
-            # No son criterios individuales y nunca se insertan como detalle.
-            if not nombre_a:
+    registros=[]
+    for ws in hojas:
+        q=str(ws.title).strip().upper()
+        nombre=txt(ws.cell(8,1).value)
+        emp=by_name.get(qt_norm(nombre))
+        if not emp:
+            raise ValueError(f"Empleado no encontrado en SQL para {q}: '{nombre}'.")
+        try: anio=int(float(ws.cell(10,1).value))
+        except Exception: anio=int(anio_defecto)
+        evaluador=txt(ws.cell(10,2).value)
+        fecha=ws.cell(8,2).value
+        detalles=[]; apartado_actual=None; total=None; total_row=None; obs_gen=''; obs_row=None
+        for fila in range(1, ws.max_row+1):
+            a=txt(ws.cell(fila,1).value); b=txt(ws.cell(fila,2).value); c=ws.cell(fila,3).value; d=ws.cell(fila,4).value
+            al=a.lower()
+            if al == 'puntuacion total':
+                total=num(c); total_row=fila; continue
+            if al == 'observaciones generales:':
+                obs_gen=''
+                if fila+1 <= ws.max_row:
+                    obs_gen=txt(ws.cell(fila+1,1).value) or txt(ws.cell(fila+1,4).value)
+                obs_row=fila+1; continue
+            if a in QT_APARTADOS_DEFECTO:
+                apartado_actual=a; continue
+            if not a or apartado_actual is None:
                 continue
-
-            # Observaciones generales de la plantilla.
-            if nombre_a.lower() == "observaciones generales:":
+            if 'peso total' in txt(c).lower() or al.startswith('porciento de puntuación'):
                 continue
-
-            # Si la fila es uno de los apartados, cambia el contexto.
-            if nombre_a in apartados_conocidos:
-                apartado_actual = nombre_a
+            # Solo filas que representan subapartados conocidos o datos nuevos.
+            score=num(c); comentario=txt(d)
+            if score is None and not comentario:
                 continue
+            maximo=qt_max_puntuacion(apartado_actual,a)
+            detalles.append({'apartado':apartado_actual,'subapartado':a,'puntuacion':score,
+                             'puntuacion_maxima':maximo, 'observaciones':comentario})
+            if score is not None and score > maximo:
+                st.warning(f"{q} · {apartado_actual} / {a}: la puntuación {score:g} supera el máximo configurado {maximo:g}.")
+        registros.append({'empleado':emp,'anio':anio,'trimestre':q,'evaluador':evaluador,
+                          'fecha_evaluacion':str(fecha) if fecha is not None else '',
+                          'puntuacion_total':total,'fila_puntuacion_total':total_row,
+                          'observaciones_generales':obs_gen,'detalles':detalles,'fila_obs':obs_row})
+    return {'nombre_archivo': uploaded_file.name, 'mime': getattr(uploaded_file,'type',None), 'tamano_bytes':len(raw),
+            'contenido_base64':base64.b64encode(raw).decode('ascii'), 'registros':registros}
 
-            # También detectamos un apartado nuevo cuando C contiene el texto
-            # "Peso total (...)". Esto evita depender únicamente de la lista.
-            c_texto = str(valor_c).strip() if valor_c is not None else ""
-            if "peso total" in c_texto.lower():
-                apartado_actual = nombre_a
-                continue
-
-            # Si no hay apartado, no es una fila de criterio utilizable.
-            if not apartado_actual:
-                continue
-
-            # Una fila de criterio tiene un nombre en A y opcionalmente
-            # puntuación en C y/o observación en D.
-            puntuacion = numero_puntuacion(valor_c)
-            obs = "" if observacion is None else str(observacion).strip()
-
-            # Si no hay puntuación ni observación, sigue siendo un criterio
-            # válido de la plantilla (por ejemplo Q1/Q2 no evaluados).
-            detalles.append({
-                "apartado": apartado_actual,
-                "subapartado": nombre_a,
-                "puntuacion": puntuacion,
-                "puntuacion_maxima": 3.0,
-                "observaciones": obs,
-            })
-
-        # Observaciones generales: la plantilla las coloca normalmente en A44.
-        observaciones_generales = ""
-        for fila in range(43, ws.max_row + 1):
-            a = celda_texto(ws, fila, 1)
-            if a.lower() == "observaciones generales:":
-                # Puede estar en la fila siguiente (A44) o en D44 según versión.
-                siguiente_a = ws.cell(fila + 1, 1).value if fila + 1 <= ws.max_row else None
-                siguiente_d = ws.cell(fila + 1, 4).value if fila + 1 <= ws.max_row else None
-                observaciones_generales = str(siguiente_a or siguiente_d or "").strip()
-                break
-
-        grupos[(emp["id"], anio, trimestre)] = {
-            "empleado": emp,
-            "detalles": detalles,
-            "observaciones_generales": observaciones_generales,
-            "evaluador": evaluador,
-            "fecha_evaluacion": str(fecha_evaluacion) if fecha_evaluacion is not None else "",
-        }
-        hojas_importadas.append(trimestre)
-
-    if not grupos:
-        raise ValueError(
-            "No se encontraron evaluaciones en las hojas Q1-Q4. "
-            "La plantilla debe tener el empleado en A8 y los criterios desde la fila 14."
-        )
-
-    total = 0
-    archivo = {
-        "nombre": uploaded_file.name,
-        "mime": getattr(uploaded_file, "type", None),
-        "tamano_bytes": len(raw),
-        "contenido_base64": base64.b64encode(raw).decode("ascii"),
-    }
-
-    for (emp_id, anio, trimestre), info in grupos.items():
-        emp = info["empleado"]
-        datos = {
-            "origen": "Excel",
-            "plantilla": "Evaluaciones trimestrales Q1-Q4",
-            "archivo_subido": archivo,
-            "filas_importadas": len(info["detalles"]),
-            "hoja": trimestre,
-            "importado_por": creado_por,
-            "evaluador": info["evaluador"],
-            "fecha_evaluacion": info["fecha_evaluacion"],
-            "observaciones_generales": info["observaciones_generales"],
-        }
-
-        existing = (
-            supabase.table("evaluaciones_trimestrales")
-            .select("id")
-            .eq("empleado_id", emp_id)
-            .eq("anio", anio)
-            .eq("trimestre", trimestre)
-            .limit(1)
-            .execute().data or []
-        )
-
-        if existing:
-            evaluacion_id = existing[0]["id"]
-            # No usamos actualizado_en porque no sabemos si esa columna existe
-            # en la estructura SQL original.
-            supabase.table("evaluaciones_trimestrales").update({
-                "nombre_empleado": emp["nombre"],
-                "datos_completos_json": datos,
-            }).eq("id", evaluacion_id).execute()
-
-            supabase.table("evaluacion_detalles").delete().eq(
-                "evaluacion_id", evaluacion_id
-            ).execute()
+def qt_comparar_registro(registro):
+    emp_id=registro['empleado']['id']; anio=registro['anio']; q=registro['trimestre']
+    old=(supabase.table('evaluaciones_trimestrales').select('*').eq('empleado_id',emp_id).eq('anio',anio).eq('trimestre',q).limit(1).execute().data or [])
+    if not old:
+        return {'existente':False,'evaluacion':None,'detalles':[],'cambios':True}
+    ev=old[0]
+    old_det=supabase.table('evaluacion_detalles').select('*').eq('evaluacion_id',ev['id']).execute().data or []
+    old_map={qt_clave_detalle(x.get('apartado') or x.get('seccion') or '', x.get('subapartado') or ''):x for x in old_det}
+    cambios=[]
+    if not qt_valores_iguales(ev.get('puntuacion_total'),registro.get('puntuacion_total')):
+        cambios.append({'tipo':'total','campo':'Puntuación total','anterior':ev.get('puntuacion_total'),'nuevo':registro.get('puntuacion_total')})
+    if not qt_valores_iguales(ev.get('observaciones_generales'),registro.get('observaciones_generales')):
+        cambios.append({'tipo':'observacion_general','campo':'Observaciones Generales','anterior':ev.get('observaciones_generales'),'nuevo':registro.get('observaciones_generales')})
+    for d in registro['detalles']:
+        k=qt_clave_detalle(d['apartado'],d['subapartado']); prev=old_map.get(k)
+        if prev is None:
+            cambios.append({'tipo':'nuevo','campo':f"{d['apartado']} / {d['subapartado']}",'anterior':None,'nuevo':d['puntuacion'] if d['puntuacion'] is not None else d['observaciones']})
         else:
-            r = supabase.table("evaluaciones_trimestrales").insert({
-                "empleado_id": emp_id,
-                "nombre_empleado": emp["nombre"],
-                "anio": anio,
-                "trimestre": trimestre,
-                "habilitado": True,
-                "apartado": True,
-                "activo": True,
-                "datos_completos_json": datos,
-            }).execute()
+            if not qt_valores_iguales(prev.get('puntuacion'),d.get('puntuacion')):
+                cambios.append({'tipo':'puntuacion','campo':f"{d['apartado']} / {d['subapartado']} · puntuación",'anterior':prev.get('puntuacion'),'nuevo':d.get('puntuacion')})
+            if not qt_valores_iguales(prev.get('observaciones') or prev.get('comentario'),d.get('observaciones')):
+                cambios.append({'tipo':'comentario','campo':f"{d['apartado']} / {d['subapartado']} · comentario",'anterior':prev.get('observaciones') or prev.get('comentario'),'nuevo':d.get('observaciones')})
+    return {'existente':True,'evaluacion':ev,'detalles':old_det,'cambios':cambios}
 
-            if not r.data:
-                raise RuntimeError(
-                    f"Supabase no devolvió la evaluación creada para {emp['nombre']} {trimestre}."
-                )
-            evaluacion_id = r.data[0]["id"]
+def qt_guardar_registro(registro, usuario_modificador, motivo='Importación inicial'):
+    emp=registro['empleado']; emp_id=emp['id']; anio=registro['anio']; q=registro['trimestre']
+    comp=qt_comparar_registro(registro); existing=comp.get('evaluacion')
+    datos={'origen':'Excel','archivo_subido':{'nombre':st.session_state.get('qt_excel_nombre','')},
+           'importado_por':usuario_modificador,'evaluador':registro['evaluador'],'fecha_evaluacion':registro['fecha_evaluacion'],
+           'puntuacion_total_excel':registro['puntuacion_total'],'observaciones_generales':registro['observaciones_generales']}
+    if existing:
+        ev_id=existing['id']
+        supabase.table('evaluaciones_trimestrales').update({'nombre_empleado':emp['nombre'],'puntuacion_total':registro['puntuacion_total'],
+            'puntuacion_calculada':None,'observaciones_generales':registro['observaciones_generales'],'datos_completos_json':datos,'actualizado_en':datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq('id',ev_id).execute()
+        old_map={qt_clave_detalle(x.get('apartado') or x.get('seccion') or '',x.get('subapartado') or ''):x for x in existing and (supabase.table('evaluacion_detalles').select('*').eq('evaluacion_id',ev_id).execute().data or [])}
+        for d in registro['detalles']:
+            k=qt_clave_detalle(d['apartado'],d['subapartado']); prev=old_map.get(k)
+            if prev:
+                upd={'puntuacion':d['puntuacion'],'puntuacion_maxima':d['puntuacion_maxima'],'observaciones':d['observaciones'],'comentario':d['observaciones'],'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                supabase.table('evaluacion_detalles').update(upd).eq('id',prev['id']).execute()
+                if not qt_valores_iguales(prev.get('puntuacion'),d.get('puntuacion')): qt_registrar_auditoria(ev_id,emp_id,anio,q,d['apartado'],d['subapartado'],prev.get('puntuacion'),d.get('puntuacion'),usuario_modificador,motivo,'puntuacion')
+                if not qt_valores_iguales(prev.get('observaciones') or prev.get('comentario'),d.get('observaciones')): qt_registrar_auditoria(ev_id,emp_id,anio,q,d['apartado'],d['subapartado'],None,None,usuario_modificador,motivo,'comentario',prev.get('observaciones') or prev.get('comentario'),d.get('observaciones'))
+            else:
+                r=supabase.table('evaluacion_detalles').insert({'empleado_id':emp_id,'nombre_empleado':emp['nombre'],'anio':anio,'trimestre':q,'evaluacion_id':ev_id,'apartado':d['apartado'],'subapartado':d['subapartado'],'puntuacion':d['puntuacion'],'puntuacion_maxima':d['puntuacion_maxima'],'observaciones':d['observaciones'],'comentario':d['observaciones'],'habilitado':True}).execute()
+                qt_registrar_auditoria(ev_id,emp_id,anio,q,d['apartado'],d['subapartado'],None,d.get('puntuacion'),usuario_modificador,motivo,'nuevo_subapartado',None,d.get('observaciones'))
+        if not qt_valores_iguales(existing.get('puntuacion_total'),registro['puntuacion_total']): qt_registrar_auditoria_total(ev_id,emp_id,emp['nombre'],anio,q,existing.get('puntuacion_total'),registro['puntuacion_total'],usuario_modificador,motivo)
+        if not qt_valores_iguales(existing.get('observaciones_generales'),registro['observaciones_generales']): qt_registrar_auditoria(ev_id,emp_id,anio,q,'GENERAL','Observaciones Generales',None,None,usuario_modificador,motivo,'observaciones_generales',existing.get('observaciones_generales'),registro['observaciones_generales'])
+        return ev_id
+    r=supabase.table('evaluaciones_trimestrales').insert({'empleado_id':emp_id,'nombre_empleado':emp['nombre'],'anio':anio,'trimestre':q,'puntuacion_total':registro['puntuacion_total'],'puntuacion_calculada':None,'observaciones_generales':registro['observaciones_generales'],'habilitado':True,'apartado':True,'activo':True,'datos_completos_json':datos}).execute()
+    ev_id=r.data[0]['id']
+    rows=[{'empleado_id':emp_id,'nombre_empleado':emp['nombre'],'anio':anio,'trimestre':q,'evaluacion_id':ev_id,'apartado':d['apartado'],'subapartado':d['subapartado'],'puntuacion':d['puntuacion'],'puntuacion_maxima':d['puntuacion_maxima'],'observaciones':d['observaciones'],'comentario':d['observaciones'],'habilitado':True} for d in registro['detalles']]
+    if rows: supabase.table('evaluacion_detalles').insert(rows).execute()
+    return ev_id
 
-        detalles_sql = []
-        for d in info["detalles"]:
-            detalles_sql.append({
-                "empleado_id": emp_id,
-                "nombre_empleado": emp["nombre"],
-                "anio": anio,
-                "trimestre": trimestre,
-                "evaluacion_id": evaluacion_id,
-                "apartado": d["apartado"],
-                "subapartado": d["subapartado"],
-                # None significa "no evaluado" y evita convertir una celda
-                # vacía del Excel en un 0 artificial.
-                "puntuacion": d["puntuacion"],
-                "puntuacion_maxima": d["puntuacion_maxima"],
-                "observaciones": d["observaciones"],
-                "habilitado": True,
-            })
-
-        if detalles_sql:
-            supabase.table("evaluacion_detalles").insert(detalles_sql).execute()
-
-        total += 1
-
-    return total
+def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
+    parsed=qt_parsear_excel(uploaded_file,anio_defecto)
+    st.session_state['qt_excel_nombre']=parsed['nombre_archivo']
+    pendientes=[]
+    for reg in parsed['registros']:
+        comp=qt_comparar_registro(reg); pendientes.append({'registro':reg,'comparacion':comp})
+    st.session_state['qt_excel_pendientes']=pendientes
+    return len(pendientes)
 
 def qt_obtener_modelos_ia():
     """Lee directamente los modelos configurados en config_prompts.
@@ -1070,92 +1036,81 @@ def qt_obtener_modelos_ia():
                 })
     except Exception as e:
         st.error(f"No se pudieron cargar los modelos IA desde config_prompts: {e}")
+    try:
+        cfg=qt_obtener_config_eval() if 'qt_obtener_config_eval' in globals() else {}
+        valor=cfg.get('modelo_ia') if cfg else None
+        if valor:
+            for modelo in str(valor).split(','):
+                modelo=modelo.strip()
+                if modelo and not any(x['nombre_modelo'].lower()==modelo.lower() for x in salida):
+                    prov='claude' if 'claude' in modelo.lower() else ('openai' if 'gpt' in modelo.lower() or 'openai' in modelo.lower() else 'gemini')
+                    salida.append({'proveedor':prov,'nombre_modelo':modelo})
+    except Exception:
+        pass
     return salida
 
 
-def generar_y_guardar_informe_ia_multimodelo(empleado_id, nombre_emp, anio, lista_modelos_info):
-    """Genera y guarda el informe trimestral usando la IA ya integrada en app.py."""
+def qt_obtener_config_eval():
     try:
-        cfg = supabase.table("config_prompts_eval").select("*").limit(1).execute().data or []
-        prompt_base = cfg[0].get("prompt_texto") if cfg else None
-        if not prompt_base:
-            prompt_base = "Realiza un informe evaluativo profesional basado en estos datos."
+        rows=supabase.table('config_prompts_eval').select('*').eq('activo',True).order('id').execute().data or []
+        return rows[0] if rows else {}
     except Exception:
-        prompt_base = "Realiza un informe evaluativo profesional basado en estos datos."
+        return {}
 
-    vis = qt_obtener_visibilidad(empleado_id, anio)
-    qs_hab = vis.get("qs_habilitados", {})
-    apts_hab = vis.get("apartados_habilitados", {})
-    sub_ocultos = vis.get("subapartados_deshabilitados", [])
+def generar_y_guardar_informe_ia_multimodelo(empleado_id, nombre_emp, anio, lista_modelos_info):
+    cfg=qt_obtener_config_eval()
+    prompt_base=cfg.get('prompt_texto') or cfg.get('prompt_text') or cfg.get('prompt_informe_global') or 'Realiza una evaluación profesional del empleado basándote en los datos trimestrales y en los años anteriores.'
+    objetivo=float(cfg.get('objetivo_media') or 8.0)
+    vis=qt_obtener_visibilidad(empleado_id,anio); qs=vis.get('qs_habilitados',{}); apts=vis.get('apartados_habilitados',{}); ocultos=vis.get('subapartados_deshabilitados',[])
+    all_evals=supabase.table('evaluaciones_trimestrales').select('*').eq('empleado_id',empleado_id).eq('activo',True).order('anio',desc=False).execute().data or []
+    if not all_evals: return False,f'No existen evaluaciones para {nombre_emp}.'
+    rows=[]
+    for q in all_evals:
+        y=int(q.get('anio') or 0); qn=q.get('trimestre')
+        if y==int(anio) and not qs.get(qn,True): continue
+        det=supabase.table('evaluacion_detalles').select('*').eq('evaluacion_id',q['id']).execute().data or []
+        for d in det:
+            ap=d.get('apartado') or d.get('seccion'); sub=d.get('subapartado')
+            if y==int(anio) and (not apts.get(ap,True) or qt_sub_oculto(ocultos,ap,sub)): continue
+            rows.append({'anio':y,'trimestre':qn,'apartado':ap,'subapartado':sub,'puntuacion':d.get('puntuacion'),'puntuacion_maxima':d.get('puntuacion_maxima') or qt_max_puntuacion(ap,sub),'observaciones':d.get('observaciones') or d.get('comentario') or ''})
+    if not rows: return False,f'No existen datos habilitados para {nombre_emp} en {anio}.'
+    resumen=[]
+    for y in sorted({r['anio'] for r in rows}):
+        for qn in ['Q1','Q2','Q3','Q4']:
+            rr=[r for r in rows if r['anio']==y and r['trimestre']==qn and r['puntuacion'] is not None]
+            if rr:
+                po=sum(float(r['puntuacion']) for r in rr); pm=sum(float(r['puntuacion_maxima'] or 0) for r in rr); n=(po/pm*10) if pm else 0
+                resumen.append({'anio':y,'trimestre':qn,'puntos':round(po,3),'maximo':round(pm,3),'nota_sobre_10':round(n,3)})
+    prompt_completo=f"""{prompt_base}
 
-    try:
-        q_evals = (supabase.table("evaluaciones_trimestrales").select("*")
-                   .eq("empleado_id", empleado_id).eq("anio", anio).eq("activo", True)
-                   .execute().data or [])
-    except Exception as e:
-        return False, f"Error leyendo evaluaciones trimestrales: {e}"
+Empleado seleccionado: {nombre_emp}
+Año seleccionado: {anio}
+Objetivo de media: {objetivo}/10
 
-    resumen_datos = []
-    for q in q_evals:
-        q_nom = q.get("trimestre")
-        if not qs_hab.get(q_nom, True):
-            continue
+Histórico de puntuaciones por trimestre:
+{json.dumps(resumen,ensure_ascii=False,indent=2)}
+
+Detalle de evaluaciones:
+{json.dumps(rows,ensure_ascii=False,indent=2)}
+
+Como experto en evaluación de empleados, analiza el año seleccionado y compáralo con los años anteriores disponibles. Identifica evolución, fortalezas, aspectos a mejorar y relación con el objetivo {objetivo}/10. No inventes datos que no estén presentes."""
+    textos=[]; errores=[]
+    for mi in lista_modelos_info:
+        mod=mi.get('nombre_modelo'); prov=mi.get('proveedor','gemini')
         try:
-            detalles = supabase.table("evaluacion_detalles").select("*").eq("evaluacion_id", q["id"]).execute().data or []
-        except Exception as e:
-            return False, f"Error leyendo detalles del trimestre {q_nom}: {e}"
-        for r in detalles:
-            apartado, subapartado = r.get("apartado"), r.get("subapartado")
-            if not apts_hab.get(apartado, True) or subapartado in sub_ocultos:
-                continue
-            resumen_datos.append({
-                "trimestre": q_nom, "apartado": apartado, "subapartado": subapartado,
-                "puntuacion": r.get("puntuacion"), "observaciones": r.get("observaciones", "")
-            })
-
-    if not resumen_datos:
-        return False, f"No existen datos de evaluaciones habilitadas para {nombre_emp} en {anio}."
-
-    prompt_completo = f"""{prompt_base}
-
-Empleado: {nombre_emp}
-Año: {anio}
-
-Datos de evaluaciones del año:
-{json.dumps(resumen_datos, ensure_ascii=False, indent=2)}
-
-Genera un informe detallado, constructivo y estructurado en Markdown.
-"""
-
-    textos, errores = [], []
-    for mod_info in lista_modelos_info:
-        nombre_modelo = mod_info.get("nombre_modelo")
-        proveedor = mod_info.get("proveedor", "gemini")
-        if not nombre_modelo:
-            continue
-        try:
-            # Firma real de consultar_ia() en app.py: consultar_ia(modelo, prompt, sistema="")
-            texto = consultar_ia(nombre_modelo, prompt_completo)
-            if texto:
-                textos.append(f"### 🤖 Informe generado con {nombre_modelo} ({proveedor.upper()})\n\n{texto}" if len(lista_modelos_info) > 1 else texto)
-            else:
-                errores.append(f"[{nombre_modelo}]: la IA no devolvió contenido")
-        except Exception as e:
-            errores.append(f"[{nombre_modelo}]: {e}")
-
-    if not textos:
-        return False, f"Fallaron todas las consultas de IA: {'; '.join(errores)}"
-
-    informe_final = "\n\n---\n\n".join(textos)
+            txt_resp=consultar_ia(mod,prompt_completo,sistema='Eres un experto profesional en evaluación de desempeño de empleados. Sé objetivo, basado únicamente en los datos proporcionados.')
+            if txt_resp: textos.append(f'### 🤖 {mod} ({prov.upper()})\\n\\n{txt_resp}' if len(lista_modelos_info)>1 else txt_resp)
+        except Exception as e: errores.append(f'[{mod}] {e}')
+    if not textos: return False,'Fallaron todas las consultas de IA: '+'; '.join(errores)
+    informe='\\n\\n---\\n\\n'.join(textos); grafica={'trimestres':resumen,'objetivo_media':objetivo}
     try:
-        supabase.table("informes_evaluacion").upsert(
-            {"empleado_id": empleado_id, "anio": anio, "informe_texto": informe_final},
-            on_conflict="empleado_id,anio"
-        ).execute()
+        for mi in lista_modelos_info:
+            mod=mi.get('nombre_modelo')
+            if not mod: continue
+            supabase.table('resultados_evaluacion_ia').insert({'empleado_id':empleado_id,'nombre_empleado':nombre_emp,'anio':int(anio),'prompt_id':cfg.get('id'),'modelo_ia':mod,'resultado_texto':informe,'grafica_data_json':grafica,'activo':True,'creado_por':st.session_state.get('user_nombre',''),'visible_empleado':False}).execute()
     except Exception as e:
-        return False, f"Error al guardar el informe en la BD: {e}"
-    return True, informe_final
-
+        return False,f'Informe generado pero no se pudo guardar en resultados_evaluacion_ia: {e}'
+    return True,informe
 
 def qt_render_resumen(emp_id, nombre, anio):
     vis = qt_obtener_visibilidad(emp_id, anio)
@@ -1164,10 +1119,7 @@ def qt_render_resumen(emp_id, nombre, anio):
     ocultos = set(vis.get("subapartados_deshabilitados", []))
     pesos_base = qt_obtener_pesos()
     estructura = qt_estructura(emp_id, anio)
-
-    pesos, pesos_sub, total_w = qt_pesos_recalculados(
-        pesos_base, apts, estructura, ocultos
-    )
+    pesos, pesos_sub, total_w = qt_pesos_recalculados(pesos_base, apts, estructura, ocultos)
 
     evs = (supabase.table("evaluaciones_trimestrales").select("*")
            .eq("empleado_id", emp_id).eq("anio", int(anio))
@@ -1177,137 +1129,317 @@ def qt_render_resumen(emp_id, nombre, anio):
         return
 
     st.subheader(f"📊 {nombre} · {anio}")
-    st.success(f"Pesos efectivos de apartados activos: **{total_w:.2f}%** · redistribución automática activada")
+    st.success(f"Pesos efectivos de apartados activos: **{total_w:.2f}%**")
 
-    if pesos_base:
-        tabla_pesos = []
-        for ap, base in pesos_base.items():
-            activo = apts.get(ap, True)
-            tabla_pesos.append({
-                "Apartado": ap,
-                "Peso base %": round(float(base or 0), 2),
-                "Activo": "Sí" if activo else "No",
-                "Peso efectivo %": round(float(pesos.get(ap, 0)), 2),
-            })
-        st.dataframe(pd.DataFrame(tabla_pesos), use_container_width=True, hide_index=True)
-
-        if abs(total_w - 100) > 0.01:
-            st.error("No ha sido posible normalizar los pesos activos al 100%. Revisa la configuración de pesos.")
+    # Acumulación anual basada en los mismos datos que se muestran por trimestre.
+    q_resultados = []
+    anual_puntos = 0.0
+    anual_max = 0.0
 
     for q in evs:
-        if not qs.get(q.get("trimestre"), True):
+        q_nom = q.get("trimestre")
+        if not qs.get(q_nom, True):
             continue
         det = (supabase.table("evaluacion_detalles").select("*")
                .eq("evaluacion_id", q["id"]).execute().data or [])
         df = pd.DataFrame(det)
         if df.empty:
             continue
-        df = df[df["apartado"].map(lambda x: apts.get(x, True)) & ~df["subapartado"].isin(ocultos)]
+        df = df[df.apply(lambda r: apts.get(r.get("apartado"), True) and not qt_sub_oculto(ocultos, r.get("apartado"), r.get("subapartado")), axis=1)]
         if df.empty:
             continue
 
-        st.markdown(f"### {q['trimestre']}")
-        for ap, g in df.groupby("apartado"):
-            p = float(g["puntuacion"].sum())
-            maxp = float(len(g) * 5)
-            nota = (p / maxp * 10 if maxp else 0)
-            w = pesos.get(ap, 0)
-            st.write(f"**{ap}** · Peso efectivo: **{w:.2f}%** · Nota: **{nota:.2f}/10**")
+        q_puntos = 0.0
+        q_max = 0.0
+        for _, r in df.iterrows():
+            if r.get("puntuacion") is None or pd.isna(r.get("puntuacion")):
+                continue
+            mx = qt_max_puntuacion(r.get("apartado"), r.get("subapartado"))
+            q_puntos += float(r.get("puntuacion") or 0)
+            q_max += mx
+        q_nota = (q_puntos / q_max * 10.0) if q_max else None
+        q_resultados.append((q_nom, q_puntos, q_max, q_nota, df))
+        anual_puntos += q_puntos
+        anual_max += q_max
 
-            # Mostrar el peso que representa cada subapartado dentro del 100%.
-            sub_pesos = pesos_sub.get(ap, {})
+    st.markdown("### 🏆 Puntuación total")
+    col1, col2, col3 = st.columns(3)
+    anual_nota = (anual_puntos / anual_max * 10.0) if anual_max else 0.0
+    notas_q = [n for _,_,_,n,_ in q_resultados if n is not None]
+    media_q = (sum(notas_q) / len(notas_q)) if notas_q else 0.0
+    with col1:
+        st.metric("Total anual según base de datos", f"{anual_puntos:.2f} / {anual_max:.2f}")
+    with col2:
+        st.metric("Nota anual normalizada", f"{anual_nota:.2f} / 10")
+    try:
+        cfg = supabase.table("config_prompts_eval").select("objetivo_media").limit(1).execute().data or []
+        objetivo = float(cfg[0].get("objetivo_media")) if cfg and cfg[0].get("objetivo_media") is not None else 8.0
+    except Exception:
+        objetivo = 8.0
+    with col3:
+        if media_q >= objetivo:
+            st.success(f"Media de Q: **{media_q:.2f}/10** · Objetivo {objetivo:.2f} · **CUMPLE**")
+        else:
+            st.warning(f"Media de Q: **{media_q:.2f}/10** · Objetivo {objetivo:.2f} · **NO CUMPLE**")
+
+    if q_resultados:
+        st.markdown("### 📅 Puntuación por trimestre")
+        st.dataframe(pd.DataFrame([
+            {"Trimestre": q, "Puntuación": f"{p:.2f} / {m:.2f}", "Nota /10": f"{n:.2f}" if n is not None else "Sin datos", "Objetivo": "Cumple" if n is not None and n >= objetivo else "No cumple"}
+            for q,p,m,n,_ in q_resultados
+        ]), use_container_width=True, hide_index=True)
+
+    if pesos_base:
+        tabla_pesos = []
+        for ap, base in pesos_base.items():
+            tabla_pesos.append({"Apartado": ap, "Peso base %": round(float(base or 0),2), "Activo": "Sí" if apts.get(ap,True) else "No", "Peso efectivo %": round(float(pesos.get(ap,0)),2)})
+        with st.expander("⚖️ Pesos base y pesos efectivos", expanded=False):
+            st.dataframe(pd.DataFrame(tabla_pesos), use_container_width=True, hide_index=True)
+
+    for q_nom, q_puntos, q_max, q_nota, df in q_resultados:
+        q_row = next((x for x in evs if x.get("trimestre") == q_nom), None)
+        total_excel = q_row.get("puntuacion_total") if q_row else None
+        total_excel_txt = f"{float(total_excel):.2f}" if total_excel is not None else "No indicado en Excel"
+        q_porcentaje=(q_puntos/q_max*100.0) if q_max else 0.0
+        st.markdown(f"## {q_nom} · **{q_puntos:.2f} / {q_max:.2f} pts** · **{q_porcentaje:.2f}%** · **{q_nota:.2f}/10**")
+        st.caption(f"Puntuación total indicada en Excel: **{total_excel_txt}** · Puntuación calculada en nuestra base de datos: **{q_puntos:.2f}**")
+        for ap in [x for x in QT_APARTADOS_DEFECTO if x in set(df["apartado"].tolist())] + [x for x in df["apartado"].unique() if x not in QT_APARTADOS_DEFECTO]:
+            g = df[df["apartado"] == ap]
+            if g.empty:
+                continue
+            p = 0.0; maxp = 0.0
             for _, r in g.iterrows():
-                sub = r.get("subapartado")
-                wsp = sub_pesos.get(sub, 0.0)
-                texto = f"• {sub}: {r.get('puntuacion', 0)} / 5 · Peso: {wsp:.2f}%"
-                if r.get("observaciones"):
-                    texto += f" — {r.get('observaciones')}"
-                st.write(texto)
-
-        if q.get("observaciones_generales"):
-            st.info(q["observaciones_generales"])
+                if r.get("puntuacion") is None or pd.isna(r.get("puntuacion")):
+                    continue
+                p += float(r.get("puntuacion") or 0)
+                maxp += qt_max_puntuacion(ap, r.get("subapartado"))
+            nota = (p / maxp * 10.0) if maxp else 0.0
+            w = pesos.get(ap,0)
+            porcentaje_ap = (p / maxp * 100.0) if maxp else 0.0
+            with st.expander(f"📌 {ap} · {p:.2f}/{maxp:.2f} pts · {porcentaje_ap:.2f}% · {nota:.2f}/10 · Peso {w:.2f}%", expanded=True):
+                for _, r in g.iterrows():
+                    sub = r.get("subapartado")
+                    mx = qt_max_puntuacion(ap, sub)
+                    score = r.get("puntuacion")
+                    score_txt = "Sin evaluar" if score is None or pd.isna(score) else f"{float(score):g} / {mx:g}"
+                    wsp = pesos_sub.get(ap,{}).get(sub,0.0)
+                    st.write(f"**{sub}** · {score_txt} · Peso efectivo {wsp:.2f}%")
+                    if r.get("observaciones"):
+                        st.caption(str(r.get("observaciones")))
+        if q_row and q_row.get("observaciones_generales"):
+            st.info(q_row["observaciones_generales"])
 
 def qt_pdf(nombre,informe,anio):
     return generar_pdf_evaluacion_ia(nombre,informe,anio)
 
+def qt_editor_empleado(emp_id, nombre, anio):
+    evs=supabase.table('evaluaciones_trimestrales').select('*').eq('empleado_id',emp_id).eq('anio',int(anio)).order('trimestre').execute().data or []
+    if not evs: st.info('No hay Q para editar.'); return
+    qn=st.selectbox('Q a modificar',['Q1','Q2','Q3','Q4'],index=0,key=f'qted_q_{emp_id}_{anio}')
+    ev=next((x for x in evs if x.get('trimestre')==qn),None)
+    if not ev: st.info(f'No existe {qn} para {nombre}.'); return
+    det=supabase.table('evaluacion_detalles').select('*').eq('evaluacion_id',ev['id']).order('apartado').order('id').execute().data or []
+    with st.form(f'qted_form_{emp_id}_{anio}_{qn}'):
+        nuevo_total=st.number_input('Puntuación total indicada en Excel',value=float(ev.get('puntuacion_total') or 0),step=0.1,key=f'qted_total_{emp_id}_{anio}_{qn}')
+        nuevo_obs=st.text_area('Observaciones Generales',value=ev.get('observaciones_generales') or '',key=f'qted_obs_{emp_id}_{anio}_{qn}')
+        cambios=[]
+        for ap in QT_APARTADOS_DEFECTO:
+            grupo=[d for d in det if d.get('apartado')==ap]
+            if not grupo: continue
+            st.markdown(f'### 📌 {ap}')
+            for d in grupo:
+                mx=qt_max_puntuacion(ap,d.get('subapartado'))
+                c1,c2=st.columns([1,2])
+                val=d.get('puntuacion')
+                score=c1.number_input(f'{d.get("subapartado")} · máx {mx:g}',min_value=0.0,max_value=max(mx,10.0),value=float(val) if val is not None else 0.0,step=0.1,key=f'qted_score_{d["id"]}')
+                comment=c2.text_input('Comentario',value=d.get('observaciones') or d.get('comentario') or '',key=f'qted_comment_{d["id"]}')
+                cambios.append((d,score,comment,mx))
+        usuario=st.text_input('👤 Quién modifica',value=st.session_state.get('user_nombre',''),key=f'qted_user_{emp_id}_{anio}_{qn}')
+        motivo=st.text_area('📝 Motivo del cambio',key=f'qted_reason_{emp_id}_{anio}_{qn}')
+        guardar=st.form_submit_button('💾 Guardar cambios',type='primary')
+    if guardar:
+        if not usuario.strip() or not motivo.strip(): st.error('Indica quién modifica y el motivo.'); return
+        try:
+            for d,score,comment,mx in cambios:
+                if not qt_valores_iguales(d.get('puntuacion'),score): qt_registrar_auditoria(ev['id'],emp_id,anio,qn,d.get('apartado'),d.get('subapartado'),d.get('puntuacion'),score,usuario,motivo,'puntuacion')
+                if not qt_valores_iguales(d.get('observaciones') or d.get('comentario'),comment): qt_registrar_auditoria(ev['id'],emp_id,anio,qn,d.get('apartado'),d.get('subapartado'),None,None,usuario,motivo,'comentario',d.get('observaciones') or d.get('comentario'),comment)
+                supabase.table('evaluacion_detalles').update({'puntuacion':score,'observaciones':comment,'comentario':comment,'puntuacion_maxima':mx,'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq('id',d['id']).execute()
+            if not qt_valores_iguales(ev.get('puntuacion_total'),nuevo_total): qt_registrar_auditoria_total(ev['id'],emp_id,nombre,anio,qn,ev.get('puntuacion_total'),nuevo_total,usuario,motivo)
+            if not qt_valores_iguales(ev.get('observaciones_generales'),nuevo_obs): qt_registrar_auditoria(ev['id'],emp_id,anio,qn,'GENERAL','Observaciones Generales',None,None,usuario,motivo,'observaciones_generales',ev.get('observaciones_generales'),nuevo_obs)
+            supabase.table('evaluaciones_trimestrales').update({'puntuacion_total':nuevo_total,'observaciones_generales':nuevo_obs,'actualizado_en':datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq('id',ev['id']).execute()
+            st.success('Cambios guardados y auditados.'); st.rerun()
+        except Exception as e: st.error(f'No se pudieron guardar los cambios: {e}')
+
 def render_admin_evaluaciones_trimestrales():
-    st.title("📋 Evaluaciones Trimestrales")
-    t1,t2,t3,t4,t5,t6=st.tabs(["📥 Cargar Excel","👁️ Visibilidad","📊 Resumen","⚙️ Configuración","🤖 Generar e Insertar Informes IA","👥 Datos empleado"])
+    st.title('📋 Evaluaciones Trimestrales')
+    t1,t2,t3,t4,t5,t6=st.tabs(['📥 Cargar Excel','👁️ Visibilidad','📊 Resumen','⚙️ Configuración','🤖 Generar e Insertar Informes IA','👥 Datos empleado'])
     with t1:
-        st.subheader("📥 Cargar evaluaciones trimestrales")
-        anio=st.number_input("Año por defecto",min_value=2020,max_value=2100,value=datetime.datetime.now().year,key="qt_upload_year")
-        f=st.file_uploader("Selecciona Excel (.xlsx)",type=["xlsx"],key="qt_excel")
-        if f:
-            st.success(f"Archivo leído: {f.name}")
-            if st.button("💾 Procesar y guardar evaluaciones",key="qt_save_excel",type="primary"):
-                try: st.success(f"Se han guardado {qt_cargar_excel(f,anio,st.session_state.user_nombre)} evaluación(es).")
-                except Exception as e: st.error(f"Error al guardar: {e}")
-    with t2:
-        emps=supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
-        emp=st.selectbox("Empleado",emps,key="qt_vis_emp",format_func=lambda x:f"{x['nombre']} · {'Activo' if x.get('activo') else 'Deshabilitado'}")
-        anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_vis_year")
-        if emp:
-            v=qt_obtener_visibilidad(emp["id"],anio); qs={}; cols=st.columns(4)
-            for i,q in enumerate(["Q1","Q2","Q3","Q4"]): qs[q]=cols[i].checkbox(q,value=v.get("qs_habilitados",{}).get(q,True),key=f"qtq_{q}")
-            estructura=qt_estructura(emp["id"],anio); af={}; sub=[]
-            for ap,subs in estructura.items():
-                af[ap]=st.checkbox(f"Habilitar {ap}",value=v.get("apartados_habilitados",{}).get(ap,True),key=f"qta_{ap}")
-                for su in subs:
-                    ok=st.checkbox(f"  {su}",value=su not in v.get("subapartados_deshabilitados",[]),key=f"qts_{ap}_{su}")
-                    if not ok: sub.append(su)
-            if st.button("💾 Guardar visibilidad",key="qt_save_vis"): qt_guardar_visibilidad(emp["id"],anio,qs,af,sub); st.success("Guardado.")
-    with t3:
-        emps=supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
-        emp=st.selectbox("Empleado",emps,key="qt_sum_emp",format_func=lambda x:x["nombre"])
-        anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_sum_year")
-        if emp: qt_render_resumen(emp["id"],emp["nombre"],anio)
-    with t4:
-        st.subheader("⚙️ Pesos de apartados")
-        st.caption("Los pesos de SQL son los pesos base. La visibilidad de cada empleado redistribuye automáticamente los pesos para que los apartados activos sumen siempre 100%.")
-        rows=supabase.table("config_apartados_pesos").select("*").order("apartado").execute().data or []
-        if not rows:
-            st.info("No hay pesos configurados en config_apartados_pesos. Se usa config_pesos_apartados si es la estructura activa.")
-            rows=[{"apartado":k,"peso_porcentaje":v,"habilitado":True} for k,v in qt_obtener_pesos().items()]
-        pesos_base=qt_obtener_pesos()
-        total_base=sum(float(x.get("peso_porcentaje") or 0) for x in rows if x.get("habilitado",True))
-        st.metric("Suma de pesos base",f"{total_base:.2f}%")
-        st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
-        st.info("Ejemplo: si un apartado del 20% se deshabilita, ese 20% se redistribuye proporcionalmente entre los apartados que siguen activos. Los subapartados deshabilitados redistribuyen su parte dentro de su apartado.")
-    with t5:
-        st.subheader("🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)")
-        modelos=qt_obtener_modelos_ia(); opciones=[f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos]
-        selmods=st.multiselect("Modelos IA",opciones,default=opciones[:1],key="qt_models"); anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_ai_year")
-        activos=supabase.table("empleados").select("id,nombre").eq("activo",True).order("nombre").execute().data or []; mp={e["nombre"]:e["id"] for e in activos}
-        st.markdown("#### Selección de Empleados")
-        st.success(f"Usuarios activos disponibles: **{len(activos)}**")
-        todos=st.checkbox("Seleccionar TODOS los usuarios activos",key="qt_all_active"); sels=list(mp) if todos else st.multiselect("Empleado(s)",list(mp),key="qt_ai_emps")
-        infos=[modelos[opciones.index(x)] for x in selmods]
-        if st.button("🚀 Generar e Insertar Informes Seleccionados",type="primary",key="qt_ai_go"):
-            if not sels or not infos: st.warning("Selecciona empleados activos y al menos un modelo.")
+        st.subheader('📥 Importar evaluaciones desde Excel')
+        anio_def=int(datetime.datetime.now().year)
+        archivo=st.file_uploader('Selecciona el archivo .xlsx',type=['xlsx'],key='qt_excel')
+        if archivo and st.button('🔎 Analizar Excel',key='qt_analyze_excel',type='primary'):
+            try:
+                n=qt_cargar_excel(archivo,anio_def,st.session_state.user_nombre)
+                st.success(f'Se han analizado {n} pestañas Q.')
+            except Exception as e: st.error(f'Error al analizar el Excel: {e}')
+        pendientes=st.session_state.get('qt_excel_pendientes',[])
+        if pendientes:
+            st.markdown('---'); st.subheader('🔍 Revisión antes de guardar')
+            for idx,item in enumerate(pendientes):
+                reg=item['registro']; comp=item['comparacion']; q=reg['trimestre']; emp=reg['empleado']['nombre'];
+                if not comp['existente']:
+                    st.success(f'🆕 {emp} · {reg["anio"]} · {q}: no existe en SQL. Se puede crear.')
+                elif comp['cambios']:
+                    with st.expander(f'⚠️ {emp} · {reg["anio"]} · {q} — hay {len(comp["cambios"])} diferencia(s)',expanded=True):
+                        st.dataframe(pd.DataFrame([{'Campo':c['campo'],'Valor anterior':c['anterior'],'Valor nuevo':c['nuevo']} for c in comp['cambios']]),use_container_width=True,hide_index=True)
+                        st.caption('Los datos que no aparecen en el Excel no se eliminan de SQL.')
+                else:
+                    st.info(f'✓ {emp} · {reg["anio"]} · {q}: sin diferencias; no es necesario actualizar.')
+            hay_cambios=any(x['comparacion'].get('cambios') for x in pendientes)
+            if hay_cambios:
+                autor=st.text_input('👤 Nombre de quien realiza la modificación',value=st.session_state.get('user_nombre',''),key='qt_import_user')
+                motivo=st.text_area('📝 Motivo del cambio',key='qt_import_reason')
+                aceptar=st.checkbox('Confirmo la actualización de las pestañas que presentan diferencias',key='qt_import_confirm')
             else:
-                resultados=[]
-                for nom in sels:
-                    ok,msg=generar_y_guardar_informe_ia_multimodelo(mp[nom],nom,anio,infos); resultados.append((nom,ok,msg))
-                for nom,ok,msg in resultados:
-                    if ok:
-                        st.success(f"Informe generado para {nom}")
-                        pdf=qt_pdf(nom,msg,anio)
-                        if pdf: st.download_button("📄 Exportar informe a PDF",pdf,f"Informe_IA_{nom}_{anio}.pdf","application/pdf",key=f"qt_pdf_{nom}_{anio}")
-                        with st.expander(f"📄 {nom}"): st.markdown(msg)
-                    else: st.error(f"{nom}: {msg}")
+                autor=st.session_state.get('user_nombre',''); motivo='Importación sin diferencias'; aceptar=True
+            if st.button('💾 Guardar pestañas nuevas / actualizaciones confirmadas',key='qt_commit_excel',type='primary',disabled=hay_cambios and not (autor.strip() and motivo.strip() and aceptar)):
+                guardadas=0; omitidas=0
+                for item in pendientes:
+                    comp=item['comparacion']
+                    if comp['existente'] and comp['cambios'] and not aceptar:
+                        omitidas+=1; continue
+                    if comp['existente'] and not comp['cambios']:
+                        omitidas+=1; continue
+                    qt_guardar_registro(item['registro'],autor,motivo)
+                    guardadas+=1
+                st.session_state.pop('qt_excel_pendientes',None)
+                st.success(f'Guardadas/actualizadas: {guardadas}. Sin cambios u omitidas: {omitidas}.')
+                st.rerun()
+    with t2:
+        st.subheader('👁️ Visibilidad por empleado y año')
+        emps=supabase.table('empleados').select('id,nombre,activo').order('nombre').execute().data or []
+        emp=st.selectbox('Empleado',emps,format_func=lambda x:f"{x['nombre']} · {'Activo' if x.get('activo') else 'Deshabilitado'}",key='qt_vis_emp')
+        anio=st.number_input('Año',value=datetime.datetime.now().year,step=1,key='qt_vis_year')
+        if emp:
+            v=qt_obtener_visibilidad(emp['id'],anio); qs={}; cols=st.columns(4)
+            for i,q in enumerate(['Q1','Q2','Q3','Q4']): qs[q]=cols[i].checkbox(q,value=v.get('qs_habilitados',{}).get(q,True),key=f'qtv_q_{emp["id"]}_{anio}_{q}')
+            af={}; sub=[]; estructura=qt_estructura(emp['id'],anio)
+            for ap,subs in estructura.items():
+                with st.expander(f'📌 {ap}',expanded=True):
+                    af[ap]=st.checkbox(f'Habilitar apartado',value=v.get('apartados_habilitados',{}).get(ap,True),key=f'qtv_a_{emp["id"]}_{anio}_{ap}')
+                    for su in subs:
+                        oculto=qt_sub_oculto(v.get('subapartados_deshabilitados',[]),ap,su)
+                        activo=st.checkbox(f'{su} · máx {qt_max_puntuacion(ap,su):g}',value=not oculto,disabled=not af[ap],key=f'qtv_s_{emp["id"]}_{anio}_{ap}_{su}')
+                        if not activo: sub.append(qt_sub_clave(ap,su))
+            c1,c2=st.columns(2)
+            if c1.button('💾 Guardar solo este empleado',key='qtv_save_one',type='primary'):
+                qt_guardar_visibilidad(emp['id'],anio,qs,af,sub); st.success(f'Visibilidad guardada para {emp["nombre"]} · {anio}.')
+            if c2.button('📋 Guardar esta configuración para TODOS los empleados del año',key='qtv_save_all'):
+                for e in emps: qt_guardar_visibilidad(e['id'],anio,qs,af,sub)
+                st.success(f'Configuración aplicada a {len(emps)} empleados para {anio}.')
+            st.markdown('---'); st.subheader('📤 Exportar visibilidad de todos los empleados')
+            if openpyxl and st.button('Preparar Excel de visibilidad',key='qtv_export'):
+                wb=openpyxl.Workbook(); ws=wb.active; ws.title='Visibilidad'; ws.append(['Empleado','ID','Año','Q1','Q2','Q3','Q4','Apartado','Activo apartado','Subapartado','Activo subapartado'])
+                for e in emps:
+                    vv=qt_obtener_visibilidad(e['id'],anio)
+                    for ap,subs in qt_estructura(e['id'],anio).items():
+                        for su in subs: ws.append([e['nombre'],e['id'],anio,*[bool(vv.get('qs_habilitados',{}).get(q,True)) for q in ['Q1','Q2','Q3','Q4']],ap,bool(vv.get('apartados_habilitados',{}).get(ap,True)),su,not qt_sub_oculto(vv.get('subapartados_deshabilitados',[]),ap,su)])
+                bio=io.BytesIO(); wb.save(bio); bio.seek(0); st.download_button('⬇️ Descargar Excel',bio.getvalue(),f'Visibilidad_{anio}.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',key='qtv_download')
+    with t3:
+        st.subheader('📊 Resumen anual y por Q')
+        emps=supabase.table('empleados').select('id,nombre').order('nombre').execute().data or []
+        emp=st.selectbox('Empleado',emps,format_func=lambda x:x['nombre'],key='qts_emp'); anio=st.number_input('Año',value=datetime.datetime.now().year,step=1,key='qts_year')
+        if emp: qt_render_resumen(emp['id'],emp['nombre'],anio)
+    with t4:
+        st.subheader('⚙️ Configuración de evaluaciones')
+        cfg=qt_obtener_config_eval(); prompt_actual=cfg.get('prompt_texto') or cfg.get('prompt_text') or cfg.get('prompt_informe_global') or ''; objetivo=float(cfg.get('objetivo_media') or 8.0)
+        nuevo_prompt=st.text_area('📝 Prompt para informes IA',value=prompt_actual,height=240,key='qtc_prompt'); nuevo_obj=st.number_input('🎯 Objetivo de media (0-10)',0.0,10.0,objetivo,0.1,key='qtc_obj')
+        modelos=qt_obtener_modelos_ia(); opciones=[f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos]; st.multiselect('🤖 Modelos disponibles en SQL',opciones,default=opciones[:1],key='qtc_models_view')
+        usuario=st.text_input('👤 Persona que modifica la configuración',value=st.session_state.get('user_nombre',''),key='qtc_user'); motivo=st.text_area('📝 Motivo del cambio de configuración',key='qtc_reason')
+        if st.button('💾 Guardar prompt y objetivo',key='qtc_save',type='primary'):
+            if not usuario.strip() or not motivo.strip(): st.warning('Indica quién modifica y el motivo.')
+            else:
+                try:
+                    cambios=[]
+                    if not qt_valores_iguales(prompt_actual,nuevo_prompt): cambios.append(('prompt_texto',prompt_actual,nuevo_prompt))
+                    if not qt_valores_iguales(objetivo,nuevo_obj): cambios.append(('objetivo_media',objetivo,nuevo_obj))
+                    payload={'prompt_texto':nuevo_prompt,'objetivo_media':nuevo_obj,'activo':True,'actualizado_por':usuario,'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'actualizado_en':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                    if cfg.get('id') is not None: payload['id']=cfg['id']
+                    supabase.table('config_prompts_eval').upsert(payload).execute()
+                    for campo,ant,nue in cambios: qt_auditar_config(datetime.datetime.now().year,campo,ant,nue,usuario,motivo)
+                    st.success('Configuración guardada y cambios auditados.')
+                except Exception as e: st.error(f'No se pudo guardar: {e}')
+        st.markdown('---'); st.subheader('⚖️ Pesos base')
+        rows=supabase.table('config_apartados_pesos').select('*').order('apartado').execute().data or []
+        if not rows: rows=[{'apartado':k,'peso_porcentaje':v,'habilitado':True} for k,v in qt_obtener_pesos().items()]
+        st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+        st.markdown('#### Máxima puntuación por subapartado'); st.dataframe(pd.DataFrame([{'Apartado':ap,'Subapartado':su,'Máximo':qt_max_puntuacion(ap,su)} for ap,sus in QT_SUBAPARTADOS_DEFECTO.items() for su in sus]),use_container_width=True,hide_index=True)
+    with t5:
+        st.subheader('🤖 Generar e insertar informes IA')
+        modelos=qt_obtener_modelos_ia(); opciones=[f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos]
+        sels=st.multiselect('Seleccionar modelo(s) IA',opciones,default=opciones[:1],key='qtai_models'); infos=[modelos[opciones.index(x)] for x in sels]
+        anio=st.number_input('Año a evaluar',value=datetime.datetime.now().year,step=1,key='qtai_year'); activos=supabase.table('empleados').select('id,nombre').eq('activo',True).order('nombre').execute().data or []; mp={e['nombre']:e['id'] for e in activos}
+        emps_sel=st.multiselect('Empleados activos',list(mp),key='qtai_emps')
+        if st.button('🚀 Generar informes',type='primary',key='qtai_go'):
+            for nom in emps_sel:
+                ok,msg=generar_y_guardar_informe_ia_multimodelo(mp[nom],nom,anio,infos)
+                if ok:
+                    st.success(f'Informe generado para {nom}')
+                    st.markdown(msg)
+                    pdf=qt_pdf(nom,msg,anio)
+                    if pdf: st.download_button('📄 Exportar PDF',pdf,f'Informe_{nom}_{anio}.pdf','application/pdf',key=f'qtai_pdf_{nom}_{anio}')
+                    resultados=supabase.table('resultados_evaluacion_ia').select('id,modelo_ia,visible_empleado').eq('empleado_id',mp[nom]).eq('anio',anio).eq('activo',True).order('created_at',desc=True).execute().data or []
+                    for r in resultados[:len(infos)]:
+                        nuevo=st.checkbox(f'Mostrar informe {r.get("modelo_ia")} a {nom}',value=bool(r.get('visible_empleado')),key=f'qtai_vis_{r["id"]}')
+                        if st.button('Guardar visibilidad',key=f'qtai_vis_save_{r["id"]}'): supabase.table('resultados_evaluacion_ia').update({'visible_empleado':nuevo}).eq('id',r['id']).execute(); st.success('Visibilidad actualizada.')
+                else: st.error(f'{nom}: {msg}')
+    # Gestión de visibilidad de informes IA
+        st.markdown('---')
+        st.subheader('👁️ Habilitar / deshabilitar informes IA para empleados')
+        emps_inf=supabase.table('empleados').select('id,nombre,activo').order('nombre').execute().data or []
+        col_i1,col_i2=st.columns(2)
+        emp_inf=col_i1.selectbox('Empleado',emps_inf,format_func=lambda x:x['nombre'],key='qtinf_emp')
+        anios_inf=sorted({int(x['anio']) for x in (supabase.table('resultados_evaluacion_ia').select('anio').execute().data or []) if x.get('anio')},reverse=True)
+        anio_inf=col_i2.selectbox('Año',anios_inf or [datetime.datetime.now().year],key='qtinf_year')
+        if emp_inf:
+            informes_inf=supabase.table('resultados_evaluacion_ia').select('id,modelo_ia,visible_empleado,activo,created_at').eq('empleado_id',emp_inf['id']).eq('anio',anio_inf).order('created_at',desc=True).execute().data or []
+            estado_f=st.radio('Mostrar', ['Habilitados','Deshabilitados','Todos'],horizontal=True,key='qtinf_filter')
+            for inf in informes_inf:
+                visible=bool(inf.get('visible_empleado'))
+                if estado_f=='Habilitados' and not visible: continue
+                if estado_f=='Deshabilitados' and visible: continue
+                nuevo=st.checkbox(f"{'🟢' if visible else '🔴'} {inf.get('modelo_ia') or 'IA'} · {inf.get('created_at','')}",value=visible,key=f'qtinf_chk_{inf["id"]}')
+                if st.button('💾 Guardar',key=f'qtinf_save_{inf["id"]}'):
+                    supabase.table('resultados_evaluacion_ia').update({'visible_empleado':nuevo}).eq('id',inf['id']).execute(); st.success('Visibilidad actualizada.'); st.rerun()
+
     with t6:
-        emps=supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
-        emp=st.selectbox("Empleado",emps,key="qt_data_emp",format_func=lambda x:x["nombre"]); anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_data_year")
-        if emp: qt_render_resumen(emp["id"],emp["nombre"],anio)
+        emps=supabase.table('empleados').select('id,nombre,activo').order('nombre').execute().data or []
+        emp=st.selectbox('Empleado',emps,format_func=lambda x:x['nombre'],key='qtde_emp'); anio=st.number_input('Año',value=datetime.datetime.now().year,step=1,key='qtde_year')
+        if emp:
+            qt_render_resumen(emp['id'],emp['nombre'],anio)
+            st.markdown('---'); st.subheader('✏️ Modificar puntuaciones y comentarios')
+            qt_editor_empleado(emp['id'],emp['nombre'],anio)
 
 def render_empleado_evaluaciones_trimestrales(emp_id,nombre):
-    st.title("📋 Evaluaciones Trimestrales")
-    if not emp_id: st.warning("No hay empleado autenticado."); return
-    ev=supabase.table("evaluaciones_trimestrales").select("anio").eq("empleado_id",emp_id).eq("activo",True).execute().data or []
-    anios=sorted({int(x["anio"]) for x in ev if x.get("anio")},reverse=True) or [datetime.datetime.now().year]
-    anio=st.selectbox("Año",anios,key="qt_emp_year")
+    st.title('📋 Evaluaciones Trimestrales')
+    cfg=qt_obtener_config_eval(); objetivo=float(cfg.get('objetivo_media') or 8.0); st.info(f'🎯 Objetivo de media: **{objetivo:.2f}/10**')
+    ev=supabase.table('evaluaciones_trimestrales').select('anio').eq('empleado_id',emp_id).eq('activo',True).execute().data or []
+    anios=sorted({int(x['anio']) for x in ev if x.get('anio')},reverse=True) or [datetime.datetime.now().year]
+    anio=st.selectbox('Año',anios,key='qtem_year')
     qt_render_resumen(emp_id,nombre,anio)
-
+    informes=supabase.table('resultados_evaluacion_ia').select('*').eq('empleado_id',emp_id).eq('anio',anio).eq('activo',True).eq('visible_empleado',True).order('created_at',desc=True).execute().data or []
+    if informes:
+        st.markdown('---'); st.subheader('🤖 Informes de evaluación disponibles')
+        for inf in informes:
+            with st.expander(f"📄 Informe · {inf.get('modelo_ia') or 'IA'} · {anio}",expanded=True):
+                st.markdown(inf.get('resultado_texto') or '')
+                gd=inf.get('grafica_data_json') or {}; datos=gd.get('trimestres') if isinstance(gd,dict) else None
+                if datos:
+                    df=pd.DataFrame(datos)
+                    if not df.empty and 'trimestre' in df and 'nota_sobre_10' in df:
+                        st.line_chart(df.set_index('trimestre')['nota_sobre_10'])
+                pdf=qt_pdf(nombre,inf.get('resultado_texto') or '',anio)
+                if pdf: st.download_button('📄 Descargar informe PDF',pdf,f'Informe_Evaluacion_{nombre}_{anio}.pdf','application/pdf',key=f'qtem_pdf_{inf["id"]}')
 
 # ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN Y CONTRASEÑA POR DEFECTO
