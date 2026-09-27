@@ -6,36 +6,18 @@ import random
 import os
 import calendar
 import io
-import hashlib
-import re
-import unicodedata
 import pandas as pd
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
 from supabase import create_client, Client
 
-# Importar SDK de Anthropic (Claude)
+# Importar SDK de Anthropic (Claude) - Opcional / Fallback futuro
 try:
     import anthropic
     CLAUDE_DISPONIBLE = True
 except ImportError:
     CLAUDE_DISPONIBLE = False
-
-# Importar openpyxl para carga de Excel (Evaluaciones Trimestrales)
-try:
-    import openpyxl
-    OPENPYXL_DISPONIBLE = True
-except ImportError:
-    OPENPYXL_DISPONIBLE = False
-
-# Importar openai (opcional para evaluaciones IA multimodelo)
-try:
-    import openai as openai_lib
-    OPENAI_DISPONIBLE = True
-except ImportError:
-    openai_lib = None
-    OPENAI_DISPONIBLE = False
 
 # Dependencias para generar PDF
 try:
@@ -210,10 +192,6 @@ os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Bucket usado para conservar los Excel de evaluaciones trimestrales.
-# Se puede cambiar en Streamlit Secrets con SUPABASE_EVAL_BUCKET.
-SUPABASE_EVAL_BUCKET = st.secrets.get("SUPABASE_EVAL_BUCKET", "evaluaciones-trimestrales")
-
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 except Exception:
@@ -309,384 +287,6 @@ def guardar_prompt_config(nombre_prompt, nuevo_valor):
     except Exception as e:
         st.error(f"Error al actualizar el prompt '{nombre_prompt}': {e}")
         return False
-
-# ---------------------------------------------------------
-# FUNCIONES DE EVALUACIONES TRIMESTRALES (de streamlit_app)
-# ---------------------------------------------------------
-def obtener_visibilidad_empleado(empleado_id, anio):
-    default_config = {
-        "qs_habilitados": {"Q1": True, "Q2": True, "Q3": True, "Q4": True},
-        "apartados_habilitados": {
-            "Tareas realizar por turnos y todos los turnos": True,
-            "Tiempos respuesta Tbox": True,
-            "Tiempos respuesta Siemens": True,
-            "Iniciativa / Proactividad ante el trabajo": True,
-            "Conocimientos": True,
-            "Evaluacion": True,
-        },
-        "subapartados_deshabilitados": [],
-    }
-    try:
-        res = (
-            supabase.table("visibilidad_empleados")
-            .select("*")
-            .eq("empleado_id", empleado_id)
-            .eq("anio", anio)
-            .execute()
-            .data
-        )
-        if res:
-            return res[0]
-        return default_config
-    except Exception:
-        return default_config
-
-
-def guardar_visibilidad_empleado(empleado_id, anio, qs, apartados, subapartados_ocultos):
-    datos = {
-        "empleado_id": empleado_id,
-        "anio": anio,
-        "qs_habilitados": qs,
-        "apartados_habilitados": apartados,
-        "subapartados_deshabilitados": subapartados_ocultos,
-    }
-    supabase.table("visibilidad_empleados").upsert(
-        datos, on_conflict="empleado_id, anio"
-    ).execute()
-
-
-def obtener_media_objetivo():
-    try:
-        res = (
-            supabase.table("config_prompts_eval")
-            .select("objetivo_media")
-            .limit(1)
-            .execute()
-            .data
-        )
-        if res and "objetivo_media" in res[0]:
-            return float(res[0]["objetivo_media"])
-        return 8.0
-    except Exception:
-        return 8.0
-
-
-def obtener_modelos_evaluacion_db():
-    """Obtiene modelos disponibles para evaluaciones trimestrales desde config_prompts."""
-    modelos = []
-    try:
-        res = supabase.table("config_prompts").select("*").execute().data
-        if res:
-            for r in res:
-                mod_oa = r.get("modelo_openai")
-                if mod_oa and mod_oa != "EMPTY":
-                    for m in [x.strip() for x in mod_oa.split(",") if x.strip()]:
-                        modelos.append({"proveedor": "openai", "nombre_modelo": m})
-                mod_gem = r.get("modelo_gemini")
-                if mod_gem and mod_gem != "EMPTY":
-                    for m in [x.strip() for x in mod_gem.split(",") if x.strip()]:
-                        modelos.append({"proveedor": "gemini", "nombre_modelo": m})
-                mod_cl = r.get("modelo_claude")
-                if mod_cl and mod_cl != "EMPTY":
-                    for m in [x.strip() for x in mod_cl.split(",") if x.strip()]:
-                        modelos.append({"proveedor": "claude", "nombre_modelo": m})
-    except Exception:
-        pass
-    if not modelos:
-        modelos = [
-            {"proveedor": "gemini", "nombre_modelo": "gemini-2.5-flash"},
-            {"proveedor": "claude", "nombre_modelo": "claude-3-5-haiku-20241022"},
-        ]
-    # Deduplicar
-    vistos = set()
-    modelos_unicos = []
-    for m in modelos:
-        clave = f"{m['proveedor']}:{m['nombre_modelo']}"
-        if clave not in vistos:
-            vistos.add(clave)
-            modelos_unicos.append(m)
-    return modelos_unicos
-
-
-def consultar_ia_evaluacion(prompt_completo, proveedor, nombre_modelo):
-    """Consulta IA para evaluaciones trimestrales. Usa claude_client si disponible."""
-    try:
-        if proveedor == "claude":
-            if CLAUDE_DISPONIBLE and claude_client:
-                msg = claude_client.messages.create(
-                    model=nombre_modelo,
-                    max_tokens=4096,
-                    messages=[{"role": "user", "content": prompt_completo}]
-                )
-                return True, msg.content[0].text
-            return False, "SDK de Claude no disponible o ANTHROPIC_API_KEY no configurada."
-        elif proveedor == "openai":
-            api_key = st.secrets.get("OPENAI_API_KEY", "")
-            if not api_key:
-                return False, "Falta configurar 'OPENAI_API_KEY' en los Secrets."
-            if openai_lib is None:
-                return False, "Librería 'openai' no instalada."
-            client_oa = openai_lib.OpenAI(api_key=api_key)
-            response = client_oa.chat.completions.create(
-                model=nombre_modelo,
-                messages=[{"role": "user", "content": prompt_completo}],
-                temperature=0.7,
-            )
-            return True, response.choices[0].message.content
-        elif proveedor == "gemini":
-            if not gemini_client:
-                return False, "Cliente Gemini no disponible."
-            from google.genai import types as gtypes
-            res = gemini_client.models.generate_content(
-                model=nombre_modelo,
-                contents=prompt_completo,
-            )
-            return True, res.text
-        return False, f"Proveedor '{proveedor}' no reconocido."
-    except Exception as e:
-        return False, f"Error con {nombre_modelo}: {e}"
-
-
-def generar_y_guardar_informe_ia_multimodelo(empleado_id, nombre_emp, anio, lista_modelos_info):
-    """Genera informe IA de evaluaciones trimestrales y lo guarda en informes_evaluacion."""
-    try:
-        cfg = (
-            supabase.table("config_prompts_eval")
-            .select("*")
-            .limit(1)
-            .execute()
-            .data
-        )
-        prompt_base = (
-            cfg[0]["prompt_texto"]
-            if cfg
-            else "Realiza un informe evaluativo profesional basado en estos datos:"
-        )
-    except Exception:
-        prompt_base = "Realiza un informe evaluativo profesional basado en estos datos:"
-
-    vis_emp = obtener_visibilidad_empleado(empleado_id, anio)
-    qs_hab = vis_emp.get("qs_habilitados", {})
-    apts_hab = vis_emp.get("apartados_habilitados", {})
-    sub_ocultos = vis_emp.get("subapartados_deshabilitados", [])
-
-    q_evals = (
-        supabase.table("evaluaciones_trimestrales")
-        .select("*")
-        .eq("empleado_id", empleado_id)
-        .eq("anio", anio)
-        .execute()
-        .data
-    )
-
-    resumen_datos = []
-    for q in q_evals:
-        q_nom = q["trimestre"]
-        if not qs_hab.get(q_nom, True):
-            continue
-        detalles = (
-            supabase.table("evaluacion_detalles")
-            .select("*")
-            .eq("evaluacion_id", q["id"])
-            .execute()
-            .data
-        )
-        if detalles:
-            df_det = pd.DataFrame(detalles)
-            df_det = df_det[df_det["apartado"].map(lambda x: apts_hab.get(x, True))]
-            df_det = df_det[~df_det["subapartado"].isin(sub_ocultos)]
-            for _, r in df_det.iterrows():
-                resumen_datos.append({
-                    "trimestre": q_nom,
-                    "apartado": r["apartado"],
-                    "subapartado": r["subapartado"],
-                    "puntuacion": r["puntuacion"],
-                    "observaciones": r.get("observaciones", ""),
-                })
-
-    if not resumen_datos:
-        return False, f"No existen datos de evaluaciones habilitadas para {nombre_emp} en {anio}."
-
-    pesos_ia = obtener_pesos_apartados()
-    resumen_pesos_ia = {k: v for k, v in pesos_ia.items() if any(str(d.get("apartado", "")).strip() == k for d in resumen_datos)}
-    suma_pesos_ia = sum(resumen_pesos_ia.values())
-
-    prompt_completo = f"""
-{prompt_base}
-
-Empleado: {nombre_emp}
-Año: {anio}
-
-Datos de evaluaciones del año:
-{json.dumps(resumen_datos, ensure_ascii=False, indent=2)}
-
-Pesos configurados por apartado (solo apartados presentes y habilitados):
-{json.dumps(resumen_pesos_ia, ensure_ascii=False, indent=2)}
-Suma de pesos utilizados: {suma_pesos_ia:.2f}%
-
-Por favor, genera un informe detallado, constructivo y estructurado en Markdown.
-"""
-
-    textos_informes = []
-    errores = []
-
-    for mod_info in lista_modelos_info:
-        prov = mod_info["proveedor"]
-        mod_nom = mod_info["nombre_modelo"]
-        exito, res_texto = consultar_ia_evaluacion(prompt_completo, prov, mod_nom)
-        if exito:
-            if len(lista_modelos_info) > 1:
-                textos_informes.append(f"### 🤖 Informe generado con {mod_nom} ({prov.upper()})\n\n{res_texto}")
-            else:
-                textos_informes.append(res_texto)
-        else:
-            errores.append(f"[{mod_nom}]: {res_texto}")
-
-    if not textos_informes:
-        return False, f"Fallaron todas las consultas de IA: {'; '.join(errores)}"
-
-    informe_final = "\n\n---\n\n".join(textos_informes)
-
-    try:
-        supabase.table("informes_evaluacion").upsert(
-            {"empleado_id": empleado_id, "anio": anio, "informe_texto": informe_final},
-            on_conflict="empleado_id, anio",
-        ).execute()
-        return True, informe_final
-    except Exception as err:
-        return False, f"Error al guardar el informe en la BD: {err}"
-
-
-def renderizar_mis_evaluaciones(emp_id, nombre_emp, sel_anio):
-    """Vista compartida de evaluaciones trimestrales (empleado y admin espejo)."""
-    media_objetivo_sql = obtener_media_objetivo()
-    vis_emp = obtener_visibilidad_empleado(emp_id, sel_anio)
-    qs_habilitados = vis_emp.get("qs_habilitados", {})
-    apts_habilitados = vis_emp.get("apartados_habilitados", {})
-    sub_ocultos = vis_emp.get("subapartados_deshabilitados", [])
-
-    q_evals = (
-        supabase.table("evaluaciones_trimestrales")
-        .select("*")
-        .eq("empleado_id", emp_id)
-        .eq("anio", sel_anio)
-        .execute()
-        .data
-    )
-
-    if q_evals:
-        puntuaciones_obtenidas = []
-        puntuaciones_maximas = []
-        notas_sobre_10 = []
-
-        for q in sorted(q_evals, key=lambda x: x["trimestre"]):
-            q_nombre = q["trimestre"]
-            if not qs_habilitados.get(q_nombre, True):
-                continue
-
-            detalles = (
-                supabase.table("evaluacion_detalles")
-                .select("*")
-                .eq("evaluacion_id", q["id"])
-                .execute()
-                .data
-            )
-
-            if detalles:
-                df_det = pd.DataFrame(detalles)
-                df_det = df_det[df_det["apartado"].map(lambda x: apts_habilitados.get(x, True))]
-                df_det = df_det[~df_det["subapartado"].isin(sub_ocultos)]
-
-                if not df_det.empty:
-                    ptos_obtenidos = float(pd.to_numeric(df_det["puntuacion"], errors="coerce").fillna(0).sum())
-                    ptos_max_q = float(len(df_det) * 5.0)
-                    nota_10, suma_pesos_q, desglose_pesos_q = calcular_nota_ponderada_detalles(df_det)
-                    ptos_aprobar = (media_objetivo_sql / 10.0) * ptos_max_q
-
-                    puntuaciones_obtenidas.append(ptos_obtenidos)
-                    puntuaciones_maximas.append(ptos_max_q)
-                    notas_sobre_10.append(nota_10)
-
-                    estado_q = "🟢 APROBADO" if nota_10 >= media_objetivo_sql else "🔴 SUSPENSO"
-
-                    with st.expander(f"📊 {q_nombre} - Estado: {estado_q}", expanded=True):
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Puntos Obtenidos", f"{round(ptos_obtenidos, 2)} pts")
-                        c2.metric("Puntos Máximos Habilitados", f"{round(ptos_max_q, 2)} pts")
-                        c3.metric(f"Mínimo para Aprobar ({media_objetivo_sql}/10)", f"{round(ptos_aprobar, 2)} pts")
-                        c4.metric("Nota ponderada (0 - 10)", f"{round(nota_10, 2)} / 10",
-                                  delta="Aprobado" if nota_10 >= media_objetivo_sql else "- Suspenso")
-
-                        st.markdown("**⚖️ Peso de los apartados activados en este trimestre**")
-                        if desglose_pesos_q:
-                            df_pq = pd.DataFrame(desglose_pesos_q)
-                            df_pq = df_pq[["apartado", "nota_10", "peso", "aportacion", "filas"]]
-                            df_pq.columns = ["Apartado", "Nota apartado", "Peso (%)", "Aportación a nota", "Ítems"]
-                            st.dataframe(df_pq, use_container_width=True, hide_index=True)
-                            if suma_pesos_q > 0:
-                                if abs(suma_pesos_q - 100.0) < 0.01:
-                                    st.success(f"✅ Los pesos de los apartados utilizados suman {suma_pesos_q:.2f}%.")
-                                else:
-                                    st.warning(f"⚠️ Los apartados utilizados suman {suma_pesos_q:.2f}%. Para una ponderación completa, configura los pesos para que sumen 100%.")
-                            else:
-                                st.info("ℹ️ No hay pesos configurados para estos apartados; se usa la media simple por apartado.")
-
-                        if q.get("observaciones"):
-                            st.info(f"**Observaciones Generales del Q:** {q['observaciones']}")
-
-                        st.markdown("**Desglose por Apartados:**")
-                        for apartado, group in df_det.groupby("apartado"):
-                            st.markdown(f"#### 📌 {apartado}")
-                            for _, row in group.iterrows():
-                                col1, col2 = st.columns([3, 1])
-                                col1.write(f"• **{row['subapartado']}**")
-                                if row["observaciones"]:
-                                    col1.caption(f"Obs: {row['observaciones']}")
-                                col2.metric("Puntuación", f"{row['puntuacion']} pts")
-                            st.divider()
-
-        if puntuaciones_obtenidas:
-            total_puntos_obt = sum(puntuaciones_obtenidas)
-            total_puntos_max = sum(puntuaciones_maximas)
-            nota_media_anual = sum(notas_sobre_10) / len(notas_sobre_10) if notas_sobre_10 else 0
-            min_puntos_aprobar_anual = (media_objetivo_sql / 10.0) * total_puntos_max
-
-            st.markdown("---")
-            st.subheader("🏆 Resumen Anual Global (Trimestres Habilitados)")
-
-            col_g1, col_g2, col_g3, col_g4 = st.columns(4)
-            col_g1.metric("Puntos Totales Obtenidos", f"{round(total_puntos_obt, 2)} pts")
-            col_g2.metric("Puntuación Máxima Posible", f"{round(total_puntos_max, 2)} pts")
-            col_g3.metric(f"Mínimo Global para Aprobar ({media_objetivo_sql}/10)", f"{round(min_puntos_aprobar_anual, 2)} pts")
-            col_g4.metric("Nota Media Anual (Escala 0 - 10)", f"{round(nota_media_anual, 2)} / 10")
-
-            if nota_media_anual >= media_objetivo_sql:
-                st.success(f"🎉 **ESTADO ANUAL: APROBADO** (Nota: {round(nota_media_anual, 2)}/10 - Objetivo Requerido: {media_objetivo_sql})")
-            else:
-                st.error(f"⚠️ **ESTADO ANUAL: SUSPENSO** (Nota: {round(nota_media_anual, 2)}/10 - Objetivo Requerido: {media_objetivo_sql})")
-
-            st.markdown("---")
-            st.subheader("🤖 Informe Evaluativo IA Guardado")
-            try:
-                inf_resp = (
-                    supabase.table("informes_evaluacion")
-                    .select("informe_texto, created_at")
-                    .eq("empleado_id", emp_id)
-                    .eq("anio", sel_anio)
-                    .execute()
-                    .data
-                )
-                if inf_resp:
-                    st.markdown(inf_resp[0]["informe_texto"])
-                    st.caption(f"Informe actualizado el: {inf_resp[0]['created_at']}")
-                else:
-                    st.info("Aún no se ha generado e insertado el informe IA para este año.")
-            except Exception:
-                st.info("Aún no existe el registro del informe IA para este año.")
-        else:
-            st.warning("No hay trimestres habilitados para mostrar.")
-    else:
-        st.warning("No hay evaluaciones disponibles para este año.")
 
 # ---------------------------------------------------------
 # ESTADO DE LA SESIÓN
@@ -1049,236 +649,239 @@ def generar_pdf_evaluacion_ia(empleado_nombre, texto_informe, anio):
     buffer.seek(0)
     return buffer.getvalue()
 
-def obtener_pesos_apartados():
-    """Devuelve los pesos configurados de los apartados habilitados."""
+
+# =========================================================
+# MÓDULO INTEGRADO: EVALUACIONES TRIMESTRALES
+# Adaptado de streamlit_app (5).py para funcionar dentro de app.py.
+# =========================================================
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+import base64
+
+QT_APARTADOS_DEFECTO = [
+    "Tareas realizar por turnos y todos los turnos",
+    "Tiempos respuesta Tbox",
+    "Tiempos respuesta Siemens",
+    "Iniciativa / Proactividad ante el trabajo",
+    "Conocimientos",
+    "Evaluacion",
+]
+QT_SUBAPARTADOS_DEFECTO = {
+    "Tareas realizar por turnos y todos los turnos": ["Realiza las tareas asignadas a su turno", "Entrega de turno y comunicación"],
+    "Tiempos respuesta Tbox": ["Atención inmediata a alertas", "Tiempo medio de resolución"],
+    "Tiempos respuesta Siemens": ["Respuesta en sistema Siemens", "Gestión de incidencias"],
+    "Iniciativa / Proactividad ante el trabajo": ["Proactividad en resolución de problemas", "Aportación de mejoras"],
+    "Conocimientos": ["Manejo de herramientas", "Dominio de procedimientos"],
+    "Evaluacion": ["Evaluación global y desempeño general"],
+}
+
+def qt_norm(v):
+    return str(v).strip().lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
+
+def qt_obtener_visibilidad(empleado_id, anio):
+    defecto={"qs_habilitados": {f"Q{i}": True for i in range(1,5)}, "apartados_habilitados": {x: True for x in QT_APARTADOS_DEFECTO}, "subapartados_deshabilitados": []}
     try:
-        rows = (
-            supabase.table("config_apartados_pesos")
-            .select("apartado, peso_porcentaje, habilitado")
-            .eq("habilitado", True)
-            .execute()
-            .data
-            or []
-        )
-        pesos = {}
-        for row in rows:
-            try:
-                pesos[str(row.get("apartado", "")).strip()] = float(row.get("peso_porcentaje") or 0)
-            except (TypeError, ValueError):
-                continue
-        return pesos
+        r=supabase.table("visibilidad_empleados").select("*").eq("empleado_id",empleado_id).eq("anio",int(anio)).limit(1).execute()
+        return r.data[0] if r.data else defecto
     except Exception:
-        return {}
+        return defecto
 
+def qt_guardar_visibilidad(empleado_id, anio, qs, apartados, sub):
+    supabase.table("visibilidad_empleados").upsert({"empleado_id":empleado_id,"anio":int(anio),"qs_habilitados":qs,"apartados_habilitados":apartados,"subapartados_deshabilitados":sub}, on_conflict="empleado_id,anio").execute()
 
-def calcular_nota_ponderada_detalles(df_det):
-    """Calcula nota 0-10 usando el peso configurado de cada apartado.
-    Devuelve nota, suma de pesos usados y desglose por apartado.
-    """
-    if df_det is None or df_det.empty:
-        return 0.0, 0.0, []
-
-    pesos = obtener_pesos_apartados()
-    desglose = []
-    suma_pesos = 0.0
-
-    for apartado, group in df_det.groupby("apartado"):
-        try:
-            media_puntos = float(pd.to_numeric(group["puntuacion"], errors="coerce").fillna(0).mean())
-        except Exception:
-            media_puntos = 0.0
-        nota_apartado = max(0.0, min(10.0, (media_puntos / 5.0) * 10.0))
-        peso = float(pesos.get(str(apartado).strip(), 0.0))
-        suma_pesos += peso
-        desglose.append({
-            "apartado": str(apartado),
-            "media_puntos": media_puntos,
-            "nota_10": nota_apartado,
-            "peso": peso,
-            "aportacion": nota_apartado * peso / 100.0,
-            "filas": len(group),
-        })
-
-    # Si hay pesos configurados para los apartados presentes, se pondera.
-    # Si no hay ninguno, se mantiene el cálculo anterior por media simple.
-    if suma_pesos > 0:
-        nota_ponderada = sum(x["aportacion"] for x in desglose)
-        return nota_ponderada, suma_pesos, desglose
-
-    notas = [x["nota_10"] for x in desglose]
-    nota_simple = sum(notas) / len(notas) if notas else 0.0
-    return nota_simple, 0.0, desglose
-
-
-def normalizar_columna_excel(valor):
-    txt = unicodedata.normalize("NFKD", str(valor or "")).encode("ascii", "ignore").decode("ascii")
-    txt = txt.strip().lower()
-    txt = re.sub(r"[\s\-/\.]+", "_", txt)
-    txt = re.sub(r"[^a-z0-9_]+", "", txt)
-    return txt.strip("_")
-
-
-def cargar_hoja_excel_robusta(uploaded_file, hoja):
-    """Lee una hoja buscando la fila de encabezados en las primeras 20 filas."""
-    aliases = {
-        "empleado": {"nombre_empleado", "empleado", "nombre", "trabajador", "empleado_nombre", "nombre_trabajador"},
-        "apartado": {"apartado", "seccion", "seccion_evaluacion", "categoria", "categoria_evaluacion", "area"},
-        "subapartado": {"subapartado", "subaptado", "concepto", "item", "indicador", "subapartado_evaluacion"},
-        "puntuacion": {"puntuacion", "nota", "valor", "score", "pts", "puntos", "puntuacion_obtenida"},
-        "observaciones": {"observaciones", "observacion", "comentario", "notas", "obs"},
-    }
-    raw = pd.read_excel(uploaded_file, sheet_name=hoja, header=None)
-    mejor_idx = 0
-    mejor_score = -1
-    max_scan = min(20, len(raw))
-    for idx in range(max_scan):
-        cols = {normalizar_columna_excel(x) for x in raw.iloc[idx].tolist() if pd.notna(x)}
-        score = sum(1 for alias_set in aliases.values() if cols & alias_set)
-        if score > mejor_score:
-            mejor_score = score
-            mejor_idx = idx
-    df = pd.read_excel(uploaded_file, sheet_name=hoja, header=mejor_idx)
-    df.columns = [normalizar_columna_excel(c) for c in df.columns]
-    encontrados = {}
-    for tipo, alias_set in aliases.items():
-        encontrados[tipo] = next((c for c in df.columns if c in alias_set), None)
-    return df, encontrados, mejor_idx + 1
-
-
-def convertir_puntuacion_excel(valor):
-    if pd.isna(valor) or str(valor).strip() == "":
-        return 0.0
-    txt = str(valor).strip().replace(",", ".")
-    m = re.search(r"-?\d+(?:\.\d+)?", txt)
-    return float(m.group(0)) if m else 0.0
-
-
-def sanitizar_nombre_archivo(nombre):
-    nombre = unicodedata.normalize("NFKD", str(nombre or "")).encode("ascii", "ignore").decode("ascii")
-    nombre = re.sub(r"[^A-Za-z0-9._-]+", "_", nombre).strip("._")
-    return nombre or "evaluaciones.xlsx"
-
-
-def guardar_excel_evaluacion_supabase(uploaded_file, empleado_id, anio, trimestre):
-    """Sube el Excel original a Supabase Storage y guarda su referencia en la cabecera.
-    Intenta varios nombres de columna para ser compatible con esquemas existentes.
-    """
-    if uploaded_file is None:
-        return False, None, "No se recibió ningún archivo."
-
+def qt_obtener_pesos():
+    """Usa la estructura SQL existente; no crea columnas nuevas."""
+    pesos={}
     try:
-        contenido = uploaded_file.getvalue()
-        nombre_original = sanitizar_nombre_archivo(getattr(uploaded_file, "name", "evaluaciones.xlsx"))
-        sha256 = hashlib.sha256(contenido).hexdigest()
-        bucket = SUPABASE_EVAL_BUCKET
-        ruta = f"{int(anio)}/{empleado_id}/{str(trimestre).upper()}/{sha256[:12]}_{nombre_original}"
+        r=supabase.table("config_apartados_pesos").select("apartado,peso_porcentaje,habilitado").execute()
+        for x in (r.data or []): pesos[str(x["apartado"])]=float(x.get("peso_porcentaje") or 0)
+        if pesos: return pesos
+    except Exception: pass
+    try:
+        r=supabase.table("config_pesos_apartados").select("seccion,peso_porcentaje,habilitado").execute()
+        for x in (r.data or []): pesos[str(x["seccion"])]=float(x.get("peso_porcentaje") or 0)
+    except Exception: pass
+    return pesos
 
-        try:
-            supabase.storage.from_(bucket).upload(
-                ruta,
-                contenido,
-                {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "upsert": "true"},
-            )
-        except Exception as upload_err:
-            # Si el bucket aún no existe, intentamos crearlo una vez.
-            try:
-                supabase.storage.create_bucket(bucket, {"public": False})
-                supabase.storage.from_(bucket).upload(
-                    ruta,
-                    contenido,
-                    {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "upsert": "true"},
-                )
-            except Exception as upload_err_2:
-                return False, None, f"No se pudo subir el Excel a Storage: {upload_err_2}"
+def qt_estructura(emp_id, anio):
+    estructura={}
+    try:
+        ev=supabase.table("evaluaciones_trimestrales").select("id").eq("empleado_id",emp_id).eq("anio",int(anio)).execute().data or []
+        ids=[x["id"] for x in ev]
+        if ids:
+            det=supabase.table("evaluacion_detalles").select("apartado,subapartado").in_("evaluacion_id",ids).execute().data or []
+            for d in det:
+                a=d.get("apartado") or d.get("seccion") or "Evaluacion"
+                estructura.setdefault(a,set())
+                if d.get("subapartado"): estructura[a].add(d["subapartado"])
+    except Exception: pass
+    if not estructura: estructura={k:set(v) for k,v in QT_SUBAPARTADOS_DEFECTO.items()}
+    return {k:sorted(v) for k,v in estructura.items()}
 
-        # No hacemos pública la URL. Guardamos la ruta; el administrador puede generar
-        # posteriormente una URL firmada desde Supabase Storage.
-        referencia = ruta
-        return True, {"nombre": nombre_original, "ruta": ruta, "sha256": sha256, "bucket": bucket}, None
-    except Exception as err:
-        return False, None, f"Error guardando el archivo Excel: {err}"
-
-
-def guardar_referencia_archivo_evaluacion(eval_id, referencia):
-    """Guarda la referencia del archivo en la columna disponible de evaluaciones_trimestrales.
-    Se prueban nombres habituales para no romper instalaciones con un esquema ligeramente distinto.
-    """
-    if not referencia:
-        return False, "No hay referencia de archivo."
-
-    candidatos = [
-        "archivo",
-        "archivo_nombre",
-        "nombre_archivo",
-        "archivo_url",
-        "archivo_path",
-        "ruta_archivo",
-        "archivo_storage_path",
-    ]
-    valores = {
-        "archivo": referencia["ruta"],
-        "archivo_nombre": referencia["nombre"],
-        "nombre_archivo": referencia["nombre"],
-        "archivo_url": referencia["ruta"],
-        "archivo_path": referencia["ruta"],
-        "ruta_archivo": referencia["ruta"],
-        "archivo_storage_path": referencia["ruta"],
+def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
+    """Carga Excel real en evaluaciones_trimestrales/evaluacion_detalles y guarda el archivo en datos_completos_json."""
+    if openpyxl is None: raise RuntimeError("Falta openpyxl en requirements.txt")
+    raw=uploaded_file.getvalue()
+    wb=openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+    alias={
+      "empleado":"empleado","nombre":"empleado","nombre empleado":"empleado","empleado nombre":"empleado",
+      "empleado_id":"empleado_id","id empleado":"empleado_id","anio":"anio","año":"anio","year":"anio",
+      "trimestre":"trimestre","quarter":"trimestre","q":"trimestre","apartado":"apartado","seccion":"apartado",
+      "subapartado":"subapartado","sub apartado":"subapartado","criterio":"subapartado","puntuacion":"puntuacion","puntuación":"puntuacion",
+      "valor":"puntuacion","nota":"puntuacion","observaciones":"observaciones","comentario":"observaciones","comentarios":"observaciones"
     }
+    filas=[]
+    for ws in wb.worksheets:
+        rows=list(ws.iter_rows(values_only=True))
+        if not rows: continue
+        headers=[qt_norm(x) for x in rows[0]]
+        for vals in rows[1:]:
+            d={}
+            for j,v in enumerate(vals):
+                if j<len(headers) and headers[j] in alias: d[alias[headers[j]]]=v
+            if any(v is not None and str(v).strip() for v in d.values()):
+                d["hoja"]=ws.title; filas.append(d)
+    if not filas: raise ValueError("El Excel no contiene filas de datos reconocibles.")
+    empleados=supabase.table("empleados").select("id,nombre,activo").execute().data or []
+    by_id={str(x["id"]):x for x in empleados}; by_name={qt_norm(x["nombre"]):x for x in empleados}
+    grupos={}
+    for d in filas:
+        emp=None
+        if d.get("empleado_id") is not None: emp=by_id.get(str(int(d["empleado_id"]))) if str(d["empleado_id"]).replace('.0','').isdigit() else by_id.get(str(d["empleado_id"]))
+        if emp is None and d.get("empleado") is not None: emp=by_name.get(qt_norm(d["empleado"]))
+        if emp is None: raise ValueError(f"Empleado no encontrado: {d.get('empleado') or d.get('empleado_id')}")
+        q=str(d.get("trimestre") or "Q1").upper().replace(" ","")
+        if q in ("1","T1"): q="Q1"
+        if q in ("2","T2"): q="Q2"
+        if q in ("3","T3"): q="Q3"
+        if q in ("4","T4"): q="Q4"
+        if q not in {"Q1","Q2","Q3","Q4"}: raise ValueError(f"Trimestre no válido: {q}")
+        anio=int(d.get("anio") or anio_defecto)
+        key=(emp["id"],anio,q); grupos.setdefault(key,[]).append(d)
+    total=0
+    for (emp_id,anio,q), rows in grupos.items():
+        existing=supabase.table("evaluaciones_trimestrales").select("id").eq("empleado_id",emp_id).eq("anio",anio).eq("trimestre",q).limit(1).execute().data or []
+        archivo={"nombre":uploaded_file.name,"mime":getattr(uploaded_file,"type",None),"tamano_bytes":len(raw),"contenido_base64":base64.b64encode(raw).decode("ascii")}
+        datos={"origen":"Excel","archivo_subido":archivo,"filas_importadas":len(rows),"importado_por":creado_por}
+        if existing:
+            eid=existing[0]["id"]
+            supabase.table("evaluaciones_trimestrales").update({"nombre_empleado":by_id[str(emp_id)]["nombre"],"datos_completos_json":datos,"actualizado_en":datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq("id",eid).execute()
+            supabase.table("evaluacion_detalles").delete().eq("evaluacion_id",eid).execute()
+        else:
+            r=supabase.table("evaluaciones_trimestrales").insert({"empleado_id":emp_id,"nombre_empleado":by_id[str(emp_id)]["nombre"],"anio":anio,"trimestre":q,"habilitado":True,"apartado":True,"activo":True,"datos_completos_json":datos}).execute()
+            eid=r.data[0]["id"]
+        detalles=[]
+        for d in rows:
+            try: punt=float(d.get("puntuacion")) if d.get("puntuacion") is not None else 0.0
+            except: punt=0.0
+            detalles.append({"empleado_id":emp_id,"nombre_empleado":by_id[str(emp_id)]["nombre"],"anio":anio,"trimestre":q,"evaluacion_id":eid,"apartado":str(d.get("apartado") or "Evaluacion"),"subapartado":str(d.get("subapartado") or "Evaluación global y desempeño general"),"puntuacion":punt,"puntuacion_maxima":5,"observaciones":str(d.get("observaciones") or ""),"habilitado":True})
+        if detalles: supabase.table("evaluacion_detalles").insert(detalles).execute()
+        total+=1
+    return total
 
-    errores = []
-    for columna in candidatos:
-        try:
-            # Primero comprobamos que la columna exista en PostgREST.
-            supabase.table("evaluaciones_trimestrales").select(columna).eq("id", eval_id).limit(1).execute()
-            supabase.table("evaluaciones_trimestrales").update({columna: valores[columna]}).eq("id", eval_id).execute()
-            # Guardar además hash/nombre si las columnas existen, sin hacer fallar el proceso.
-            for extra, valor_extra in [("archivo_hash", referencia["sha256"]), ("archivo_bucket", referencia["bucket"])]:
-                try:
-                    supabase.table("evaluaciones_trimestrales").select(extra).eq("id", eval_id).limit(1).execute()
-                    supabase.table("evaluaciones_trimestrales").update({extra: valor_extra}).eq("id", eval_id).execute()
-                except Exception:
-                    pass
-            return True, columna
-        except Exception as err:
-            errores.append(f"{columna}: {err}")
+def qt_render_resumen(emp_id,nombre,anio):
+    vis=qt_obtener_visibilidad(emp_id,anio); qs=vis.get("qs_habilitados",{}); apts=vis.get("apartados_habilitados",{}); ocultos=set(vis.get("subapartados_deshabilitados",[])); pesos=qt_obtener_pesos()
+    evs=supabase.table("evaluaciones_trimestrales").select("*").eq("empleado_id",emp_id).eq("anio",int(anio)).order("trimestre").execute().data or []
+    if not evs: st.info("No hay evaluaciones trimestrales para este empleado/año."); return
+    total_w=sum(v for k,v in pesos.items() if apts.get(k,True))
+    st.subheader(f"📊 {nombre} · {anio}")
+    st.caption(f"Peso activo configurado por el sistema: {total_w:.2f}%" + (" · ⚠️ no suma 100%" if abs(total_w-100)>0.01 else " · ✅ suma 100%"))
+    if pesos:
+        st.dataframe(pd.DataFrame([{"Apartado":k,"Peso %":v,"Activo":apts.get(k,True)} for k,v in pesos.items()]),use_container_width=True,hide_index=True)
+    for q in evs:
+        if not qs.get(q.get("trimestre"),True): continue
+        det=supabase.table("evaluacion_detalles").select("*").eq("evaluacion_id",q["id"]).execute().data or []
+        df=pd.DataFrame(det)
+        if df.empty: continue
+        df=df[df["apartado"].map(lambda x: apts.get(x,True)) & ~df["subapartado"].isin(ocultos)]
+        if df.empty: continue
+        st.markdown(f"### {q['trimestre']}")
+        for ap,g in df.groupby("apartado"):
+            p=float(g["puntuacion"].sum()); maxp=float(len(g)*5); nota=(p/maxp*10 if maxp else 0); w=pesos.get(ap,0)
+            st.write(f"**{ap}** · Peso asignado: **{w:.2f}%** · Nota del apartado: **{nota:.2f}/10**")
+            for _,r in g.iterrows(): st.write(f"• {r['subapartado']}: {r['puntuacion']} / 5" + (f" — {r.get('observaciones','')}" if r.get('observaciones') else ""))
+    if q.get("observaciones_generales"): st.info(q["observaciones_generales"])
 
-    return False, "Ninguna columna de archivo conocida existe en evaluaciones_trimestrales. Añade, por ejemplo, `archivo` (text) a esa tabla."
+def qt_pdf(nombre,informe,anio):
+    return generar_pdf_evaluacion_ia(nombre,informe,anio)
 
+def render_admin_evaluaciones_trimestrales():
+    st.title("📋 Evaluaciones Trimestrales")
+    t1,t2,t3,t4,t5,t6=st.tabs(["📥 Cargar Excel","👁️ Visibilidad","📊 Resumen","⚙️ Configuración","🤖 Generar e Insertar Informes IA","👥 Datos empleado"])
+    with t1:
+        st.subheader("📥 Cargar evaluaciones trimestrales")
+        anio=st.number_input("Año por defecto",min_value=2020,max_value=2100,value=datetime.datetime.now().year,key="qt_upload_year")
+        f=st.file_uploader("Selecciona Excel (.xlsx)",type=["xlsx"],key="qt_excel")
+        if f:
+            st.success(f"Archivo leído: {f.name}")
+            if st.button("💾 Procesar y guardar evaluaciones",key="qt_save_excel",type="primary"):
+                try: st.success(f"Se han guardado {qt_cargar_excel(f,anio,st.session_state.user_nombre)} evaluación(es).")
+                except Exception as e: st.error(f"Error al guardar: {e}")
+    with t2:
+        emps=supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
+        emp=st.selectbox("Empleado",emps,key="qt_vis_emp",format_func=lambda x:f"{x['nombre']} · {'Activo' if x.get('activo') else 'Deshabilitado'}")
+        anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_vis_year")
+        if emp:
+            v=qt_obtener_visibilidad(emp["id"],anio); qs={}; cols=st.columns(4)
+            for i,q in enumerate(["Q1","Q2","Q3","Q4"]): qs[q]=cols[i].checkbox(q,value=v.get("qs_habilitados",{}).get(q,True),key=f"qtq_{q}")
+            estructura=qt_estructura(emp["id"],anio); af={}; sub=[]
+            for ap,subs in estructura.items():
+                af[ap]=st.checkbox(f"Habilitar {ap}",value=v.get("apartados_habilitados",{}).get(ap,True),key=f"qta_{ap}")
+                for su in subs:
+                    ok=st.checkbox(f"  {su}",value=su not in v.get("subapartados_deshabilitados",[]),key=f"qts_{ap}_{su}")
+                    if not ok: sub.append(su)
+            if st.button("💾 Guardar visibilidad",key="qt_save_vis"): qt_guardar_visibilidad(emp["id"],anio,qs,af,sub); st.success("Guardado.")
+    with t3:
+        emps=supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
+        emp=st.selectbox("Empleado",emps,key="qt_sum_emp",format_func=lambda x:x["nombre"])
+        anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_sum_year")
+        if emp: qt_render_resumen(emp["id"],emp["nombre"],anio)
+    with t4:
+        st.subheader("⚙️ Pesos de apartados")
+        rows=supabase.table("config_apartados_pesos").select("*").order("apartado").execute().data or []
+        if not rows:
+            st.info("No hay pesos configurados en config_apartados_pesos. Se puede usar config_pesos_apartados si es la estructura activa.")
+            rows=[{"apartado":k,"peso_porcentaje":v,"habilitado":True} for k,v in qt_obtener_pesos().items()]
+        total=sum(float(x.get("peso_porcentaje") or 0) for x in rows if x.get("habilitado",True)); st.metric("Suma de pesos activos",f"{total:.2f}%")
+        st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+        if abs(total-100)>0.01: st.warning("La suma de pesos activos no es 100%. El sistema mostrará esta discrepancia explícitamente.")
+    with t5:
+        st.subheader("🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)")
+        modelos=obtener_modelos_ia_disponibles(); opciones=[f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos]
+        selmods=st.multiselect("Modelos IA",opciones,default=opciones[:1],key="qt_models"); anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_ai_year")
+        activos=supabase.table("empleados").select("id,nombre").eq("activo",True).order("nombre").execute().data or []; mp={e["nombre"]:e["id"] for e in activos}
+        st.markdown("#### Selección de Empleados")
+        st.success(f"Usuarios activos disponibles: **{len(activos)}**")
+        todos=st.checkbox("Seleccionar TODOS los usuarios activos",key="qt_all_active"); sels=list(mp) if todos else st.multiselect("Empleado(s)",list(mp),key="qt_ai_emps")
+        infos=[modelos[opciones.index(x)] for x in selmods]
+        if st.button("🚀 Generar e Insertar Informes Seleccionados",type="primary",key="qt_ai_go"):
+            if not sels or not infos: st.warning("Selecciona empleados activos y al menos un modelo.")
+            else:
+                resultados=[]
+                for nom in sels:
+                    ok,msg=generar_y_guardar_informe_ia_multimodelo(mp[nom],nom,anio,infos); resultados.append((nom,ok,msg))
+                for nom,ok,msg in resultados:
+                    if ok:
+                        st.success(f"Informe generado para {nom}")
+                        pdf=qt_pdf(nom,msg,anio)
+                        if pdf: st.download_button("📄 Exportar informe a PDF",pdf,f"Informe_IA_{nom}_{anio}.pdf","application/pdf",key=f"qt_pdf_{nom}_{anio}")
+                        with st.expander(f"📄 {nom}"): st.markdown(msg)
+                    else: st.error(f"{nom}: {msg}")
+    with t6:
+        emps=supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
+        emp=st.selectbox("Empleado",emps,key="qt_data_emp",format_func=lambda x:x["nombre"]); anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_data_year")
+        if emp: qt_render_resumen(emp["id"],emp["nombre"],anio)
 
-def generar_pdf_informes_ia_multiple(informes, anio):
-    """Genera un único PDF con los informes IA de varios empleados."""
-    if not REPORTLAB_DISPONIBLE or not informes:
-        return None
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-    titulo = ParagraphStyle("TituloMulti", parent=styles["Heading1"], fontSize=18, leading=22, spaceAfter=10)
-    subtitulo = ParagraphStyle("SubMulti", parent=styles["Normal"], fontSize=10, leading=14, spaceAfter=12)
-    cuerpo = ParagraphStyle("CuerpoMulti", parent=styles["Normal"], fontSize=9.5, leading=13, spaceAfter=6)
-    story = [Paragraph("Informe de Evaluación IA — Multi-empleado", titulo), Paragraph(f"Año: {anio}", subtitulo)]
+def render_empleado_evaluaciones_trimestrales(emp_id,nombre):
+    st.title("📋 Evaluaciones Trimestrales")
+    if not emp_id: st.warning("No hay empleado autenticado."); return
+    ev=supabase.table("evaluaciones_trimestrales").select("anio").eq("empleado_id",emp_id).eq("activo",True).execute().data or []
+    anios=sorted({int(x["anio"]) for x in ev if x.get("anio")},reverse=True) or [datetime.datetime.now().year]
+    anio=st.selectbox("Año",anios,key="qt_emp_year")
+    qt_render_resumen(emp_id,nombre,anio)
 
-    for idx, (nombre, texto) in enumerate(informes):
-        if idx > 0:
-            from reportlab.platypus import PageBreak
-            story.append(PageBreak())
-        story.append(Paragraph(f"Empleado: {nombre}", titulo))
-        for linea in str(texto or "").splitlines():
-            limpia = linea.strip()
-            if not limpia:
-                story.append(Spacer(1, 4))
-                continue
-            # Convertimos el Markdown básico a HTML compatible con ReportLab.
-            limpia = limpia.replace("### ", "").replace("## ", "").replace("# ", "")
-            limpia = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", limpia)
-            limpia = re.sub(r"\*(.*?)\*", r"<i>\1</i>", limpia)
-            limpia = limpia.replace("&", "&amp;")
-            try:
-                story.append(Paragraph(limpia, cuerpo))
-            except Exception:
-                story.append(Paragraph(limpia.replace("<", "&lt;").replace(">", "&gt;"), cuerpo))
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
 
 # ---------------------------------------------------------
 # DIÁLOGO DE AUTENTICACIÓN Y CONTRASEÑA POR DEFECTO
@@ -1702,23 +1305,31 @@ else:
         st.info(f"🎯 **Criterio de Evaluación:** Para obtener un resultado **APROBADO**, debes alcanzar una nota mínima de **{UMBRAL_APROBADO_PORCENTAJE / 10} / 10** ({int(UMBRAL_APROBADO_PORCENTAJE)}% de aciertos). Tiempo configurado por pregunta: **{TIEMPO_LIMITE_PREGUNTA} segundos**.")
 
         if st.session_state.es_croma:
-            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_informes_ia, tab_admin_evaluaciones, tab_admin_gestion = st.tabs([
+            tab_examenes, tab_admin_manual, tab_admin_resultados, tab_admin_export, tab_admin_analisis, tab_admin_informes_ia, tab_admin_gestion, tab_admin_trimestrales = st.tabs([
                 "📝 Realizar Examen",
-                "📄 Cargar Manual / Prompt",
-                "📊 Resultados / Edición",
+                "📄 Cargar Manual / Prompt", 
+                "📊 Resultados / Edición", 
                 "📥 Exportación Exámenes e Importación Datos",
                 "📈 Analítica e IA",
                 "🤖 Informes IA",
-                "📋 Evaluaciones Trimestrales",
-                "⚙️ Gestión y Configuración"
+                "⚙️ Gestión y Configuración",
+                "📋 Evaluaciones Trimestrales"
             ])
         else:
-            tab_examenes, tab_mis_resultados, tab_mi_analisis, tab_mis_evaluaciones = st.tabs([
-                "📝 Realizar Examen",
+            tab_examenes, tab_mis_resultados, tab_mi_analisis, tab_mis_trimestrales = st.tabs([
+                "📝 Realizar Examen", 
                 "📊 Mis Resultados e Historial",
                 "📈 Mi Rendimiento e Informes IA",
-                "📋 Mis Evaluaciones Trimestrales"
+                "📋 Evaluaciones Trimestrales"
             ])
+
+        # TAB: EVALUACIONES TRIMESTRALES
+        if st.session_state.es_croma:
+            with tab_admin_trimestrales:
+                render_admin_evaluaciones_trimestrales()
+        else:
+            with tab_mis_trimestrales:
+                render_empleado_evaluaciones_trimestrales(st.session_state.user_id, st.session_state.user_nombre)
 
         # TAB: REALIZAR EXAMEN
         with tab_examenes:
@@ -2243,32 +1854,6 @@ else:
                         st.info(txt_eval)
                     else:
                         st.warning(f"Aún no hay ningún informe de evaluación guardado y activo para ti en el año {anio_vigente}.")
-
-            # TAB: MIS EVALUACIONES TRIMESTRALES (Empleado)
-            with tab_mis_evaluaciones:
-                st.subheader("📋 Mis Evaluaciones Trimestrales")
-                evals_emp_anios = (
-                    supabase.table("evaluaciones_trimestrales")
-                    .select("anio")
-                    .eq("empleado_id", st.session_state.user_id)
-                    .execute()
-                    .data
-                )
-                anios_emp = (
-                    sorted(list(set([e["anio"] for e in evals_emp_anios])), reverse=True)
-                    if evals_emp_anios
-                    else [datetime.datetime.now().year]
-                )
-                sel_anio_emp = st.selectbox(
-                    "Seleccionar Año:",
-                    anios_emp,
-                    key="emp_sel_anio_eval_trimestral"
-                )
-                renderizar_mis_evaluaciones(
-                    st.session_state.user_id,
-                    st.session_state.user_nombre,
-                    sel_anio_emp
-                )
 
         # ADMIN CROMA - RESULTADOS Y EDICIÓN
         if st.session_state.es_croma and tab_admin_resultados:
@@ -2946,648 +2531,6 @@ else:
 
                 except Exception as err_mng_ia:
                     st.error(f"Error al consultar la tabla 'analisis_ia_empleados': {err_mng_ia}")
-
-        # ADMIN CROMA - EVALUACIONES TRIMESTRALES
-        if st.session_state.es_croma and tab_admin_evaluaciones:
-            with tab_admin_evaluaciones:
-                st.subheader("📋 Gestión de Evaluaciones Trimestrales")
-
-                subtab_et1, subtab_et2, subtab_et3, subtab_et4, subtab_et5, subtab_et6 = st.tabs([
-                    "📁 Cargar Excel",
-                    "👁️ Visibilidad por Empleado",
-                    "📊 Resumen Anual",
-                    "⚙️ Config. Prompts y Media",
-                    "🤖 Generar Informes IA",
-                    "🔍 Vista Espejo Empleado"
-                ])
-
-                # --- SUBTAB 1: CARGAR EXCEL ---
-                with subtab_et1:
-                    st.subheader("📁 Importar Datos desde Archivo Excel")
-                    st.markdown("""
-**Formato esperado del Excel:**
-Cada hoja debe corresponder a un trimestre (ej: `Q1`, `Q2`, `Q3`, `Q4`).
-Columnas requeridas: `nombre_empleado`, `apartado`, `subapartado`, `puntuacion`, `observaciones` (opcional).
-La columna `anio` puede incluirse o indicarse en el campo de abajo.
-""")
-                    col_ex1, col_ex2 = st.columns(2)
-                    anio_excel_eval = col_ex1.number_input(
-                        "Año de las evaluaciones:", value=datetime.datetime.now().year, step=1, key="excel_eval_anio"
-                    )
-                    modo_duplicados = col_ex2.selectbox(
-                        "Si ya existen datos para ese empleado/trimestre/año:",
-                        ["Actualizar (upsert)", "Añadir nuevo registro", "Omitir duplicados"],
-                        key="excel_eval_modo"
-                    )
-
-                    uploaded_file_eval = st.file_uploader(
-                        "Selecciona un archivo Excel (.xlsx)", type=["xlsx"],
-                        key="eval_excel_uploader"
-                    )
-                    if uploaded_file_eval:
-                        try:
-                            if not OPENPYXL_DISPONIBLE:
-                                st.error("openpyxl no está disponible. Añade 'openpyxl' a requirements.txt.")
-                            else:
-                                wb = openpyxl.load_workbook(uploaded_file_eval, data_only=True)
-                                hojas = wb.sheetnames
-                                st.success(f"Archivo cargado. Hojas detectadas: {hojas}")
-
-                                # Vista previa por hoja
-                                hoja_preview = st.selectbox("Vista previa de hoja:", hojas, key="excel_hoja_preview")
-                                df_preview = pd.read_excel(uploaded_file_eval, sheet_name=hoja_preview)
-                                st.dataframe(df_preview.head(10), use_container_width=True)
-
-                                if st.button("🚀 Procesar y Guardar en Base de Datos", key="btn_procesar_excel_eval"):
-                                    res_emps_excel = (
-                                        supabase.table("empleados")
-                                        .select("id, nombre")
-                                        .eq("activo", True)
-                                        .execute()
-                                        .data
-                                        or []
-                                    )
-                                    mapa_emps_excel = {str(e["nombre"]).strip().casefold(): e["id"] for e in res_emps_excel}
-
-                                    registros_ok = 0
-                                    registros_err = 0
-                                    errores_detalle = []
-                                    archivos_guardados = {}
-                                    hojas_ignoradas = []
-
-                                    # Solo estas hojas representan evaluaciones trimestrales.
-                                    # Hojas como Resumen no se insertan en evaluaciones_trimestrales.
-                                    for hoja in hojas:
-                                        trimestre_nombre = hoja.strip().upper()
-                                        if trimestre_nombre in {"RESUMEN", "RESUMEN ANUAL", "TOTAL", "TOTALES"}:
-                                            hojas_ignoradas.append(hoja)
-                                            continue
-
-                                        # Admitimos Q1/Q2/Q3/Q4 y variantes 1T/2T/3T/4T.
-                                        equivalencias_q = {"1T": "Q1", "2T": "Q2", "3T": "Q3", "4T": "Q4", "T1": "Q1", "T2": "Q2", "T3": "Q3", "T4": "Q4"}
-                                        trimestre_nombre = equivalencias_q.get(trimestre_nombre, trimestre_nombre)
-                                        if trimestre_nombre not in {"Q1", "Q2", "Q3", "Q4"}:
-                                            hojas_ignoradas.append(hoja)
-                                            continue
-
-                                        try:
-                                            df_hoja, cols_excel, fila_cabecera = cargar_hoja_excel_robusta(uploaded_file_eval, hoja)
-                                            col_emp = cols_excel.get("empleado")
-                                            col_apt = cols_excel.get("apartado")
-                                            col_sub = cols_excel.get("subapartado")
-                                            col_pun = cols_excel.get("puntuacion")
-                                            col_obs = cols_excel.get("observaciones")
-
-                                            if not col_emp or not col_apt or not col_sub or not col_pun:
-                                                errores_detalle.append(
-                                                    f"Hoja '{hoja}' (encabezado fila {fila_cabecera}): faltan columnas requeridas. "
-                                                    f"Detectadas: {', '.join(df_hoja.columns.astype(str))}"
-                                                )
-                                                registros_err += 1
-                                                continue
-
-                                            for idx_fila, fila in df_hoja.iterrows():
-                                                fila_excel = fila_cabecera + idx_fila + 1
-                                                nombre_emp_fila = str(fila[col_emp]).strip() if pd.notna(fila[col_emp]) else ""
-                                                if not nombre_emp_fila or nombre_emp_fila.lower() in {"nan", "none", "empleado", "nombre"}:
-                                                    continue
-
-                                                emp_id_fila = mapa_emps_excel.get(nombre_emp_fila.casefold())
-                                                if not emp_id_fila:
-                                                    errores_detalle.append(f"Hoja '{hoja}', fila {fila_excel}: empleado '{nombre_emp_fila}' no encontrado o no activo.")
-                                                    registros_err += 1
-                                                    continue
-
-                                                apartado_fila = str(fila[col_apt]).strip() if pd.notna(fila[col_apt]) else ""
-                                                subapartado_fila = str(fila[col_sub]).strip() if pd.notna(fila[col_sub]) else ""
-                                                if not apartado_fila or not subapartado_fila:
-                                                    continue
-                                                puntuacion_fila = convertir_puntuacion_excel(fila[col_pun])
-                                                obs_fila = str(fila[col_obs]).strip() if col_obs and pd.notna(fila[col_obs]) else ""
-
-                                                try:
-                                                    res_eval_existe = (
-                                                        supabase.table("evaluaciones_trimestrales")
-                                                        .select("id")
-                                                        .eq("empleado_id", emp_id_fila)
-                                                        .eq("anio", int(anio_excel_eval))
-                                                        .eq("trimestre", trimestre_nombre)
-                                                        .execute()
-                                                        .data
-                                                    )
-
-                                                    if res_eval_existe and modo_duplicados == "Omitir duplicados":
-                                                        continue
-
-                                                    if res_eval_existe and modo_duplicados == "Actualizar (upsert)":
-                                                        eval_id_fila = res_eval_existe[0]["id"]
-                                                    else:
-                                                        res_nueva_eval = supabase.table("evaluaciones_trimestrales").insert({
-                                                            "empleado_id": emp_id_fila,
-                                                            "nombre_empleado": nombre_emp_fila,
-                                                            "anio": int(anio_excel_eval),
-                                                            "trimestre": trimestre_nombre,
-                                                            "activo": True,
-                                                            "habilitado": True,
-                                                            "apartado": True,
-                                                        }).execute()
-                                                        if not res_nueva_eval.data:
-                                                            raise RuntimeError("Supabase no devolvió el registro creado en evaluaciones_trimestrales.")
-                                                        eval_id_fila = res_nueva_eval.data[0]["id"]
-
-                                                    # Guardar el archivo original una sola vez por empleado/trimestre.
-                                                    clave_archivo = (str(emp_id_fila), trimestre_nombre)
-                                                    if clave_archivo not in archivos_guardados:
-                                                        ok_archivo, ref_archivo, err_archivo = guardar_excel_evaluacion_supabase(
-                                                            uploaded_file_eval, emp_id_fila, anio_excel_eval, trimestre_nombre
-                                                        )
-                                                        if ok_archivo:
-                                                            ok_ref, detalle_ref = guardar_referencia_archivo_evaluacion(eval_id_fila, ref_archivo)
-                                                            archivos_guardados[clave_archivo] = (ok_ref, detalle_ref)
-                                                            if not ok_ref:
-                                                                errores_detalle.append(
-                                                                    f"Hoja '{hoja}' | {nombre_emp_fila}: Excel subido a Storage, pero no se pudo guardar su referencia en evaluaciones_trimestrales: {detalle_ref}"
-                                                                )
-                                                        else:
-                                                            archivos_guardados[clave_archivo] = (False, err_archivo)
-                                                            errores_detalle.append(f"Hoja '{hoja}' | {nombre_emp_fila}: {err_archivo}")
-
-                                                    detalle_data = {
-                                                        "evaluacion_id": eval_id_fila,
-                                                        "empleado_id": emp_id_fila,
-                                                        "nombre_empleado": nombre_emp_fila,
-                                                        "anio": int(anio_excel_eval),
-                                                        "trimestre": trimestre_nombre,
-                                                        "apartado": apartado_fila,
-                                                        "subapartado": subapartado_fila,
-                                                        "puntuacion": puntuacion_fila,
-                                                        "observaciones": obs_fila,
-                                                        "habilitado": True,
-                                                    }
-
-                                                    if res_eval_existe and modo_duplicados == "Actualizar (upsert)":
-                                                        res_det_existe = (
-                                                            supabase.table("evaluacion_detalles")
-                                                            .select("id")
-                                                            .eq("evaluacion_id", eval_id_fila)
-                                                            .eq("apartado", apartado_fila)
-                                                            .eq("subapartado", subapartado_fila)
-                                                            .execute()
-                                                            .data
-                                                        )
-                                                        if res_det_existe:
-                                                            supabase.table("evaluacion_detalles").update({
-                                                                "puntuacion": puntuacion_fila,
-                                                                "observaciones": obs_fila,
-                                                            }).eq("id", res_det_existe[0]["id"]).execute()
-                                                        else:
-                                                            supabase.table("evaluacion_detalles").insert(detalle_data).execute()
-                                                    else:
-                                                        supabase.table("evaluacion_detalles").insert(detalle_data).execute()
-
-                                                    registros_ok += 1
-
-                                                except Exception as err_fila:
-                                                    errores_detalle.append(f"Hoja '{hoja}' | fila {fila_excel} | {nombre_emp_fila} / {subapartado_fila}: {err_fila}")
-                                                    registros_err += 1
-
-                                        except Exception as err_hoja:
-                                            errores_detalle.append(f"Error leyendo hoja '{hoja}': {err_hoja}")
-                                            registros_err += 1
-
-                                    if registros_ok > 0:
-                                        st.success(f"✅ Importación completada: **{registros_ok}** filas guardadas correctamente.")
-                                    if archivos_guardados:
-                                        ok_arch = sum(1 for ok, _ in archivos_guardados.values() if ok)
-                                        st.info(f"📎 Archivos asociados: **{ok_arch}/{len(archivos_guardados)}** cabeceras de evaluación.")
-                                    if hojas_ignoradas:
-                                        st.caption(f"ℹ️ Hojas ignoradas porque no son trimestres: {', '.join(hojas_ignoradas)}")
-                                    if registros_err > 0 or errores_detalle:
-                                        st.error(f"⚠️ {registros_err} filas con error o incidencias:")
-                                        for e_d in errores_detalle[:30]:
-                                            st.caption(f"• {e_d}")
-                                        if len(errores_detalle) > 30:
-                                            st.caption(f"... y {len(errores_detalle) - 30} incidencias más.")
-                        except Exception as e:
-                            st.error(f"Error al leer el archivo Excel: {e}")
-
-                # --- SUBTAB 2: VISIBILIDAD POR EMPLEADO ---
-                with subtab_et2:
-                    st.subheader("👁️ Ajustar Visibilidad Personalizada por Empleado")
-                    emps_vis = supabase.table("empleados").select("id, nombre").execute().data
-                    emp_dict_vis = {e["nombre"]: e["id"] for e in emps_vis} if emps_vis else {}
-
-                    col_ev1, col_ev2 = st.columns(2)
-                    sel_emp_vis = col_ev1.selectbox("Empleado:", list(emp_dict_vis.keys()), key="vis_sel_emp")
-                    sel_anio_vis = col_ev2.number_input("Año:", value=datetime.datetime.now().year, step=1, key="vis_sel_anio")
-
-                    if sel_emp_vis:
-                        emp_id_vis = emp_dict_vis[sel_emp_vis]
-                        vis_actual = obtener_visibilidad_empleado(emp_id_vis, sel_anio_vis)
-
-                        st.markdown("#### 1. Trimestres (Q) Habilitados")
-                        q_cols = st.columns(4)
-                        qs_hab_vis = {}
-                        for idx_q, q_name in enumerate(["Q1", "Q2", "Q3", "Q4"]):
-                            qs_hab_vis[q_name] = q_cols[idx_q].checkbox(
-                                q_name,
-                                value=vis_actual.get("qs_habilitados", {}).get(q_name, True),
-                                key=f"vis_q_{q_name}"
-                            )
-
-                        st.divider()
-
-                        evals_vis = (
-                            supabase.table("evaluaciones_trimestrales")
-                            .select("id")
-                            .eq("empleado_id", emp_id_vis)
-                            .eq("anio", sel_anio_vis)
-                            .execute()
-                            .data
-                        )
-                        eval_ids_vis = [e["id"] for e in evals_vis] if evals_vis else []
-                        detalles_vis = []
-                        if eval_ids_vis:
-                            detalles_vis = (
-                                supabase.table("evaluacion_detalles")
-                                .select("apartado, subapartado")
-                                .in_("evaluacion_id", eval_ids_vis)
-                                .execute()
-                                .data
-                            )
-
-                        estructura_apartados_vis = {}
-                        if detalles_vis:
-                            for d in detalles_vis:
-                                ap = d["apartado"]
-                                sub = d["subapartado"]
-                                if ap not in estructura_apartados_vis:
-                                    estructura_apartados_vis[ap] = set()
-                                if sub:
-                                    estructura_apartados_vis[ap].add(sub)
-                            for ap in estructura_apartados_vis:
-                                estructura_apartados_vis[ap] = sorted(list(estructura_apartados_vis[ap]))
-                        else:
-                            estructura_apartados_vis = {
-                                "Tareas realizar por turnos y todos los turnos": [
-                                    "Realiza las tareas asignadas a su turno",
-                                    "Entrega de turno y comunicación",
-                                ],
-                                "Tiempos respuesta Tbox": [
-                                    "Atención inmediata a alertas",
-                                    "Tiempo medio de resolución",
-                                ],
-                                "Tiempos respuesta Siemens": [
-                                    "Respuesta en sistema Siemens",
-                                    "Gestión de incidencias",
-                                ],
-                                "Iniciativa / Proactividad ante el trabajo": [
-                                    "Proactividad en resolución de problemas",
-                                    "Aportación de mejoras",
-                                ],
-                                "Conocimientos": [
-                                    "Manejo de herramientas",
-                                    "Dominio de procedimientos",
-                                ],
-                                "Evaluacion": ["Evaluación global y desempeño general"],
-                            }
-
-                        apts_vis_guardados = vis_actual.get("apartados_habilitados", {})
-                        sub_ocultos_guardados = set(vis_actual.get("subapartados_deshabilitados", []))
-
-                        st.markdown("#### 2. Selección Personalizada de Apartados y Subapartados")
-                        st.caption("Desmarca los apartados o subapartados que no desees incluir en las notas e informes de este empleado.")
-
-                        apartados_finales_vis = {}
-                        subapartados_deshabilitados_finales_vis = []
-
-                        for apt, subs in estructura_apartados_vis.items():
-                            st.markdown(f"##### 📌 Apartado: **{apt}**")
-                            ap_activo = st.checkbox(
-                                f"Habilitar apartado completo: '{apt}'",
-                                value=apts_vis_guardados.get(apt, True),
-                                key=f"vis_apt_{apt}",
-                            )
-                            apartados_finales_vis[apt] = ap_activo
-
-                            if ap_activo and subs:
-                                with st.container():
-                                    st.write("    *Subapartados de este apartado:*")
-                                    cols_sub = st.columns(min(len(subs), 2) if len(subs) > 1 else 1)
-                                    for idx_s, sub_name in enumerate(subs):
-                                        col_s = cols_sub[idx_s % len(cols_sub)]
-                                        sub_activo = col_s.checkbox(
-                                            f"• {sub_name}",
-                                            value=(sub_name not in sub_ocultos_guardados),
-                                            key=f"vis_sub_{apt}_{sub_name}",
-                                        )
-                                        if not sub_activo:
-                                            subapartados_deshabilitados_finales_vis.append(sub_name)
-                            elif not ap_activo and subs:
-                                subapartados_deshabilitados_finales_vis.extend(subs)
-                            st.markdown("---")
-
-                        if st.button("💾 Guardar Configuración de Visibilidad", type="primary", key="btn_guardar_vis"):
-                            guardar_visibilidad_empleado(
-                                emp_id_vis,
-                                sel_anio_vis,
-                                qs_hab_vis,
-                                apartados_finales_vis,
-                                list(set(subapartados_deshabilitados_finales_vis)),
-                            )
-                            st.success("¡Configuración de apartados y subapartados guardada correctamente!")
-
-                        # --- PESO DE APARTADOS ACTIVADOS ---
-                        st.markdown("---")
-                        st.markdown("### ⚖️ Peso de los Apartados Activados")
-                        st.caption("Muestra el peso configurado en `config_apartados_pesos` para cada apartado habilitado. La suma debe ser 100%.")
-                        try:
-                            res_pesos = supabase.table("config_apartados_pesos").select("*").eq("habilitado", True).execute().data
-                            if res_pesos:
-                                df_pesos = pd.DataFrame(res_pesos)
-                                # Filtrar solo los apartados que están activos en la visibilidad actual
-                                apt_activos_vis = [ap for ap, activo in apartados_finales_vis.items() if activo]
-                                # Mostrar TODOS los apartados activados, incluso si todavía no tienen
-                                # un registro de peso en config_apartados_pesos.
-                                mapa_pesos = {str(r.get("apartado", "")).strip(): float(r.get("peso_porcentaje") or 0) for r in res_pesos}
-                                df_pesos_filtrado = pd.DataFrame([
-                                    {"apartado": apt, "peso_porcentaje": mapa_pesos.get(apt, 0.0), "habilitado": mapa_pesos.get(apt, 0.0) > 0}
-                                    for apt in apt_activos_vis
-                                ])
-
-                                suma_total = float(df_pesos_filtrado["peso_porcentaje"].sum()) if not df_pesos_filtrado.empty else 0.0
-                                suma_global = float(df_pesos["peso_porcentaje"].sum())
-
-                                col_p1, col_p2 = st.columns(2)
-                                with col_p1:
-                                    st.markdown("**Apartados activados para este empleado:**")
-                                    if not df_pesos_filtrado.empty:
-                                        for _, row_p in df_pesos_filtrado.iterrows():
-                                            icono = "🟢" if float(row_p["peso_porcentaje"]) > 0 else "🔴"
-                                            st.write(f"{icono} **{row_p['apartado']}**: {float(row_p['peso_porcentaje']):.2f}%")
-                                    else:
-                                        st.info("No hay pesos configurados para los apartados activos.")
-
-                                with col_p2:
-                                    st.metric("Suma pesos activados", f"{round(suma_total, 2)}%",
-                                              delta=f"{round(suma_total - 100, 2)}%" if suma_total != 100 else "✓ Correcto")
-                                    st.metric("Suma pesos global (todos)", f"{round(suma_global, 2)}%")
-                                    if abs(suma_total - 100) < 0.01:
-                                        st.success("✅ Los pesos de los apartados activados suman exactamente 100%.")
-                                    else:
-                                        st.warning(f"⚠️ Los pesos activados suman **{round(suma_total, 2)}%**. Ajusta los pesos en `config_apartados_pesos` para que sumen 100%.")
-
-                                st.markdown("**Tabla completa de pesos configurados:**")
-                                st.dataframe(
-                                    df_pesos[["apartado", "peso_porcentaje", "habilitado"]].rename(columns={
-                                        "apartado": "Apartado",
-                                        "peso_porcentaje": "Peso (%)",
-                                        "habilitado": "Habilitado"
-                                    }),
-                                    use_container_width=True,
-                                    hide_index=True
-                                )
-                            else:
-                                st.info("No hay pesos configurados en `config_apartados_pesos`. Puedes añadirlos directamente en Supabase.")
-                                st.caption("Estructura necesaria: columnas `apartado` (varchar), `peso_porcentaje` (numeric), `habilitado` (boolean).")
-                        except Exception as err_pesos:
-                            st.warning(f"No se pudieron cargar los pesos: {err_pesos}")
-
-                # --- SUBTAB 3: RESUMEN ANUAL Y DESGLOSE ---
-                with subtab_et3:
-                    st.subheader("📊 Resumen Anual y Desglose General")
-                    emps_res = supabase.table("empleados").select("id, nombre").execute().data
-                    emp_dict_res = {e["nombre"]: e["id"] for e in emps_res} if emps_res else {}
-
-                    col_r1, col_r2 = st.columns(2)
-                    sel_emp_res = col_r1.selectbox(
-                        "Seleccionar Empleado para Consulta:", list(emp_dict_res.keys()), key="res_sel_emp"
-                    )
-                    sel_anio_res = col_r2.number_input(
-                        "Año de Consulta:", value=datetime.datetime.now().year, step=1, key="res_sel_anio"
-                    )
-                    if sel_emp_res:
-                        renderizar_mis_evaluaciones(emp_dict_res[sel_emp_res], sel_emp_res, sel_anio_res)
-
-                # --- SUBTAB 4: CONFIGURACIÓN PROMPTS Y MEDIA ---
-                with subtab_et4:
-                    st.subheader("⚙️ Configuración del Prompt Base y Nota Media Requerida")
-                    try:
-                        cfg_eval_prompt = (
-                            supabase.table("config_prompts_eval")
-                            .select("*")
-                            .limit(1)
-                            .execute()
-                            .data
-                        )
-                        prompt_eval_actual = (
-                            cfg_eval_prompt[0]["prompt_texto"]
-                            if cfg_eval_prompt
-                            else "Realiza un informe evaluativo profesional basado en estos datos:"
-                        )
-                        media_eval_actual = (
-                            float(cfg_eval_prompt[0]["objetivo_media"])
-                            if cfg_eval_prompt and "objetivo_media" in cfg_eval_prompt[0]
-                            else 8.0
-                        )
-                    except Exception:
-                        cfg_eval_prompt = None
-                        prompt_eval_actual = "Realiza un informe evaluativo profesional basado en estos datos:"
-                        media_eval_actual = 8.0
-
-                    nuevo_prompt_eval = st.text_area(
-                        "Prompt Base para la IA:", value=prompt_eval_actual, height=150, key="eval_prompt_txt"
-                    )
-                    nueva_media_eval = st.number_input(
-                        "Nota Media Mínima Requerida (sobre 10):",
-                        value=media_eval_actual, min_value=0.0, max_value=10.0, step=0.5,
-                        key="eval_media_num"
-                    )
-                    if st.button("Guardar Configuración Base", type="primary", key="btn_guardar_cfg_eval"):
-                        try:
-                            id_cfg = cfg_eval_prompt[0]["id"] if cfg_eval_prompt else 1
-                            supabase.table("config_prompts_eval").upsert({
-                                "id": id_cfg,
-                                "prompt_texto": nuevo_prompt_eval,
-                                "objetivo_media": nueva_media_eval,
-                            }).execute()
-                            st.success("Configuración actualizada correctamente.")
-                        except Exception as err_cfg:
-                            st.error(f"Error al guardar la configuración: {err_cfg}")
-
-                # --- SUBTAB 5: GENERAR INFORMES IA MULTIMODELO ---
-                with subtab_et5:
-                    st.subheader("🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)")
-
-                    modelos_eval_disp = obtener_modelos_evaluacion_db()
-                    opciones_modelos_eval = [
-                        f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos_eval_disp
-                    ]
-
-                    col_me1, col_me2 = st.columns([2, 1])
-                    modelos_eval_sel_str = col_me1.multiselect(
-                        "🧠 Seleccionar Modelo(s) IA para la consulta:",
-                        options=opciones_modelos_eval,
-                        default=[opciones_modelos_eval[0]] if opciones_modelos_eval else [],
-                        key="eval_modelos_sel"
-                    )
-                    sel_anio_ia_eval = col_me2.number_input(
-                        "Año a evaluar:", value=datetime.datetime.now().year, step=1, key="eval_ia_anio"
-                    )
-
-                    modelos_info_eval_sel = []
-                    for mod_str_e in modelos_eval_sel_str:
-                        idx_e = opciones_modelos_eval.index(mod_str_e)
-                        modelos_info_eval_sel.append(modelos_eval_disp[idx_e])
-
-                    # Solo empleados ACTIVOS. Se trabaja internamente con IDs para evitar
-                    # problemas si existen dos empleados con el mismo nombre.
-                    emps_ia = (
-                        supabase.table("empleados")
-                        .select("id, nombre, activo")
-                        .eq("activo", True)
-                        .order("nombre", desc=False)
-                        .execute()
-                        .data
-                        or []
-                    )
-                    emps_ia_map = {str(e["id"]): e for e in emps_ia}
-
-                    st.markdown("---")
-                    st.markdown("#### Selección de Empleados (solo activos)")
-                    filtro_emp_ia = st.text_input(
-                        "🔎 Filtrar empleados activos:",
-                        value="",
-                        placeholder="Escribe parte del nombre...",
-                        key="eval_ia_emp_filtro",
-                    )
-                    filtro_norm_ia = filtro_emp_ia.strip().casefold()
-                    ids_filtrados_ia = [
-                        str(e["id"]) for e in emps_ia
-                        if not filtro_norm_ia or filtro_norm_ia in str(e.get("nombre", "")).casefold()
-                    ]
-
-                    st.caption(f"Mostrando {len(ids_filtrados_ia)} de {len(emps_ia)} empleados activos.")
-                    if filtro_emp_ia.strip() and not ids_filtrados_ia:
-                        st.warning("No hay empleados activos que coincidan con el filtro.")
-                    sel_todos_ia = st.checkbox("Seleccionar TODOS los empleados activos mostrados", key="eval_ia_todos")
-
-                    if sel_todos_ia:
-                        empleados_ia_sel_ids = ids_filtrados_ia
-                        st.info(f"Se han seleccionado **{len(empleados_ia_sel_ids)}** empleados activos del filtro actual.")
-                    else:
-                        empleados_ia_sel_ids = st.multiselect(
-                            "Selecciona uno o más empleados:",
-                            options=ids_filtrados_ia,
-                            default=[],
-                            format_func=lambda emp_id: emps_ia_map.get(str(emp_id), {}).get("nombre", str(emp_id)),
-                            key="eval_ia_emp_sel",
-                        )
-
-                    if st.button("🚀 Generar e Insertar Informes Seleccionados", type="primary", key="btn_gen_ia_eval"):
-                        if not empleados_ia_sel_ids:
-                            st.warning("Debes seleccionar al menos un empleado activo.")
-                        elif not modelos_info_eval_sel:
-                            st.warning("Debes seleccionar al menos un modelo de IA.")
-                        else:
-                            total_emp_ia = len(empleados_ia_sel_ids)
-                            progreso_ia = st.progress(0)
-                            status_ia = st.empty()
-                            resultados_ok = []
-                            resultados_err = []
-
-                            for idx_ia, emp_id_ia in enumerate(empleados_ia_sel_ids):
-                                emp_nom_ia = emps_ia_map.get(str(emp_id_ia), {}).get("nombre", str(emp_id_ia))
-                                status_ia.markdown(
-                                    f"⌛ Procesando **{emp_nom_ia}** ({idx_ia + 1}/{total_emp_ia}) con **{len(modelos_info_eval_sel)}** modelo(s)..."
-                                )
-                                exito_ia, msg_ia = generar_y_guardar_informe_ia_multimodelo(
-                                    emp_id_ia, emp_nom_ia, sel_anio_ia_eval, modelos_info_eval_sel
-                                )
-                                if exito_ia:
-                                    resultados_ok.append((emp_nom_ia, msg_ia))
-                                else:
-                                    resultados_err.append((emp_nom_ia, msg_ia))
-                                progreso_ia.progress((idx_ia + 1) / total_emp_ia)
-
-                            status_ia.empty()
-                            st.session_state["et5_resultados_ok"] = resultados_ok
-                            st.session_state["et5_resultados_err"] = resultados_err
-                            st.session_state["et5_anio"] = sel_anio_ia_eval
-
-                    # Mostrar resultados persistentes en session_state
-                    if st.session_state.get("et5_resultados_ok") is not None:
-                        resultados_ok_vis = st.session_state["et5_resultados_ok"]
-                        resultados_err_vis = st.session_state.get("et5_resultados_err", [])
-                        anio_vis = st.session_state.get("et5_anio", datetime.datetime.now().year)
-
-                        st.success(f"✅ Proceso completado: {len(resultados_ok_vis)} informe(s) generado(s) correctamente.")
-                        if resultados_err_vis:
-                            st.error(f"⚠️ {len(resultados_err_vis)} informe(s) no se pudieron generar:")
-                            for emp_err, err_msg in resultados_err_vis:
-                                st.caption(f"• **{emp_err}**: {err_msg}")
-
-                        if resultados_ok_vis:
-                            st.markdown("### 📋 Vista Previa e Informes Generados")
-                            if REPORTLAB_DISPONIBLE:
-                                pdf_todos_ia = generar_pdf_informes_ia_multiple(resultados_ok_vis, anio_vis)
-                                if pdf_todos_ia:
-                                    st.download_button(
-                                        label="📚 Descargar PDF de todos los informes generados",
-                                        data=pdf_todos_ia,
-                                        file_name=f"Informes_Evaluacion_IA_{anio_vis}.pdf",
-                                        mime="application/pdf",
-                                        use_container_width=True,
-                                        key=f"pdf_todos_et5_{anio_vis}",
-                                    )
-                            else:
-                                st.warning("ReportLab no está instalado. Añade `reportlab` a requirements.txt para habilitar la exportación PDF.")
-                            for emp_ok, informe_txt in resultados_ok_vis:
-                                with st.expander(f"📄 Informe IA - {emp_ok}"):
-                                    st.markdown(informe_txt)
-                                    # Botón exportar PDF por empleado
-                                    pdf_ia_et5 = generar_pdf_evaluacion_ia(emp_ok, informe_txt, anio_vis)
-                                    if pdf_ia_et5:
-                                        st.download_button(
-                                            label=f"📥 Descargar PDF — {emp_ok}",
-                                            data=pdf_ia_et5,
-                                            file_name=f"Informe_Evaluacion_{emp_ok.replace(' ', '_')}_{anio_vis}.pdf",
-                                            mime="application/pdf",
-                                            key=f"pdf_et5_{emp_ok}_{anio_vis}"
-                                        )
-                        if st.button("🗑️ Limpiar resultados", key="btn_limpiar_et5"):
-                            st.session_state.pop("et5_resultados_ok", None)
-                            st.session_state.pop("et5_resultados_err", None)
-                            st.session_state.pop("et5_anio", None)
-                            st.rerun()
-
-                # --- SUBTAB 6: VISTA ESPEJO EMPLEADO ---
-                with subtab_et6:
-                    st.subheader("🔍 Vista Espejo del Portal de Empleados")
-                    emps_esp = supabase.table("empleados").select("id, nombre").execute().data
-                    emp_dict_esp = {e["nombre"]: e["id"] for e in emps_esp} if emps_esp else {}
-
-                    col_esp1, col_esp2 = st.columns(2)
-                    sel_emp_esp = col_esp1.selectbox(
-                        "Seleccionar Empleado a consultar:", list(emp_dict_esp.keys()), key="esp_sel_emp"
-                    )
-                    if sel_emp_esp:
-                        emp_id_esp = emp_dict_esp[sel_emp_esp]
-                        evals_esp_anios = (
-                            supabase.table("evaluaciones_trimestrales")
-                            .select("anio")
-                            .eq("empleado_id", emp_id_esp)
-                            .execute()
-                            .data
-                        )
-                        anios_esp = (
-                            sorted(list(set([e["anio"] for e in evals_esp_anios])), reverse=True)
-                            if evals_esp_anios
-                            else [datetime.datetime.now().year]
-                        )
-                        sel_anio_esp = col_esp2.selectbox("Seleccionar Año:", anios_esp, key="esp_sel_anio")
-                        st.markdown(f"### Portal del Empleado - Mis Evaluaciones (`{sel_emp_esp}` - `{sel_anio_esp}`)")
-                        renderizar_mis_evaluaciones(emp_id_esp, sel_emp_esp, sel_anio_esp)
 
         # ADMIN CROMA - GESTIÓN Y CONFIGURACIÓN
         if st.session_state.es_croma and tab_admin_gestion:
