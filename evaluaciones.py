@@ -14,28 +14,6 @@ from google.genai import types
 from pypdf import PdfReader
 from supabase import create_client, Client
 
-# Ejemplo de cómo adaptar la lectura del Excel en Python:
-df = pd.read_excel(
-    uploaded_file,
-    sheet_name=hoja,
-    header=11,  # Fila 12 del Excel (índice 11 en Python)
-)
-
-# Renombrar las columnas encontradas a los nombres requeridos
-df = df.rename(
-    columns={
-        "PUNTOS DE EVALUACION": "apartado",
-        "CRITERIO EVALUACION": "subapartado",
-        "Resultado": "puntuacion",
-        "Observaciones": "observaciones",
-    }
-)
-
-# Si el nombre del empleado no está en las filas de la tabla, 
-# se asigna el seleccionado en la interfaz
-df["nombre_empleado"] = sel_emp
-
-
 # Importar SDK de Anthropic (Claude)
 try:
     import anthropic
