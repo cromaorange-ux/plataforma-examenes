@@ -781,6 +781,132 @@ def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
         total+=1
     return total
 
+def qt_obtener_modelos_ia():
+    """Lee directamente los modelos configurados en config_prompts.
+    No depende del formato de retorno de obtener_modelos_ia_disponibles(),
+    porque esa función histórica de app.py devuelve una lista de strings.
+    """
+    columnas = [
+        ("modelo_gemini", "gemini"),
+        ("modelo_claude", "claude"),
+        ("modelo_openai", "openai"),
+    ]
+    salida, vistos = [], set()
+    try:
+        res = (supabase.table("config_prompts")
+               .select("modelo_gemini, modelo_claude, modelo_openai")
+               .limit(1)
+               .execute())
+        filas = res.data or []
+        if not filas:
+            return salida
+        fila = filas[0]
+        for columna, proveedor in columnas:
+            valor = fila.get(columna)
+            if not valor:
+                continue
+            # La configuración permite varios modelos separados por comas.
+            for modelo in str(valor).split(","):
+                modelo = modelo.strip()
+                if not modelo:
+                    continue
+                clave = f"{proveedor}:{modelo}".lower()
+                if clave in vistos:
+                    continue
+                vistos.add(clave)
+                salida.append({
+                    "proveedor": proveedor,
+                    "nombre_modelo": modelo,
+                })
+    except Exception as e:
+        st.error(f"No se pudieron cargar los modelos IA desde config_prompts: {e}")
+    return salida
+
+
+def generar_y_guardar_informe_ia_multimodelo(empleado_id, nombre_emp, anio, lista_modelos_info):
+    """Genera y guarda el informe trimestral usando la IA ya integrada en app.py."""
+    try:
+        cfg = supabase.table("config_prompts_eval").select("*").limit(1).execute().data or []
+        prompt_base = cfg[0].get("prompt_texto") if cfg else None
+        if not prompt_base:
+            prompt_base = "Realiza un informe evaluativo profesional basado en estos datos."
+    except Exception:
+        prompt_base = "Realiza un informe evaluativo profesional basado en estos datos."
+
+    vis = qt_obtener_visibilidad(empleado_id, anio)
+    qs_hab = vis.get("qs_habilitados", {})
+    apts_hab = vis.get("apartados_habilitados", {})
+    sub_ocultos = vis.get("subapartados_deshabilitados", [])
+
+    try:
+        q_evals = (supabase.table("evaluaciones_trimestrales").select("*")
+                   .eq("empleado_id", empleado_id).eq("anio", anio).eq("activo", True)
+                   .execute().data or [])
+    except Exception as e:
+        return False, f"Error leyendo evaluaciones trimestrales: {e}"
+
+    resumen_datos = []
+    for q in q_evals:
+        q_nom = q.get("trimestre")
+        if not qs_hab.get(q_nom, True):
+            continue
+        try:
+            detalles = supabase.table("evaluacion_detalles").select("*").eq("evaluacion_id", q["id"]).execute().data or []
+        except Exception as e:
+            return False, f"Error leyendo detalles del trimestre {q_nom}: {e}"
+        for r in detalles:
+            apartado, subapartado = r.get("apartado"), r.get("subapartado")
+            if not apts_hab.get(apartado, True) or subapartado in sub_ocultos:
+                continue
+            resumen_datos.append({
+                "trimestre": q_nom, "apartado": apartado, "subapartado": subapartado,
+                "puntuacion": r.get("puntuacion"), "observaciones": r.get("observaciones", "")
+            })
+
+    if not resumen_datos:
+        return False, f"No existen datos de evaluaciones habilitadas para {nombre_emp} en {anio}."
+
+    prompt_completo = f"""{prompt_base}
+
+Empleado: {nombre_emp}
+Año: {anio}
+
+Datos de evaluaciones del año:
+{json.dumps(resumen_datos, ensure_ascii=False, indent=2)}
+
+Genera un informe detallado, constructivo y estructurado en Markdown.
+"""
+
+    textos, errores = [], []
+    for mod_info in lista_modelos_info:
+        nombre_modelo = mod_info.get("nombre_modelo")
+        proveedor = mod_info.get("proveedor", "gemini")
+        if not nombre_modelo:
+            continue
+        try:
+            # Firma real de consultar_ia() en app.py: consultar_ia(modelo, prompt, sistema="")
+            texto = consultar_ia(nombre_modelo, prompt_completo)
+            if texto:
+                textos.append(f"### 🤖 Informe generado con {nombre_modelo} ({proveedor.upper()})\n\n{texto}" if len(lista_modelos_info) > 1 else texto)
+            else:
+                errores.append(f"[{nombre_modelo}]: la IA no devolvió contenido")
+        except Exception as e:
+            errores.append(f"[{nombre_modelo}]: {e}")
+
+    if not textos:
+        return False, f"Fallaron todas las consultas de IA: {'; '.join(errores)}"
+
+    informe_final = "\n\n---\n\n".join(textos)
+    try:
+        supabase.table("informes_evaluacion").upsert(
+            {"empleado_id": empleado_id, "anio": anio, "informe_texto": informe_final},
+            on_conflict="empleado_id,anio"
+        ).execute()
+    except Exception as e:
+        return False, f"Error al guardar el informe en la BD: {e}"
+    return True, informe_final
+
+
 def qt_render_resumen(emp_id,nombre,anio):
     vis=qt_obtener_visibilidad(emp_id,anio); qs=vis.get("qs_habilitados",{}); apts=vis.get("apartados_habilitados",{}); ocultos=set(vis.get("subapartados_deshabilitados",[])); pesos=qt_obtener_pesos()
     evs=supabase.table("evaluaciones_trimestrales").select("*").eq("empleado_id",emp_id).eq("anio",int(anio)).order("trimestre").execute().data or []
@@ -849,7 +975,7 @@ def render_admin_evaluaciones_trimestrales():
         if abs(total-100)>0.01: st.warning("La suma de pesos activos no es 100%. El sistema mostrará esta discrepancia explícitamente.")
     with t5:
         st.subheader("🤖 Generar e Insertar Informes IA (Multi-modelo y Multi-empleado)")
-        modelos=obtener_modelos_ia_disponibles(); opciones=[f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos]
+        modelos=qt_obtener_modelos_ia(); opciones=[f"{m['nombre_modelo']} ({m['proveedor'].upper()})" for m in modelos]
         selmods=st.multiselect("Modelos IA",opciones,default=opciones[:1],key="qt_models"); anio=st.number_input("Año",value=datetime.datetime.now().year,step=1,key="qt_ai_year")
         activos=supabase.table("empleados").select("id,nombre").eq("activo",True).order("nombre").execute().data or []; mp={e["nombre"]:e["id"] for e in activos}
         st.markdown("#### Selección de Empleados")
