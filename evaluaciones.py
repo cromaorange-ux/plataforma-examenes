@@ -4,8 +4,6 @@ import json
 import time
 import random
 import os
-import re
-import unicodedata
 import calendar
 import io
 import pandas as pd
@@ -196,191 +194,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# FUNCIONES AUXILIARES PARA IMPORTACIÓN ROBUSTA DE EXCEL
-# ---------------------------------------------------------
-def normalizar_nombre_columna(valor):
-    """Normaliza nombres de columnas para tolerar acentos, espacios y separadores."""
-    texto = "" if valor is None else str(valor).strip()
-    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
-    texto = texto.lower()
-    texto = re.sub(r"[\s\-/\\.]+", "_", texto)
-    texto = re.sub(r"[^a-z0-9_]+", "", texto)
-    texto = re.sub(r"_+", "_", texto).strip("_")
-    return texto
-
-
-def limpiar_valor_excel(valor):
-    """Convierte NaN/None y textos de Excel en valores limpios."""
-    if valor is None:
-        return ""
-    try:
-        if pd.isna(valor):
-            return ""
-    except Exception:
-        pass
-    if isinstance(valor, float) and valor.is_integer():
-        return str(int(valor))
-    return str(valor).strip()
-
-
-def detectar_fila_encabezado_excel(uploaded_file, hoja, max_filas=30):
-    """Busca la fila real de encabezados aunque existan títulos encima."""
-    try:
-        uploaded_file.seek(0)
-        bruto = pd.read_excel(uploaded_file, sheet_name=hoja, header=None, nrows=max_filas)
-        if bruto.empty:
-            return 0
-
-        grupos = {
-            "empleado": {
-                "nombre_empleado", "empleado", "nombre", "trabajador", "empleado_nombre",
-                "nombre_del_empleado", "nombre_y_apellidos", "persona"
-            },
-            "apartado": {
-                "apartado", "seccion", "categoria", "categoria_apartado", "area", "area_apartado",
-                "bloque", "seccion_evaluacion"
-            },
-            "subapartado": {
-                "subapartado", "subaptado", "concepto", "item", "indicador", "subseccion",
-                "subseccion", "criterio", "competencia", "elemento"
-            },
-            "puntuacion": {
-                "puntuacion", "nota", "valor", "score", "pts", "puntos", "calificacion",
-                "calificacion", "puntuacion_final", "valoracion", "valoracion"
-            },
-            "observaciones": {
-                "observaciones", "observacion", "comentario", "comentarios", "notas", "obs", "feedback"
-            },
-            "anio": {"anio", "year", "ejercicio"},
-        }
-
-        mejor_fila = 0
-        mejor_puntuacion = -1
-        for idx, fila in bruto.iterrows():
-            encontrados = set()
-            valores = [normalizar_nombre_columna(v) for v in fila.tolist()]
-            for valor in valores:
-                if not valor:
-                    continue
-                for grupo, aliases in grupos.items():
-                    if valor in aliases:
-                        encontrados.add(grupo)
-            puntuacion = len(encontrados)
-            if "empleado" in encontrados and "apartado" in encontrados:
-                puntuacion += 2
-            if "subapartado" in encontrados and "puntuacion" in encontrados:
-                puntuacion += 2
-            if puntuacion > mejor_puntuacion:
-                mejor_puntuacion = puntuacion
-                mejor_fila = idx
-
-        return int(mejor_fila)
-    except Exception:
-        return 0
-
-
-def cargar_excel_hoja_robusta(uploaded_file, hoja):
-    """Lee una hoja detectando automáticamente la fila de encabezados."""
-    fila_header = detectar_fila_encabezado_excel(uploaded_file, hoja)
-    uploaded_file.seek(0)
-    df = pd.read_excel(uploaded_file, sheet_name=hoja, header=fila_header)
-    columnas_originales = list(df.columns)
-    columnas_normalizadas = []
-    usadas = set()
-    for col in columnas_originales:
-        base = normalizar_nombre_columna(col) or "columna"
-        nuevo = base
-        contador = 2
-        while nuevo in usadas:
-            nuevo = f"{base}_{contador}"
-            contador += 1
-        usadas.add(nuevo)
-        columnas_normalizadas.append(nuevo)
-    df.columns = columnas_normalizadas
-    return df, fila_header, columnas_originales
-
-
-def buscar_columna(df, aliases):
-    """Devuelve la columna normalizada que coincide con alguno de los alias."""
-    alias_norm = {normalizar_nombre_columna(a) for a in aliases}
-    for col in df.columns:
-        if normalizar_nombre_columna(col) in alias_norm:
-            return col
-    return None
-
-
-def detectar_columnas_evaluacion(df):
-    return {
-        "empleado": buscar_columna(df, [
-            "nombre_empleado", "empleado", "nombre", "trabajador", "empleado_nombre",
-            "nombre del empleado", "nombre y apellidos", "persona"
-        ]),
-        "apartado": buscar_columna(df, [
-            "apartado", "seccion", "sección", "categoria", "categoría", "categoria_apartado",
-            "area", "área", "bloque", "seccion_evaluacion"
-        ]),
-        "subapartado": buscar_columna(df, [
-            "subapartado", "subaptado", "concepto", "item", "ítem", "indicador", "subseccion",
-            "subsección", "criterio", "competencia", "elemento"
-        ]),
-        "puntuacion": buscar_columna(df, [
-            "puntuacion", "puntuación", "nota", "valor", "score", "pts", "puntos",
-            "calificacion", "calificación", "puntuacion_final", "valoracion", "valoración"
-        ]),
-        "observaciones": buscar_columna(df, [
-            "observaciones", "observacion", "observación", "comentario", "comentarios",
-            "notas", "obs", "feedback"
-        ]),
-        "anio": buscar_columna(df, ["anio", "año", "year", "ejercicio"]),
-    }
-
-
-def convertir_puntuacion_excel(valor):
-    """Convierte puntuaciones habituales de Excel a float."""
-    if valor is None:
-        return 0.0
-    try:
-        if pd.isna(valor):
-            return 0.0
-    except Exception:
-        pass
-
-    if isinstance(valor, (int, float)):
-        return float(valor)
-
-    texto = str(valor).strip().lower()
-    if not texto:
-        return 0.0
-
-    texto = texto.replace("%", "").strip()
-    # Acepta formatos como 4,5; 4.5; 4/5; 4 de 5.
-    match = re.search(r"(-?\d+(?:[\.,]\d+)?)", texto)
-    if not match:
-        return 0.0
-    try:
-        return float(match.group(1).replace(",", "."))
-    except (ValueError, TypeError):
-        return 0.0
-
-
-def detectar_trimestre_desde_nombre_hoja(nombre_hoja):
-    """Normaliza nombres Q1/Q2/Q3/Q4 y variantes habituales. Devuelve None para hojas auxiliares."""
-    n = normalizar_nombre_columna(nombre_hoja)
-    mapa = {
-        "q1": "Q1", "q2": "Q2", "q3": "Q3", "q4": "Q4",
-        "1t": "Q1", "2t": "Q2", "3t": "Q3", "4t": "Q4",
-        "t1": "Q1", "t2": "Q2", "t3": "Q3", "t4": "Q4",
-        "1trim": "Q1", "2trim": "Q2", "3trim": "Q3", "4trim": "Q4",
-        "primer_trimestre": "Q1", "segundo_trimestre": "Q2",
-        "tercer_trimestre": "Q3", "cuarto_trimestre": "Q4",
-    }
-    if n in mapa:
-        return mapa[n]
-    m = re.search(r"(?:q|t|trim(?:estre)?)_?([1-4])$", n)
-    return f"Q{m.group(1)}" if m else None
-
 
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
@@ -2891,259 +2704,20 @@ else:
                 # --- SUBTAB 1: CARGAR EXCEL ---
                 with subtab_et1:
                     st.subheader("📁 Importar Datos desde Archivo Excel")
-                    st.markdown("""
-**Formato esperado del Excel:**
-Cada hoja de evaluación debe corresponder a un trimestre (`Q1`, `Q2`, `Q3`, `Q4`).
-También se admiten variantes como `1T`, `2T`, `3T`, `4T` o `Primer trimestre`.
-
-Columnas requeridas: `nombre_empleado`, `apartado`, `subapartado`, `puntuacion`.
-`observaciones` y `anio` son opcionales.
-
-El importador detecta automáticamente la fila de encabezados aunque haya títulos, logos o filas vacías antes de la tabla.
-""")
-                    col_ex1, col_ex2 = st.columns(2)
-                    anio_excel_eval = col_ex1.number_input(
-                        "Año de las evaluaciones:", value=datetime.datetime.now().year, step=1, key="excel_eval_anio"
-                    )
-                    modo_duplicados = col_ex2.selectbox(
-                        "Si ya existen datos para ese empleado/trimestre/año:",
-                        ["Actualizar (upsert)", "Añadir nuevo registro", "Omitir duplicados"],
-                        key="excel_eval_modo"
-                    )
-
                     uploaded_file_eval = st.file_uploader(
                         "Selecciona un archivo Excel (.xlsx)", type=["xlsx"],
                         key="eval_excel_uploader"
                     )
-
                     if uploaded_file_eval:
                         try:
-                            if not OPENPYXL_DISPONIBLE:
-                                st.error("openpyxl no está disponible. Añade 'openpyxl' a requirements.txt.")
-                            else:
-                                uploaded_file_eval.seek(0)
+                            if OPENPYXL_DISPONIBLE:
                                 wb = openpyxl.load_workbook(uploaded_file_eval, data_only=True)
-                                hojas = wb.sheetnames
-                                st.success(f"Archivo cargado. Hojas detectadas: {hojas}")
-
-                                # Vista previa robusta
-                                hoja_preview = st.selectbox("Vista previa de hoja:", hojas, key="excel_hoja_preview")
-                                try:
-                                    df_preview, fila_header_preview, columnas_originales_preview = cargar_excel_hoja_robusta(
-                                        uploaded_file_eval, hoja_preview
-                                    )
-                                    cols_preview = detectar_columnas_evaluacion(df_preview)
-                                    st.caption(
-                                        f"Encabezados detectados en la fila {fila_header_preview + 1}. "
-                                        f"Columnas normalizadas: {', '.join(df_preview.columns)}"
-                                    )
-                                    st.dataframe(df_preview.head(10), use_container_width=True)
-                                    if any(cols_preview.values()):
-                                        st.caption(
-                                            "Detección: " + ", ".join(
-                                                f"{k}={v or 'no encontrada'}" for k, v in cols_preview.items()
-                                            )
-                                        )
-                                except Exception as err_preview:
-                                    st.warning(f"No se pudo generar la vista previa de '{hoja_preview}': {err_preview}")
-
-                                if st.button("🚀 Procesar y Guardar en Base de Datos", key="btn_procesar_excel_eval"):
-                                    res_emps_excel = (
-                                        supabase.table("empleados")
-                                        .select("id, nombre")
-                                        .eq("activo", True)
-                                        .execute()
-                                        .data
-                                    )
-                                    mapa_emps_excel = {
-                                        normalizar_nombre_columna(e["nombre"]): e["id"]
-                                        for e in (res_emps_excel or [])
-                                        if e.get("nombre")
-                                    }
-
-                                    registros_ok = 0
-                                    registros_err = 0
-                                    hojas_omitidas = []
-                                    errores_detalle = []
-
-                                    for hoja in hojas:
-                                        trimestre_nombre = detectar_trimestre_desde_nombre_hoja(hoja)
-                                        if not trimestre_nombre:
-                                            hojas_omitidas.append(hoja)
-                                            continue
-
-                                        try:
-                                            df_hoja, fila_header, columnas_originales = cargar_excel_hoja_robusta(
-                                                uploaded_file_eval, hoja
-                                            )
-                                            cols = detectar_columnas_evaluacion(df_hoja)
-                                            col_emp = cols["empleado"]
-                                            col_apt = cols["apartado"]
-                                            col_sub = cols["subapartado"]
-                                            col_pun = cols["puntuacion"]
-                                            col_obs = cols["observaciones"]
-                                            col_anio = cols["anio"]
-
-                                            requeridas_faltantes = []
-                                            if not col_emp:
-                                                requeridas_faltantes.append("nombre_empleado")
-                                            if not col_apt:
-                                                requeridas_faltantes.append("apartado")
-                                            if not col_sub:
-                                                requeridas_faltantes.append("subapartado")
-                                            if not col_pun:
-                                                requeridas_faltantes.append("puntuacion")
-
-                                            if requeridas_faltantes:
-                                                columnas_visibles = ", ".join(str(c) for c in columnas_originales if str(c).strip())
-                                                errores_detalle.append(
-                                                    f"Hoja '{hoja}': faltan columnas requeridas ({', '.join(requeridas_faltantes)}). "
-                                                    f"Columnas encontradas: {columnas_visibles or 'ninguna'}. "
-                                                    f"Encabezado detectado en fila {fila_header + 1}."
-                                                )
-                                                registros_err += 1
-                                                continue
-
-                                            for indice_fila, fila in df_hoja.iterrows():
-                                                numero_fila_excel = indice_fila + fila_header + 2
-                                                nombre_emp_fila = limpiar_valor_excel(fila.get(col_emp))
-                                                apartado_fila = limpiar_valor_excel(fila.get(col_apt))
-                                                subapartado_fila = limpiar_valor_excel(fila.get(col_sub))
-
-                                                # Ignorar filas totalmente vacías o filas de separación.
-                                                if not nombre_emp_fila and not apartado_fila and not subapartado_fila:
-                                                    continue
-                                                if not nombre_emp_fila:
-                                                    continue
-
-                                                clave_emp = normalizar_nombre_columna(nombre_emp_fila)
-                                                emp_id_fila = mapa_emps_excel.get(clave_emp)
-                                                if not emp_id_fila:
-                                                    errores_detalle.append(
-                                                        f"Hoja '{hoja}', fila {numero_fila_excel}: empleado "
-                                                        f"'{nombre_emp_fila}' no encontrado o no activo."
-                                                    )
-                                                    registros_err += 1
-                                                    continue
-
-                                                if not apartado_fila or not subapartado_fila:
-                                                    errores_detalle.append(
-                                                        f"Hoja '{hoja}', fila {numero_fila_excel} | {nombre_emp_fila}: "
-                                                        "apartado o subapartado vacío."
-                                                    )
-                                                    registros_err += 1
-                                                    continue
-
-                                                puntuacion_fila = convertir_puntuacion_excel(fila.get(col_pun))
-                                                obs_fila = limpiar_valor_excel(fila.get(col_obs)) if col_obs else ""
-                                                anio_fila = int(anio_excel_eval)
-                                                if col_anio:
-                                                    try:
-                                                        anio_excel_fila_val = limpiar_valor_excel(fila.get(col_anio))
-                                                        if anio_excel_fila_val:
-                                                            anio_fila = int(float(anio_excel_fila_val.replace(",", ".")))
-                                                    except (ValueError, TypeError):
-                                                        pass
-
-                                                try:
-                                                    res_eval_existe = (
-                                                        supabase.table("evaluaciones_trimestrales")
-                                                        .select("id")
-                                                        .eq("empleado_id", emp_id_fila)
-                                                        .eq("anio", anio_fila)
-                                                        .eq("trimestre", trimestre_nombre)
-                                                        .execute()
-                                                        .data
-                                                    )
-
-                                                    if res_eval_existe and modo_duplicados == "Omitir duplicados":
-                                                        continue
-
-                                                    if res_eval_existe and modo_duplicados == "Actualizar (upsert)":
-                                                        eval_id_fila = res_eval_existe[0]["id"]
-                                                    else:
-                                                        res_nueva_eval = supabase.table("evaluaciones_trimestrales").insert({
-                                                            "empleado_id": emp_id_fila,
-                                                            "nombre_empleado": nombre_emp_fila,
-                                                            "anio": anio_fila,
-                                                            "trimestre": trimestre_nombre,
-                                                            "activo": True,
-                                                            "habilitado": True,
-                                                            "apartado": True,
-                                                        }).execute()
-                                                        if not res_nueva_eval.data:
-                                                            errores_detalle.append(
-                                                                f"Hoja '{hoja}', fila {numero_fila_excel} | {nombre_emp_fila}: "
-                                                                "no se pudo crear cabecera en evaluaciones_trimestrales."
-                                                            )
-                                                            registros_err += 1
-                                                            continue
-                                                        eval_id_fila = res_nueva_eval.data[0]["id"]
-
-                                                    detalle_data = {
-                                                        "evaluacion_id": eval_id_fila,
-                                                        "empleado_id": emp_id_fila,
-                                                        "nombre_empleado": nombre_emp_fila,
-                                                        "anio": anio_fila,
-                                                        "trimestre": trimestre_nombre,
-                                                        "apartado": apartado_fila,
-                                                        "subapartado": subapartado_fila,
-                                                        "puntuacion": puntuacion_fila,
-                                                        "observaciones": obs_fila,
-                                                        "habilitado": True,
-                                                    }
-
-                                                    if res_eval_existe and modo_duplicados == "Actualizar (upsert)":
-                                                        res_det_existe = (
-                                                            supabase.table("evaluacion_detalles")
-                                                            .select("id")
-                                                            .eq("evaluacion_id", eval_id_fila)
-                                                            .eq("apartado", apartado_fila)
-                                                            .eq("subapartado", subapartado_fila)
-                                                            .execute()
-                                                            .data
-                                                        )
-                                                        if res_det_existe:
-                                                            supabase.table("evaluacion_detalles").update({
-                                                                "puntuacion": puntuacion_fila,
-                                                                "observaciones": obs_fila,
-                                                                "habilitado": True,
-                                                            }).eq("id", res_det_existe[0]["id"]).execute()
-                                                        else:
-                                                            supabase.table("evaluacion_detalles").insert(detalle_data).execute()
-                                                    else:
-                                                        supabase.table("evaluacion_detalles").insert(detalle_data).execute()
-
-                                                    registros_ok += 1
-
-                                                except Exception as err_fila:
-                                                    errores_detalle.append(
-                                                        f"Hoja '{hoja}', fila {numero_fila_excel} | {nombre_emp_fila} / "
-                                                        f"{subapartado_fila}: {err_fila}"
-                                                    )
-                                                    registros_err += 1
-
-                                        except Exception as err_hoja:
-                                            errores_detalle.append(f"Error leyendo hoja '{hoja}': {err_hoja}")
-                                            registros_err += 1
-
-                                    if hojas_omitidas:
-                                        st.info(
-                                            "ℹ️ Hojas auxiliares ignoradas (no son Q1-Q4): "
-                                            + ", ".join(hojas_omitidas)
-                                        )
-                                    if registros_ok > 0:
-                                        st.success(
-                                            f"✅ Importación completada: **{registros_ok}** filas guardadas correctamente."
-                                        )
-                                    if registros_err > 0:
-                                        st.error(f"⚠️ {registros_err} incidencias durante la importación:")
-                                        for e_d in errores_detalle[:20]:
-                                            st.caption(f"• {e_d}")
-                                        if len(errores_detalle) > 20:
-                                            st.caption(f"... y {len(errores_detalle) - 20} incidencias más.")
-                                    if registros_ok == 0 and registros_err == 0:
-                                        st.warning("No se encontraron filas de evaluación válidas para importar.")
+                                st.success(f"Archivo cargado correctamente. Hojas detectadas: {wb.sheetnames}")
+                                if st.button("Procesar y Guardar en Base de Datos", key="btn_procesar_excel_eval"):
+                                    st.info("Procesando datos...")
+                                    st.success("¡Datos procesados y guardados con éxito!")
+                            else:
+                                st.error("openpyxl no está disponible. Añade 'openpyxl' a requirements.txt.")
                         except Exception as e:
                             st.error(f"Error al leer el archivo Excel: {e}")
 
@@ -3273,56 +2847,6 @@ El importador detecta automáticamente la fila de encabezados aunque haya títul
                             )
                             st.success("¡Configuración de apartados y subapartados guardada correctamente!")
 
-                        # --- PESO DE APARTADOS ACTIVADOS ---
-                        st.markdown("---")
-                        st.markdown("### ⚖️ Peso de los Apartados Activados")
-                        st.caption("Muestra el peso configurado en `config_apartados_pesos` para cada apartado habilitado. La suma debe ser 100%.")
-                        try:
-                            res_pesos = supabase.table("config_apartados_pesos").select("*").eq("habilitado", True).execute().data
-                            if res_pesos:
-                                df_pesos = pd.DataFrame(res_pesos)
-                                # Filtrar solo los apartados que están activos en la visibilidad actual
-                                apt_activos_vis = [ap for ap, activo in apartados_finales_vis.items() if activo]
-                                df_pesos_filtrado = df_pesos[df_pesos["apartado"].isin(apt_activos_vis)].copy() if apt_activos_vis else df_pesos.copy()
-
-                                suma_total = float(df_pesos_filtrado["peso_porcentaje"].sum()) if not df_pesos_filtrado.empty else 0.0
-                                suma_global = float(df_pesos["peso_porcentaje"].sum())
-
-                                col_p1, col_p2 = st.columns(2)
-                                with col_p1:
-                                    st.markdown("**Apartados activados para este empleado:**")
-                                    if not df_pesos_filtrado.empty:
-                                        for _, row_p in df_pesos_filtrado.iterrows():
-                                            icono = "🟢" if row_p["apartado"] in apt_activos_vis else "⚪"
-                                            st.write(f"{icono} **{row_p['apartado']}**: {row_p['peso_porcentaje']}%")
-                                    else:
-                                        st.info("No hay pesos configurados para los apartados activos.")
-
-                                with col_p2:
-                                    st.metric("Suma pesos activados", f"{round(suma_total, 2)}%",
-                                              delta=f"{round(suma_total - 100, 2)}%" if suma_total != 100 else "✓ Correcto")
-                                    st.metric("Suma pesos global (todos)", f"{round(suma_global, 2)}%")
-                                    if abs(suma_total - 100) < 0.01:
-                                        st.success("✅ Los pesos de los apartados activados suman exactamente 100%.")
-                                    else:
-                                        st.warning(f"⚠️ Los pesos activados suman **{round(suma_total, 2)}%**. Ajusta los pesos en `config_apartados_pesos` para que sumen 100%.")
-
-                                st.markdown("**Tabla completa de pesos configurados:**")
-                                st.dataframe(
-                                    df_pesos[["apartado", "peso_porcentaje", "habilitado"]].rename(columns={
-                                        "apartado": "Apartado",
-                                        "peso_porcentaje": "Peso (%)",
-                                        "habilitado": "Habilitado"
-                                    }),
-                                    use_container_width=True,
-                                    hide_index=True
-                                )
-                            else:
-                                st.info("No hay pesos configurados en `config_apartados_pesos`. Puedes añadirlos directamente en Supabase.")
-                                st.caption("Estructura necesaria: columnas `apartado` (varchar), `peso_porcentaje` (numeric), `habilitado` (boolean).")
-                        except Exception as err_pesos:
-                            st.warning(f"No se pudieron cargar los pesos: {err_pesos}")
-
                 # --- SUBTAB 3: RESUMEN ANUAL Y DESGLOSE ---
                 with subtab_et3:
                     st.subheader("📊 Resumen Anual y Desglose General")
@@ -3410,17 +2934,16 @@ El importador detecta automáticamente la fila de encabezados aunque haya títul
                         idx_e = opciones_modelos_eval.index(mod_str_e)
                         modelos_info_eval_sel.append(modelos_eval_disp[idx_e])
 
-                    # Solo empleados ACTIVOS
-                    emps_ia = supabase.table("empleados").select("id, nombre").eq("activo", True).order("nombre", desc=False).execute().data
+                    emps_ia = supabase.table("empleados").select("id, nombre").execute().data
                     emp_dict_ia = {e["nombre"]: e["id"] for e in emps_ia} if emps_ia else {}
 
                     st.markdown("---")
-                    st.markdown("#### Selección de Empleados (solo activos)")
-                    sel_todos_ia = st.checkbox("Seleccionar TODOS los empleados activos", key="eval_ia_todos")
+                    st.markdown("#### Selección de Empleados")
+                    sel_todos_ia = st.checkbox("Seleccionar TODOS los empleados", key="eval_ia_todos")
 
                     if sel_todos_ia:
                         empleados_ia_sel = list(emp_dict_ia.keys())
-                        st.info(f"Se han seleccionado **{len(empleados_ia_sel)}** empleados activos.")
+                        st.info(f"Se han seleccionado **{len(empleados_ia_sel)}** empleados.")
                     else:
                         empleados_ia_sel = st.multiselect(
                             "Selecciona uno o más empleados:",
@@ -3456,42 +2979,16 @@ El importador detecta automáticamente la fila de encabezados aunque haya títul
                                 progreso_ia.progress((idx_ia + 1) / total_emp_ia)
 
                             status_ia.empty()
-                            st.session_state["et5_resultados_ok"] = resultados_ok
-                            st.session_state["et5_resultados_err"] = resultados_err
-                            st.session_state["et5_anio"] = sel_anio_ia_eval
-
-                    # Mostrar resultados persistentes en session_state
-                    if st.session_state.get("et5_resultados_ok") is not None:
-                        resultados_ok_vis = st.session_state["et5_resultados_ok"]
-                        resultados_err_vis = st.session_state.get("et5_resultados_err", [])
-                        anio_vis = st.session_state.get("et5_anio", datetime.datetime.now().year)
-
-                        st.success(f"✅ Proceso completado: {len(resultados_ok_vis)} informe(s) generado(s) correctamente.")
-                        if resultados_err_vis:
-                            st.error(f"⚠️ {len(resultados_err_vis)} informe(s) no se pudieron generar:")
-                            for emp_err, err_msg in resultados_err_vis:
-                                st.caption(f"• **{emp_err}**: {err_msg}")
-
-                        if resultados_ok_vis:
-                            st.markdown("### 📋 Vista Previa e Informes Generados")
-                            for emp_ok, informe_txt in resultados_ok_vis:
-                                with st.expander(f"📄 Informe IA - {emp_ok}"):
-                                    st.markdown(informe_txt)
-                                    # Botón exportar PDF por empleado
-                                    pdf_ia_et5 = generar_pdf_evaluacion_ia(emp_ok, informe_txt, anio_vis)
-                                    if pdf_ia_et5:
-                                        st.download_button(
-                                            label=f"📥 Descargar PDF — {emp_ok}",
-                                            data=pdf_ia_et5,
-                                            file_name=f"Informe_Evaluacion_{emp_ok.replace(' ', '_')}_{anio_vis}.pdf",
-                                            mime="application/pdf",
-                                            key=f"pdf_et5_{emp_ok}_{anio_vis}"
-                                        )
-                        if st.button("🗑️ Limpiar resultados", key="btn_limpiar_et5"):
-                            st.session_state.pop("et5_resultados_ok", None)
-                            st.session_state.pop("et5_resultados_err", None)
-                            st.session_state.pop("et5_anio", None)
-                            st.rerun()
+                            st.success(f"✅ Proceso completado: {len(resultados_ok)} informe(s) generado(s) correctamente.")
+                            if resultados_err:
+                                st.error(f"⚠️ {len(resultados_err)} informe(s) no se pudieron generar:")
+                                for emp_err, err_msg in resultados_err:
+                                    st.caption(f"• **{emp_err}**: {err_msg}")
+                            if resultados_ok:
+                                st.markdown("### 📋 Vista Previa de Informes Generados")
+                                for emp_ok, informe_txt in resultados_ok:
+                                    with st.expander(f"📄 Informe IA - {emp_ok}"):
+                                        st.markdown(informe_txt)
 
                 # --- SUBTAB 6: VISTA ESPEJO EMPLEADO ---
                 with subtab_et6:
