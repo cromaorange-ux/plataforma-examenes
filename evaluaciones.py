@@ -721,64 +721,257 @@ def qt_estructura(emp_id, anio):
     return {k:sorted(v) for k,v in estructura.items()}
 
 def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
-    """Carga Excel real en evaluaciones_trimestrales/evaluacion_detalles y guarda el archivo en datos_completos_json."""
-    if openpyxl is None: raise RuntimeError("Falta openpyxl en requirements.txt")
-    raw=uploaded_file.getvalue()
-    wb=openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
-    alias={
-      "empleado":"empleado","nombre":"empleado","nombre empleado":"empleado","empleado nombre":"empleado",
-      "empleado_id":"empleado_id","id empleado":"empleado_id","anio":"anio","año":"anio","year":"anio",
-      "trimestre":"trimestre","quarter":"trimestre","q":"trimestre","apartado":"apartado","seccion":"apartado",
-      "subapartado":"subapartado","sub apartado":"subapartado","criterio":"subapartado","puntuacion":"puntuacion","puntuación":"puntuacion",
-      "valor":"puntuacion","nota":"puntuacion","observaciones":"observaciones","comentario":"observaciones","comentarios":"observaciones"
+    """Importa la plantilla real de evaluaciones trimestrales.
+
+    Formato soportado:
+      - Hojas Q1, Q2, Q3 y Q4.
+      - Empleado en A8 y año en A10.
+      - Cabecera de evaluación en la fila 12.
+      - Apartados en columna A y criterios en las filas siguientes.
+      - Puntuación en columna C y observaciones en columna D.
+      - Observaciones generales en la fila 44.
+      - La hoja Resumen se ignora.
+
+    Se abre el libro dos veces: data_only=True permite obtener el valor
+    calculado de fórmulas como ='Q2'!A8, en lugar del texto de la fórmula.
+    """
+    if openpyxl is None:
+        raise RuntimeError("Falta openpyxl en requirements.txt")
+
+    raw = uploaded_file.getvalue()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+    except Exception as e:
+        raise RuntimeError(f"No se pudo abrir el Excel: {e}")
+
+    hojas_validas = [ws for ws in wb.worksheets if str(ws.title).strip().upper() in {"Q1", "Q2", "Q3", "Q4"}]
+    if not hojas_validas:
+        raise ValueError("El Excel debe contener al menos una hoja Q1, Q2, Q3 o Q4.")
+
+    # Apartados que existen en la plantilla entregada. También se acepta
+    # cualquier apartado nuevo si aparece en columna A de una fila de criterio.
+    apartados_conocidos = {
+        "Tareas realizar por turnos y todos los turnos",
+        "Tiempos respuesta Tbox",
+        "Tiempos respuesta Siemens",
+        "Iniciativa / Proactividad ante el trabajo",
+        "Conocimientos",
+        "Evaluacion",
     }
-    filas=[]
-    for ws in wb.worksheets:
-        rows=list(ws.iter_rows(values_only=True))
-        if not rows: continue
-        headers=[qt_norm(x) for x in rows[0]]
-        for vals in rows[1:]:
-            d={}
-            for j,v in enumerate(vals):
-                if j<len(headers) and headers[j] in alias: d[alias[headers[j]]]=v
-            if any(v is not None and str(v).strip() for v in d.values()):
-                d["hoja"]=ws.title; filas.append(d)
-    if not filas: raise ValueError("El Excel no contiene filas de datos reconocibles.")
-    empleados=supabase.table("empleados").select("id,nombre,activo").execute().data or []
-    by_id={str(x["id"]):x for x in empleados}; by_name={qt_norm(x["nombre"]):x for x in empleados}
-    grupos={}
-    for d in filas:
-        emp=None
-        if d.get("empleado_id") is not None: emp=by_id.get(str(int(d["empleado_id"]))) if str(d["empleado_id"]).replace('.0','').isdigit() else by_id.get(str(d["empleado_id"]))
-        if emp is None and d.get("empleado") is not None: emp=by_name.get(qt_norm(d["empleado"]))
-        if emp is None: raise ValueError(f"Empleado no encontrado: {d.get('empleado') or d.get('empleado_id')}")
-        q=str(d.get("trimestre") or "Q1").upper().replace(" ","")
-        if q in ("1","T1"): q="Q1"
-        if q in ("2","T2"): q="Q2"
-        if q in ("3","T3"): q="Q3"
-        if q in ("4","T4"): q="Q4"
-        if q not in {"Q1","Q2","Q3","Q4"}: raise ValueError(f"Trimestre no válido: {q}")
-        anio=int(d.get("anio") or anio_defecto)
-        key=(emp["id"],anio,q); grupos.setdefault(key,[]).append(d)
-    total=0
-    for (emp_id,anio,q), rows in grupos.items():
-        existing=supabase.table("evaluaciones_trimestrales").select("id").eq("empleado_id",emp_id).eq("anio",anio).eq("trimestre",q).limit(1).execute().data or []
-        archivo={"nombre":uploaded_file.name,"mime":getattr(uploaded_file,"type",None),"tamano_bytes":len(raw),"contenido_base64":base64.b64encode(raw).decode("ascii")}
-        datos={"origen":"Excel","archivo_subido":archivo,"filas_importadas":len(rows),"importado_por":creado_por}
+
+    def celda_texto(ws, fila, columna):
+        valor = ws.cell(fila, columna).value
+        if valor is None:
+            return ""
+        return str(valor).strip()
+
+    def numero_puntuacion(valor):
+        if valor is None or isinstance(valor, bool):
+            return None
+        try:
+            if isinstance(valor, str):
+                texto = valor.strip().replace(",", ".")
+                if not texto:
+                    return None
+                # Fórmulas de Excel ya no llegan aquí como fórmula porque
+                # el libro se abrió con data_only=True.
+                return float(texto)
+            return float(valor)
+        except Exception:
+            return None
+
+    # Empleados existentes en SQL.
+    empleados = supabase.table("empleados").select("id,nombre,activo").execute().data or []
+    by_id = {str(x["id"]): x for x in empleados}
+    by_name = {qt_norm(x.get("nombre")): x for x in empleados if x.get("nombre")}
+
+    grupos = {}
+    hojas_importadas = []
+
+    for ws in hojas_validas:
+        trimestre = str(ws.title).strip().upper()
+
+        # En esta plantilla las fórmulas de Q1/Q3/Q4 apuntan a Q2. Al usar
+        # data_only=True openpyxl nos entrega directamente "Carlos Perez" y 2025.
+        nombre_excel = celda_texto(ws, 8, 1)
+        anio_excel = ws.cell(10, 1).value
+        evaluador = celda_texto(ws, 10, 2)
+        fecha_evaluacion = ws.cell(8, 2).value
+
+        nombre_normalizado = qt_norm(nombre_excel)
+        emp = by_name.get(nombre_normalizado) if nombre_normalizado else None
+
+        if emp is None:
+            raise ValueError(
+                f"Empleado no encontrado en SQL para la hoja {trimestre}: '{nombre_excel}'. "
+                "Comprueba que el nombre de la hoja coincide con empleados.nombre."
+            )
+
+        try:
+            anio = int(float(anio_excel)) if anio_excel is not None else int(anio_defecto)
+        except Exception:
+            anio = int(anio_defecto)
+
+        detalles = []
+        apartado_actual = None
+
+        # La plantilla empieza la evaluación en la fila 14.
+        for fila in range(14, ws.max_row + 1):
+            nombre_a = celda_texto(ws, fila, 1)
+            valor_c = ws.cell(fila, 3).value
+            observacion = ws.cell(fila, 4).value
+
+            # Filas de cálculo: C21, C26, C31, C34, C37, C43, C45, etc.
+            # No son criterios individuales y nunca se insertan como detalle.
+            if not nombre_a:
+                continue
+
+            # Observaciones generales de la plantilla.
+            if nombre_a.lower() == "observaciones generales:":
+                continue
+
+            # Si la fila es uno de los apartados, cambia el contexto.
+            if nombre_a in apartados_conocidos:
+                apartado_actual = nombre_a
+                continue
+
+            # También detectamos un apartado nuevo cuando C contiene el texto
+            # "Peso total (...)". Esto evita depender únicamente de la lista.
+            c_texto = str(valor_c).strip() if valor_c is not None else ""
+            if "peso total" in c_texto.lower():
+                apartado_actual = nombre_a
+                continue
+
+            # Si no hay apartado, no es una fila de criterio utilizable.
+            if not apartado_actual:
+                continue
+
+            # Una fila de criterio tiene un nombre en A y opcionalmente
+            # puntuación en C y/o observación en D.
+            puntuacion = numero_puntuacion(valor_c)
+            obs = "" if observacion is None else str(observacion).strip()
+
+            # Si no hay puntuación ni observación, sigue siendo un criterio
+            # válido de la plantilla (por ejemplo Q1/Q2 no evaluados).
+            detalles.append({
+                "apartado": apartado_actual,
+                "subapartado": nombre_a,
+                "puntuacion": puntuacion,
+                "puntuacion_maxima": 3.0,
+                "observaciones": obs,
+            })
+
+        # Observaciones generales: la plantilla las coloca normalmente en A44.
+        observaciones_generales = ""
+        for fila in range(43, ws.max_row + 1):
+            a = celda_texto(ws, fila, 1)
+            if a.lower() == "observaciones generales:":
+                # Puede estar en la fila siguiente (A44) o en D44 según versión.
+                siguiente_a = ws.cell(fila + 1, 1).value if fila + 1 <= ws.max_row else None
+                siguiente_d = ws.cell(fila + 1, 4).value if fila + 1 <= ws.max_row else None
+                observaciones_generales = str(siguiente_a or siguiente_d or "").strip()
+                break
+
+        grupos[(emp["id"], anio, trimestre)] = {
+            "empleado": emp,
+            "detalles": detalles,
+            "observaciones_generales": observaciones_generales,
+            "evaluador": evaluador,
+            "fecha_evaluacion": str(fecha_evaluacion) if fecha_evaluacion is not None else "",
+        }
+        hojas_importadas.append(trimestre)
+
+    if not grupos:
+        raise ValueError(
+            "No se encontraron evaluaciones en las hojas Q1-Q4. "
+            "La plantilla debe tener el empleado en A8 y los criterios desde la fila 14."
+        )
+
+    total = 0
+    archivo = {
+        "nombre": uploaded_file.name,
+        "mime": getattr(uploaded_file, "type", None),
+        "tamano_bytes": len(raw),
+        "contenido_base64": base64.b64encode(raw).decode("ascii"),
+    }
+
+    for (emp_id, anio, trimestre), info in grupos.items():
+        emp = info["empleado"]
+        datos = {
+            "origen": "Excel",
+            "plantilla": "Evaluaciones trimestrales Q1-Q4",
+            "archivo_subido": archivo,
+            "filas_importadas": len(info["detalles"]),
+            "hoja": trimestre,
+            "importado_por": creado_por,
+            "evaluador": info["evaluador"],
+            "fecha_evaluacion": info["fecha_evaluacion"],
+            "observaciones_generales": info["observaciones_generales"],
+        }
+
+        existing = (
+            supabase.table("evaluaciones_trimestrales")
+            .select("id")
+            .eq("empleado_id", emp_id)
+            .eq("anio", anio)
+            .eq("trimestre", trimestre)
+            .limit(1)
+            .execute().data or []
+        )
+
         if existing:
-            eid=existing[0]["id"]
-            supabase.table("evaluaciones_trimestrales").update({"nombre_empleado":by_id[str(emp_id)]["nombre"],"datos_completos_json":datos,"actualizado_en":datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq("id",eid).execute()
-            supabase.table("evaluacion_detalles").delete().eq("evaluacion_id",eid).execute()
+            evaluacion_id = existing[0]["id"]
+            # No usamos actualizado_en porque no sabemos si esa columna existe
+            # en la estructura SQL original.
+            supabase.table("evaluaciones_trimestrales").update({
+                "nombre_empleado": emp["nombre"],
+                "datos_completos_json": datos,
+            }).eq("id", evaluacion_id).execute()
+
+            supabase.table("evaluacion_detalles").delete().eq(
+                "evaluacion_id", evaluacion_id
+            ).execute()
         else:
-            r=supabase.table("evaluaciones_trimestrales").insert({"empleado_id":emp_id,"nombre_empleado":by_id[str(emp_id)]["nombre"],"anio":anio,"trimestre":q,"habilitado":True,"apartado":True,"activo":True,"datos_completos_json":datos}).execute()
-            eid=r.data[0]["id"]
-        detalles=[]
-        for d in rows:
-            try: punt=float(d.get("puntuacion")) if d.get("puntuacion") is not None else 0.0
-            except: punt=0.0
-            detalles.append({"empleado_id":emp_id,"nombre_empleado":by_id[str(emp_id)]["nombre"],"anio":anio,"trimestre":q,"evaluacion_id":eid,"apartado":str(d.get("apartado") or "Evaluacion"),"subapartado":str(d.get("subapartado") or "Evaluación global y desempeño general"),"puntuacion":punt,"puntuacion_maxima":5,"observaciones":str(d.get("observaciones") or ""),"habilitado":True})
-        if detalles: supabase.table("evaluacion_detalles").insert(detalles).execute()
-        total+=1
+            r = supabase.table("evaluaciones_trimestrales").insert({
+                "empleado_id": emp_id,
+                "nombre_empleado": emp["nombre"],
+                "anio": anio,
+                "trimestre": trimestre,
+                "habilitado": True,
+                "apartado": True,
+                "activo": True,
+                "datos_completos_json": datos,
+            }).execute()
+
+            if not r.data:
+                raise RuntimeError(
+                    f"Supabase no devolvió la evaluación creada para {emp['nombre']} {trimestre}."
+                )
+            evaluacion_id = r.data[0]["id"]
+
+        detalles_sql = []
+        for d in info["detalles"]:
+            detalles_sql.append({
+                "empleado_id": emp_id,
+                "nombre_empleado": emp["nombre"],
+                "anio": anio,
+                "trimestre": trimestre,
+                "evaluacion_id": evaluacion_id,
+                "apartado": d["apartado"],
+                "subapartado": d["subapartado"],
+                # None significa "no evaluado" y evita convertir una celda
+                # vacía del Excel en un 0 artificial.
+                "puntuacion": d["puntuacion"],
+                "puntuacion_maxima": d["puntuacion_maxima"],
+                "observaciones": d["observaciones"],
+                "habilitado": True,
+            })
+
+        if detalles_sql:
+            supabase.table("evaluacion_detalles").insert(detalles_sql).execute()
+
+        total += 1
+
     return total
 
 def qt_obtener_modelos_ia():
