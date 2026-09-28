@@ -233,7 +233,7 @@ st.markdown("""
     /* ICONOS DEL BOTÓN */
     [data-testid="stDialog"] button svg,
     [role="dialog"] button svg {
-        color: #FFF7EF !important;
+        color: #D56B00 !important;
         fill: #FFF7EF !important;
     }
 
