@@ -199,7 +199,7 @@ st.markdown("""
     [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
     [data-testid="stPopover"], [data-baseweb="popover"] {
         background-color: #ffffff !important;
-        color: #000000 !important;
+        color: #B2C0D7 !important;
         border-color: #ead9c8 !important;
     }
     [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
