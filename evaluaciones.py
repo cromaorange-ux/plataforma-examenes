@@ -181,18 +181,27 @@ st.markdown("""
         margin-bottom: 12px !important;
     }
 
-    .stButton > button {
+    /* Botones normales y botones de envío de formularios (incluye Mostrar pista) */
+    .stButton > button,
+    [data-testid="stFormSubmitButton"] > button,
+    [data-testid="stFormSubmitButton"] button {
         background-color: #e87916 !important;
         color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
         border-radius: 8px !important;
-        border: none !important;
+        border: 1px solid #e87916 !important;
         font-weight: 600 !important;
         padding: 0.5rem 1rem !important;
-        transition: background-color 0.2s ease !important;
+        transition: background-color 0.2s ease, border-color 0.2s ease !important;
     }
 
-    .stButton > button:hover {
+    .stButton > button:hover,
+    [data-testid="stFormSubmitButton"] > button:hover,
+    [data-testid="stFormSubmitButton"] button:hover {
         background-color: #c65f0b !important;
+        border-color: #c65f0b !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
     }
 
     /* Diálogos, ventanas emergentes y opciones: paleta clara */
