@@ -1386,7 +1386,7 @@ def qt_render_informes_ia(emp_id, nombre, anio, admin=False):
 
 def render_admin_evaluaciones_trimestrales():
     st.title("📋 Evaluaciones Trimestrales")
-    t1,t2,t3,t4,t5,t6=st.tabs(["📥 Cargar Excel","👁️ Visibilidad","📊 Resumen","⚙️ Configuración","🤖 Generar e Insertar Informes IA","👥 Datos empleado"])
+    t1,t2,t4,t5,t6=st.tabs(["📥 Cargar Excel","👁️ Visibilidad","⚙️ Configuración","🤖 Generar e Insertar Informes IA","👥 Datos empleado"])
     with t1:
         st.subheader("📥 Cargar evaluaciones trimestrales")
         anio=st.number_input("Año por defecto",min_value=2020,max_value=2100,value=datetime.datetime.now().year,key="qt_upload_year")
