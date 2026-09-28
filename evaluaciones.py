@@ -43,21 +43,21 @@ st.markdown("""
     :root {
         --primary-color: #8094B0;
         --secondary-color: #327DCD;
-        --background-color: #FFE8D2;
+        --background-color: #fff7ef;
         --card-bg: #FFFFFF;
         --text-color: #B2C0D7;
         --border-radius: 12px;
     }
 
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #FFE8D2 !important;
-        color: ##B2C0D7 !important; 
+        background-color: #fff7ef !important;
+        color: #000000 !important; 
     }
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
-        background-color: #FFE8D2;
-        color: ##B2C0D7 !important;
+        background-color: #fff7ef;
+        color: #000000 !important;
     }
     .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
     [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] {
@@ -201,7 +201,7 @@ st.markdown("""
     [role="dialog"],
     [data-baseweb="modal"] > div {
         background-color: #FFFFFF !important;
-        color: #FFE8D2 !important;
+        color: #FFF7EF !important;
         border-color: #EAD9C8 !important;
     }
 
@@ -216,7 +216,7 @@ st.markdown("""
     [role="dialog"] button {
         background: #FFE8D2 !important;
         background-color: #FFE8D2 !important;
-        color: #FFE8D2 !important;
+        color: #FFF7EF !important;
         border: 1px solid #F0C9A4 !important;
         box-shadow: none !important;
     }
@@ -224,8 +224,8 @@ st.markdown("""
     /* ICONOS DEL BOTÓN */
     [data-testid="stDialog"] button svg,
     [role="dialog"] button svg {
-        color: #FFE8D2 !important;
-        fill: #FFE8D2 !important;
+        color: #FFF7EF !important;
+        fill: #FFF7EF !important;
     }
 
     /* AL PASAR EL CURSOR */
@@ -233,7 +233,7 @@ st.markdown("""
     [role="dialog"] button:hover {
         background: #FFDAB8 !important;
         background-color: #FFDAB8 !important;
-        color: #FFE8D2 !important;
+        color: #FFF7EF !important;
         border-color: #EAB889 !important;
     }
 
@@ -241,15 +241,25 @@ st.markdown("""
     [data-testid="stDialog"] button:active,
     [role="dialog"] button:active {
         background: #F5CBA5 !important;
-        color: #FFF7EF !important;
+        color: #000000 !important;
     }
 
     /* CAMPO DE CONTRASEÑA */
     [data-testid="stDialog"] input,
-    [role="dialog"] input {
-        background-color: #FFE8D2 !important;
-        color: #FFE8D2 !important;
+    [role="dialog"] input,
+    [data-testid="stDialog"] input[type="password"],
+    [role="dialog"] input[type="password"] {
+        background-color: #FFF7EF !important;
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        caret-color: #000000 !important;
         border: 1px solid #EAD9C8 !important;
+    }
+    [data-testid="stDialog"] input::placeholder,
+    [role="dialog"] input::placeholder {
+        color: #555555 !important;
+        -webkit-text-fill-color: #555555 !important;
+        opacity: 1 !important;
     }
     """, unsafe_allow_html=True)
 
@@ -1699,11 +1709,14 @@ def renderizar_temporizador_examen():
         <div class="exam-fixed-status">
             <div class="exam-status-item"><span>⏳ Tiempo restante</span><strong style="color:{color_tiempo}">{restante // 60:02d}:{restante % 60:02d}</strong></div>
             <div class="exam-status-divider"></div>
-            <div class="exam-status-item"><span>💡 Comodines disponibles</span><strong style="color:{color_ayuda}">{comodines} / 3</strong></div>
+            <div class="exam-status-item exam-status-comodines"><span>💡 Comodines disponibles</span><strong style="color:#000000">{comodines} / 3</strong></div>
         </div>
         <style>
         .exam-fixed-status {{ position:fixed; top:0.35rem; left:50%; transform:translateX(-50%); width:min(720px, calc(100vw - 24px)); z-index:999999; display:flex; justify-content:center; align-items:center; gap:22px; padding:10px 18px; background:#FFFFFF; border:1px solid #E8D7C5; border-radius:12px; box-shadow:0 4px 16px rgba(30,20,10,.18); color:#111111; }}
         .exam-status-item {{ display:flex; flex-direction:column; align-items:center; gap:2px; min-width:150px; }}
+        .exam-status-comodines {{ background:#FFE8D2; border:1px solid #F0C9A4; border-radius:9px; padding:7px 14px; }}
+        .exam-status-comodines span {{ color:#000000 !important; }}
+        .exam-status-comodines strong {{ color:#000000 !important; }}
         .exam-status-item span {{ font-size:12px; color:#4A5568; }}
         .exam-status-item strong {{ font-size:20px; line-height:1.2; }}
         .exam-status-divider {{ height:34px; width:1px; background:#E8D7C5; }}
