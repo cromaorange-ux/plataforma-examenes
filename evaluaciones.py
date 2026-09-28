@@ -208,7 +208,7 @@ st.markdown("""
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
         border: 1px solid #e8d7c5 !important;
-        color: #242323 !important;
+        color: #B2C0D7 !important;
         box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
     }
     .stRadio div[role='radiogroup'] > label:hover {
