@@ -248,7 +248,7 @@ st.markdown("""
     [data-testid="stDialog"] input,
     [role="dialog"] input {
         background-color: #FFF7EF !important;
-        color: #000000 !important;
+        color: #FFF7EF !important;
         border: 1px solid #EAD9C8 !important;
     }
     """, unsafe_allow_html=True)
