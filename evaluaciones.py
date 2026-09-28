@@ -210,7 +210,7 @@ st.markdown("""
     [role="dialog"],
     [data-baseweb="modal"] > div {
         background-color: #FFFFFF !important;
-        color: #000000 !important;
+        color: #FFF7EF !important;
         border-color: #EAD9C8 !important;
     }
 
@@ -225,7 +225,7 @@ st.markdown("""
     [role="dialog"] button {
         background: #FFE8D2 !important;
         background-color: #FFE8D2 !important;
-        color: #FFF7EF !important;
+        color: #000000 !important;
         border: 1px solid #F0C9A4 !important;
         box-shadow: none !important;
     }
