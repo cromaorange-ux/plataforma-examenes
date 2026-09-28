@@ -51,7 +51,7 @@ st.markdown("""
 
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         background-color: #fff7ef !important;
-        color: #141b26 !important;
+        color: ##B2C0D7 !important; #141b26
     }
     .block-container {
         padding-top: 2rem;
