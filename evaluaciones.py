@@ -217,7 +217,7 @@ st.markdown("""
     }
     [role="dialog"] .stButton > button, [data-testid="stDialog"] .stButton > button {
         background-color: #ffe8d2 !important;
-        color: #C6C6C6 !important;
+        color: #171717 !important;
         border: 1px solid #f0c9a4 !important;
     }
     [role="dialog"] .stButton > button:hover, [data-testid="stDialog"] .stButton > button:hover {
