@@ -132,7 +132,7 @@ st.markdown("""
 
     .user-card {
         background-color: #B2C0D7 !important;
-        border: 1px solid ##768EB7;
+        border: 1px solid #768EB7;
         border-radius: var(--border-radius);
         padding: 20px;
         text-align: center;
