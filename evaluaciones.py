@@ -201,7 +201,7 @@ st.markdown("""
     [role="dialog"],
     [data-baseweb="modal"] > div {
         background-color: #FFFFFF !important;
-        color: #000000 !important;
+        color: #FFF7EF !important;
         border-color: #EAD9C8 !important;
     }
 
@@ -216,7 +216,7 @@ st.markdown("""
     [role="dialog"] button {
         background: #FFE8D2 !important;
         background-color: #FFE8D2 !important;
-        color: #000000 !important;
+        color: #FFF7EF !important;
         border: 1px solid #F0C9A4 !important;
         box-shadow: none !important;
     }
@@ -224,8 +224,8 @@ st.markdown("""
     /* ICONOS DEL BOTÓN */
     [data-testid="stDialog"] button svg,
     [role="dialog"] button svg {
-        color: #000000 !important;
-        fill: #000000 !important;
+        color: #FFF7EF !important;
+        fill: #FFF7EF !important;
     }
 
     /* AL PASAR EL CURSOR */
@@ -233,7 +233,7 @@ st.markdown("""
     [role="dialog"] button:hover {
         background: #FFDAB8 !important;
         background-color: #FFDAB8 !important;
-        color: #000000 !important;
+        color: #FFF7EF !important;
         border-color: #EAB889 !important;
     }
 
