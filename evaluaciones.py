@@ -251,6 +251,36 @@ st.markdown("""
         color: #FFF7EF !important;
         border: 1px solid #EAD9C8 !important;
     }
+    /* Botón mostrar/ocultar contraseña */
+    [data-testid="stDialog"] [data-baseweb="input"] button,
+    [role="dialog"] [data-baseweb="input"] button {
+        background-color: #FFF7EF !important;
+        color: #000000 !important;
+        border: 1px solid #EAD9C8 !important;
+        border-radius: 0 6px 6px 0 !important;
+        box-shadow: none !important;
+    }
+
+    /* Icono del ojo */
+    [data-testid="stDialog"] [data-baseweb="input"] button svg,
+    [role="dialog"] [data-baseweb="input"] button svg {
+        color: #000000 !important;
+        fill: none !important;
+        stroke: #000000 !important;
+    }
+
+    /* Al pasar el cursor */
+    [data-testid="stDialog"] [data-baseweb="input"] button:hover,
+    [role="dialog"] [data-baseweb="input"] button:hover {
+        background-color: #FFE8D2 !important;
+        color: #000000 !important;
+    }
+
+    /* Al pulsar */
+    [data-testid="stDialog"] [data-baseweb="input"] button:active,
+    [role="dialog"] [data-baseweb="input"] button:active {
+        background-color: #FFDAB8 !important;
+    }
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
