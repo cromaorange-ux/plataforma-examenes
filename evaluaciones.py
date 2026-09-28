@@ -41,27 +41,27 @@ st.markdown("""
     footer {visibility: hidden;}
 
     :root {
-        --primary-color: #8094B0;
-        --secondary-color: #327DCD;
+        --primary-color: #1A365D;
+        --secondary-color: #2B6CB0;
         --background-color: #fff7ef;
         --card-bg: #FFFFFF;
-        --text-color: #B2C0D7;
+        --text-color: #141b26;
         --border-radius: 12px;
     }
 
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         background-color: #fff7ef !important;
-        color: ##B2C0D7 !important; 
+        color: #141b26 !important;
     }
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
         background-color: #fff7ef;
-        color: ##B2C0D7 !important;
+        color: #141b26 !important;
     }
     .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
     [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] {
-        color: #2B1800;
+        color: #141b26;
     }
     [data-testid="stExpander"], [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff;
@@ -69,7 +69,7 @@ st.markdown("""
     }
     input, textarea, [data-baseweb="select"] > div {
         background-color: #ffffff !important;
-        color: #B2C0D7 !important;
+        color: #141b26 !important;
     }
 
     /* ESTILOS DE RADIO BUTTON PARA OPCIONES EN BLANCO */
@@ -77,7 +77,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #B2C0D7 !important;
+        color: #141b26 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -96,7 +96,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #B2C0D7 !important;
+        color: #141b26 !important;
         font-weight: 600 !important;
     }
 
@@ -131,8 +131,8 @@ st.markdown("""
     }
 
     .user-card {
-        background-color: #B2C0D7 !important;
-        border: 1px solid #768EB7;
+        background-color: #141b26 !important;
+        border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
         text-align: center;
@@ -154,7 +154,7 @@ st.markdown("""
     }
 
     .manual-card {
-        background-color: #B2C0D7 !important;
+        background-color: #141b26 !important;
         border: 1px solid #E2E8F0;
         border-top: 5px solid #2B6CB0;
         border-radius: var(--border-radius);
@@ -196,92 +196,47 @@ st.markdown("""
     }
 
     /* Diálogos, ventanas emergentes y opciones: paleta clara */
-    /* VENTANA EMERGENTE */
-    [data-testid="stDialog"],
-    [role="dialog"],
-    [data-baseweb="modal"] > div {
-        background-color: #FFFFFF !important;
-        color: #FFF7EF !important;
-        border-color: #EAD9C8 !important;
+    [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
+    [data-testid="stPopover"], [data-baseweb="popover"] {
+        background-color: #ffffff !important;
+        color: #111111 !important;
+        border-color: #ead9c8 !important;
+    }
+    [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
+        color: #111111 !important;
+    }
+    .stRadio div[role='radiogroup'] > label {
+        background-color: #fffaf5 !important;
+        border: 1px solid #e8d7c5 !important;
+        color: #111111 !important;
+        box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
+    }
+    .stRadio div[role='radiogroup'] > label:hover {
+        background-color: #fff0df !important;
+        border-color: #efbd8c !important;
+    }
+    [role="dialog"] .stButton > button, [data-testid="stDialog"] .stButton > button {
+        background-color: #ffe8d2 !important;
+        color: #171717 !important;
+        border: 1px solid #f0c9a4 !important;
+    }
+    [role="dialog"] .stButton > button:hover, [data-testid="stDialog"] .stButton > button:hover {
+        background-color: #ffdab8 !important;
+    }
+    /* Barra de tiempo y comodines fija/visible durante el examen */
+    div[class*="st-key-exam_status_bar"] {
+        position: sticky !important;
+        top: 0.35rem !important;
+        z-index: 999 !important;
+        background: #fff7ef !important;
+        border: 1px solid #ead9c8 !important;
+        border-radius: 10px !important;
+        padding: 0.55rem 0.75rem 0.25rem 0.75rem !important;
+        box-shadow: 0 3px 12px rgba(43, 24, 0, 0.12) !important;
     }
 
-    /* TEXTO DE LA VENTANA */
-    [data-testid="stDialog"] *,
-    [role="dialog"] * {
-        color: #000000 !important;
-    }
-
-    /* BOTÓN INGRESAR: FONDO CLARO Y TEXTO NEGRO */
-    [data-testid="stDialog"] button,
-    [role="dialog"] button {
-        background: #FFE8D2 !important;
-        background-color: #FFE8D2 !important;
-        color: #FFF7EF !important;
-        border: 1px solid #F0C9A4 !important;
-        box-shadow: none !important;
-    }
-
-    /* ICONOS DEL BOTÓN */
-    [data-testid="stDialog"] button svg,
-    [role="dialog"] button svg {
-        color: #FFF7EF !important;
-        fill: #FFF7EF !important;
-    }
-
-    /* AL PASAR EL CURSOR */
-    [data-testid="stDialog"] button:hover,
-    [role="dialog"] button:hover {
-        background: #FFDAB8 !important;
-        background-color: #FFDAB8 !important;
-        color: #FFF7EF !important;
-        border-color: #EAB889 !important;
-    }
-
-    /* AL PULSAR EL BOTÓN */
-    [data-testid="stDialog"] button:active,
-    [role="dialog"] button:active {
-        background: #F5CBA5 !important;
-        color: #000000 !important;
-    }
-
-    /* CAMPO DE CONTRASEÑA */
-    [data-testid="stDialog"] input,
-    [role="dialog"] input {
-        background-color: #FFF7EF !important;
-        color: #FFF7EF !important;
-        border: 1px solid #EAD9C8 !important;
-    }
-    /* Botón mostrar/ocultar contraseña */
-    [data-testid="stDialog"] [data-baseweb="input"] button,
-    [role="dialog"] [data-baseweb="input"] button {
-        background-color: #FFF7EF !important;
-        color: #000000 !important;
-        border: 1px solid #EAD9C8 !important;
-        border-radius: 0 6px 6px 0 !important;
-        box-shadow: none !important;
-    }
-
-    /* Icono del ojo */
-    [data-testid="stDialog"] [data-baseweb="input"] button svg,
-    [role="dialog"] [data-baseweb="input"] button svg {
-        color: #000000 !important;
-        fill: none !important;
-        stroke: #000000 !important;
-    }
-
-    /* Al pasar el cursor */
-    [data-testid="stDialog"] [data-baseweb="input"] button:hover,
-    [role="dialog"] [data-baseweb="input"] button:hover {
-        background-color: #FFE8D2 !important;
-        color: #000000 !important;
-    }
-
-    /* Al pulsar */
-    [data-testid="stDialog"] [data-baseweb="input"] button:active,
-    [role="dialog"] [data-baseweb="input"] button:active {
-        background-color: #FFDAB8 !important;
-    }
-    """, unsafe_allow_html=True)
+    </style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
@@ -1721,11 +1676,22 @@ def renderizar_temporizador_examen():
     limite = int(st.session_state.get("tiempo_limite_examen_actual", total_p * TIEMPO_LIMITE_PREGUNTA))
     inicio = st.session_state.tiempo_inicio_examen or time.time()
     restante = max(0, limite - int(time.time() - inicio))
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        st.progress(restante / max(1, limite), text="Tiempo total del examen")
-    with c2:
-        st.metric("Tiempo restante", f"{restante // 60:02d}:{restante % 60:02d}")
+    comodines = int(st.session_state.get("comodines_restantes", 0))
+
+    # Contenedor con clave CSS propia para mantener la barra visible al desplazarse.
+    with st.container(key="exam_status_bar"):
+        c1, c2, c3 = st.columns([2.5, 1.2, 1.2])
+        with c1:
+            st.progress(restante / max(1, limite), text="Tiempo total del examen")
+        with c2:
+            st.metric("⏱️ Tiempo restante", f"{restante // 60:02d}:{restante % 60:02d}")
+        with c3:
+            st.metric("💡 Comodines", f"{comodines} / 3")
+        if restante <= 60 and restante > 0:
+            st.warning("Queda 1 minuto o menos para finalizar el examen.")
+        if comodines <= 0:
+            st.caption("No quedan comodines disponibles.")
+
     if restante <= 0 and not st.session_state.get("tiempo_examen_agotado", False):
         st.session_state.tiempo_examen_agotado = True
         st.rerun()
