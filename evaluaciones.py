@@ -132,7 +132,7 @@ st.markdown("""
 
     .user-card {
         background-color: #B2C0D7 !important;
-        border: 1px solid ##18212E;
+        border: 1px solid #D0D9E6;
         border-radius: var(--border-radius);
         padding: 20px;
         text-align: center;
@@ -208,7 +208,7 @@ st.markdown("""
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
         border: 1px solid #e8d7c5 !important;
-        color: #AFACAC !important;
+        color: #242323 !important;
         box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
     }
     .stRadio div[role='radiogroup'] > label:hover {
