@@ -92,7 +92,7 @@ st.markdown("""
         transition: all 0.2s ease-in-out;
         width: 100%;
         margin-bottom: 8px !important;
-        box-shadow: 0 1px 3px rgba(F,F,F,F.F);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
 
     .stRadio div[role='radiogroup'] > label p {
@@ -199,11 +199,11 @@ st.markdown("""
     [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
     [data-testid="stPopover"], [data-baseweb="popover"] {
         background-color: #ffffff !important;
-        color: #DDDADA !important;
+        color: #000000 !important;
         border-color: #ead9c8 !important;
     }
     [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
-        color: #DDDADA !important;
+        color: #000000 !important;
     }
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
