@@ -224,7 +224,7 @@ st.markdown("""
     [data-testid="stDialog"] button,
     [role="dialog"] button {
         background: #FFE8D2 !important;
-        background-color: #FFE8D2 !important;
+        background-color: ##FFBA79 !important;
         color: #000000 !important;
         border: 1px solid #F0C9A4 !important;
         box-shadow: none !important;
