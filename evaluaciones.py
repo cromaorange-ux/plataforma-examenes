@@ -51,7 +51,7 @@ st.markdown("""
 
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         background-color: #fff7ef !important;
-        color: ##B2C0D7 !important; #141b26
+        color: ##B2C0D7 !important; 
     }
     .block-container {
         padding-top: 2rem;
@@ -132,7 +132,7 @@ st.markdown("""
 
     .user-card {
         background-color: #B2C0D7 !important;
-        border: 1px solid #E2E8F0;
+        border: 1px solid ##18212E;
         border-radius: var(--border-radius);
         padding: 20px;
         text-align: center;
@@ -199,11 +199,11 @@ st.markdown("""
     [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
     [data-testid="stPopover"], [data-baseweb="popover"] {
         background-color: #ffffff !important;
-        color: #AFACAC !important;
+        color: ##0D0C0C !important;
         border-color: #ead9c8 !important;
     }
     [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
-        color: #AFACAC !important;
+        color: #0D0C0C !important;
     }
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
@@ -217,7 +217,7 @@ st.markdown("""
     }
     [role="dialog"] .stButton > button, [data-testid="stDialog"] .stButton > button {
         background-color: #ffe8d2 !important;
-        color: #171717 !important;
+        color: #FFFFFF !important;
         border: 1px solid #f0c9a4 !important;
     }
     [role="dialog"] .stButton > button:hover, [data-testid="stDialog"] .stButton > button:hover {
