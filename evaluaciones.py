@@ -43,16 +43,33 @@ st.markdown("""
     :root {
         --primary-color: #1A365D;
         --secondary-color: #2B6CB0;
-        --background-color: #000000;
+        --background-color: #fff7ef;
         --card-bg: #FFFFFF;
-        --text-color: #FFFFFF;
+        --text-color: #141b26;
         --border-radius: 12px;
     }
 
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background-color: #fff7ef !important;
+        color: #141b26 !important;
+    }
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
-        background-color: var(--background-color);
+        background-color: #fff7ef;
+        color: #141b26 !important;
+    }
+    .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
+    [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] {
+        color: #141b26;
+    }
+    [data-testid="stExpander"], [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #ffffff;
+        border-color: #e7d9ca;
+    }
+    input, textarea, [data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        color: #141b26 !important;
     }
 
     /* ESTILOS DE RADIO BUTTON PARA OPCIONES EN BLANCO */
@@ -60,7 +77,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #FFFFFF !important;
+        color: #141b26 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -68,7 +85,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label {
-        background-color: #1A202C !important;
+        background-color: #ffffff !important;
         padding: 14px 18px !important;
         border-radius: 8px !important;
         border: 2px solid #4A5568 !important;
@@ -79,24 +96,24 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #FFFFFF !important;
+        color: #141b26 !important;
         font-weight: 600 !important;
     }
 
     .stRadio div[role='radiogroup'] > label:hover {
-        background-color: #2D3748 !important;
+        background-color: #fff0e2 !important;
         border-color: #3182CE !important;
     }
 
     .pregunta-titulo {
         font-size: 22px !important;
         font-weight: 700 !important;
-        color: #FFFFFF;
+        color: #141b26;
         margin-bottom: 20px;
         line-height: 1.3;
         padding: 18px;
-        background-color: #1A202C;
-        border-left: 6px solid #3182CE;
+        background-color: #ffffff;
+        border-left: 6px solid #e87916;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
@@ -114,7 +131,7 @@ st.markdown("""
     }
 
     .user-card {
-        background-color: #FFFFFF !important;
+        background-color: #141b26 !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
@@ -137,7 +154,7 @@ st.markdown("""
     }
 
     .manual-card {
-        background-color: #FFFFFF !important;
+        background-color: #141b26 !important;
         border: 1px solid #E2E8F0;
         border-top: 5px solid #2B6CB0;
         border-radius: var(--border-radius);
@@ -165,8 +182,8 @@ st.markdown("""
     }
 
     .stButton > button {
-        background-color: #2B6CB0 !important;
-        color: #FFFFFF !important;
+        background-color: #e87916 !important;
+        color: #ffffff !important;
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
@@ -175,7 +192,7 @@ st.markdown("""
     }
 
     .stButton > button:hover {
-        background-color: #1A365D !important;
+        background-color: #c65f0b !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -1062,9 +1079,12 @@ def qt_cargar_excel(uploaded_file, anio_defecto, creado_por):
     return total
 
 def qt_obtener_modelos_ia():
-    """Lee directamente los modelos configurados en config_prompts.
-    No depende del formato de retorno de obtener_modelos_ia_disponibles(),
-    porque esa función histórica de app.py devuelve una lista de strings.
+    """Lee TODOS los modelos configurados en config_prompts.
+
+    La configuración de la aplicación guarda los modelos en las columnas
+    modelo_gemini, modelo_claude y modelo_openai. Puede haber varias filas y
+    cada columna puede contener uno o varios modelos separados por comas.
+    No se añaden modelos de respaldo que no estén en SQL.
     """
     columnas = [
         ("modelo_gemini", "gemini"),
@@ -1075,29 +1095,27 @@ def qt_obtener_modelos_ia():
     try:
         res = (supabase.table("config_prompts")
                .select("modelo_gemini, modelo_claude, modelo_openai")
-               .limit(1)
                .execute())
         filas = res.data or []
-        if not filas:
-            return salida
-        fila = filas[0]
-        for columna, proveedor in columnas:
-            valor = fila.get(columna)
-            if not valor:
-                continue
-            # La configuración permite varios modelos separados por comas.
-            for modelo in str(valor).split(","):
-                modelo = modelo.strip()
-                if not modelo:
+        for fila in filas:
+            for columna, proveedor in columnas:
+                valor = fila.get(columna)
+                if valor is None:
                     continue
-                clave = f"{proveedor}:{modelo}".lower()
-                if clave in vistos:
-                    continue
-                vistos.add(clave)
-                salida.append({
-                    "proveedor": proveedor,
-                    "nombre_modelo": modelo,
-                })
+                # Aceptamos texto separado por comas, saltos de línea o punto y coma.
+                texto = str(valor).replace("\n", ",").replace(";", ",")
+                for modelo in texto.split(","):
+                    modelo = modelo.strip()
+                    if not modelo:
+                        continue
+                    clave = f"{proveedor}:{modelo}".lower()
+                    if clave in vistos:
+                        continue
+                    vistos.add(clave)
+                    salida.append({
+                        "proveedor": proveedor,
+                        "nombre_modelo": modelo,
+                    })
     except Exception as e:
         st.error(f"No se pudieron cargar los modelos IA desde config_prompts: {e}")
     return salida
@@ -1385,16 +1403,24 @@ def qt_render_informes_ia(emp_id, nombre, anio, admin=False):
 
 def render_admin_evaluaciones_trimestrales():
     st.title("📋 Evaluaciones Trimestrales")
-    t1,t2,t3,t4,t5,t6=st.tabs(["📥 Cargar Excel","👁️ Visibilidad","📊 Resumen","⚙️ Configuración","🤖 Generar e Insertar Informes IA","👥 Datos empleado"])
+    t1,t2,t4,t5,t6=st.tabs(["📥 Cargar Excel","👁️ Visibilidad","⚙️ Configuración","🤖 Generar e Insertar Informes IA","👥 Datos empleado"])
     with t1:
         st.subheader("📥 Cargar evaluaciones trimestrales")
         anio=st.number_input("Año por defecto",min_value=2020,max_value=2100,value=datetime.datetime.now().year,key="qt_upload_year")
         f=st.file_uploader("Selecciona Excel (.xlsx)",type=["xlsx"],key="qt_excel")
         if f:
             st.success(f"Archivo leído: {f.name}")
-            if st.button("💾 Procesar y guardar evaluaciones",key="qt_save_excel",type="primary"):
-                try: st.success(f"Se han guardado {qt_cargar_excel(f,anio,st.session_state.user_nombre)} evaluación(es).")
-                except Exception as e: st.error(f"Error al guardar: {e}")
+            st.info("El Excel se procesa directamente al pulsar el botón. Las hojas válidas son Q1, Q2, Q3 y Q4; la hoja Resumen se ignora.")
+            st.markdown("### 💾 Guardar Excel en SQL")
+            st.caption("Si una evaluación Q ya existe, se actualiza con los datos del Excel. Las celdas vacías no generan puntuaciones artificiales.")
+            if st.button("💾 Guardar pestañas Q1-Q4 en SQL",key="qt_save_excel",type="primary",use_container_width=True):
+                try:
+                    with st.spinner("Guardando las evaluaciones en SQL…"):
+                        total_guardadas = qt_cargar_excel(f,anio,st.session_state.user_nombre)
+                    st.success(f"✅ Se han guardado correctamente {total_guardadas} pestaña(s) de evaluación en SQL.")
+                except Exception as e:
+                    st.error(f"❌ No se pudo guardar el Excel en SQL: {e}")
+                    st.exception(e)
     with t2:
         st.subheader("👁️ Visibilidad por empleado y año")
         emps = supabase.table("empleados").select("id,nombre,activo").order("nombre").execute().data or []
@@ -1550,13 +1576,13 @@ def login_modal():
         submitted = st.form_submit_button("Ingresar")
         
         if submitted:
+            # La selección/autenticación de usuario pertenece al flujo Python
+            # principal; el prototipo HTML no debe crear un segundo acceso.
             st.session_state.user_id = usuario["id"]
             st.session_state.user_nombre = usuario["nombre"]
             st.session_state.es_croma = usuario.get("es_admin_croma", False)
             st.session_state.autenticado = True
             st.rerun()
-        else:
-            st.error("❌ Contraseña incorrecta.")
 
 # ---------------------------------------------------------
 # FRAGMENTOS DE TEMPORIZACIÓN DINÁMICA
@@ -3224,8 +3250,10 @@ else:
 
                                 with st.expander(f"👤 {emp_nom} ({'Administrador' if emp_admin else 'Empleado'}) - {'🟢 Activo' if emp_act else '🔴 Deshabilitado'}"):
                                     col_e1, col_e2 = st.columns(2)
+                                    correo_actual = emp.get("correo_electronico") or emp.get("email") or ""
                                     with col_e1:
                                         nuevo_nom = st.text_input("Nombre completo:", value=emp_nom, key=f"emp_nom_in_{emp_id}")
+                                        nuevo_correo = st.text_input("Correo electrónico:", value=correo_actual, key=f"emp_email_in_{emp_id}", placeholder="nombre@empresa.com")
                                         chk_act = st.checkbox("Cuenta Activa en Plataforma", value=emp_act, key=f"emp_act_chk_{emp_id}")
                                     with col_e2:
                                         chk_adm = st.checkbox("Es Administrador CROMA", value=emp_admin, key=f"emp_adm_chk_{emp_id}")
@@ -3235,6 +3263,7 @@ else:
                                         try:
                                             supabase.table("empleados").update({
                                                 "nombre": nuevo_nom.strip(),
+                                                "correo_electronico": nuevo_correo.strip() or None,
                                                 "activo": chk_act,
                                                 "es_admin_croma": chk_adm,
                                                 "analisis_ia_habilitado": chk_ia_hab
