@@ -61,7 +61,7 @@ st.markdown("""
     }
     .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
     [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] {
-        color: #FF8D03;
+        color: #2B1800;
     }
     [data-testid="stExpander"], [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff;
