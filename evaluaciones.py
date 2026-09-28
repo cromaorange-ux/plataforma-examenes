@@ -196,35 +196,62 @@ st.markdown("""
     }
 
     /* Diálogos, ventanas emergentes y opciones: paleta clara */
-    [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
-    [data-testid="stPopover"], [data-baseweb="popover"] {
-        background-color: #ffffff !important;
-        color: #B2C0D7 !important;
-        border-color: #ead9c8 !important;
+    /* VENTANA EMERGENTE */
+    [data-testid="stDialog"],
+    [role="dialog"],
+    [data-baseweb="modal"] > div {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+        border-color: #EAD9C8 !important;
     }
-    [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
+
+    /* TEXTO DE LA VENTANA */
+    [data-testid="stDialog"] *,
+    [role="dialog"] * {
         color: #000000 !important;
     }
-    .stRadio div[role='radiogroup'] > label {
-        background-color: #fffaf5 !important;
-        border: 1px solid #e8d7c5 !important;
-        color: #B2C0D7 !important;
-        box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
+
+    /* BOTÓN INGRESAR: FONDO CLARO Y TEXTO NEGRO */
+    [data-testid="stDialog"] button,
+    [role="dialog"] button {
+        background: #FFE8D2 !important;
+        background-color: #FFE8D2 !important;
+        color: #000000 !important;
+        border: 1px solid #F0C9A4 !important;
+        box-shadow: none !important;
     }
-    .stRadio div[role='radiogroup'] > label:hover {
-        background-color: #fff0df !important;
-        border-color: #efbd8c !important;
+
+    /* ICONOS DEL BOTÓN */
+    [data-testid="stDialog"] button svg,
+    [role="dialog"] button svg {
+        color: #000000 !important;
+        fill: #000000 !important;
     }
-    [role="dialog"] .stButton > button, [data-testid="stDialog"] .stButton > button {
-        background-color: #ffe8d2 !important;
-        color: #FFFFFF !important;
-        border: 1px solid #f0c9a4 !important;
+
+    /* AL PASAR EL CURSOR */
+    [data-testid="stDialog"] button:hover,
+    [role="dialog"] button:hover {
+        background: #FFDAB8 !important;
+        background-color: #FFDAB8 !important;
+        color: #000000 !important;
+        border-color: #EAB889 !important;
     }
-    [role="dialog"] .stButton > button:hover, [data-testid="stDialog"] .stButton > button:hover {
-        background-color: #ffdab8 !important;
+
+    /* AL PULSAR EL BOTÓN */
+    [data-testid="stDialog"] button:active,
+    [role="dialog"] button:active {
+        background: #F5CBA5 !important;
+        color: #000000 !important;
     }
-    </style>
-""", unsafe_allow_html=True)
+
+    /* CAMPO DE CONTRASEÑA */
+    [data-testid="stDialog"] input,
+    [role="dialog"] input {
+        background-color: #FFF7EF !important;
+        color: #000000 !important;
+        border: 1px solid #EAD9C8 !important;
+    }
+    """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
