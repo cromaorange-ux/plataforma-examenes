@@ -194,6 +194,35 @@ st.markdown("""
     .stButton > button:hover {
         background-color: #c65f0b !important;
     }
+
+    /* Diálogos, ventanas emergentes y opciones: paleta clara */
+    [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
+    [data-testid="stPopover"], [data-baseweb="popover"] {
+        background-color: #ffffff !important;
+        color: #111111 !important;
+        border-color: #ead9c8 !important;
+    }
+    [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
+        color: #111111 !important;
+    }
+    .stRadio div[role='radiogroup'] > label {
+        background-color: #fffaf5 !important;
+        border: 1px solid #e8d7c5 !important;
+        color: #111111 !important;
+        box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
+    }
+    .stRadio div[role='radiogroup'] > label:hover {
+        background-color: #fff0df !important;
+        border-color: #efbd8c !important;
+    }
+    [role="dialog"] .stButton > button, [data-testid="stDialog"] .stButton > button {
+        background-color: #ffe8d2 !important;
+        color: #171717 !important;
+        border: 1px solid #f0c9a4 !important;
+    }
+    [role="dialog"] .stButton > button:hover, [data-testid="stDialog"] .stButton > button:hover {
+        background-color: #ffdab8 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -234,9 +263,18 @@ def obtener_tiempo_pregunta_config():
     return 45
 
 def obtener_num_preguntas_config(tipo):
+    """Lee el número de preguntas desde las columnas de configuración vigentes."""
+    columna = "num_preguntas_global" if tipo == "global" else "num_preguntas_manual"
+    try:
+        res = supabase.table("config_prompts").select(columna).order("id", desc=True).limit(1).execute()
+        if res.data and res.data[0].get(columna) is not None:
+            return int(res.data[0][columna])
+    except Exception:
+        pass
+    # Compatibilidad con instalaciones antiguas que guardaban el parámetro en nombre/valor.
     clave_nombre = f"num_preguntas_{tipo}"
     try:
-        res = supabase.table("config_prompts").select("valor").eq("nombre", clave_nombre).limit(1).execute()
+        res = supabase.table("config_prompts").select("valor").eq("nombre", clave_nombre).order("id", desc=True).limit(1).execute()
         if res.data and res.data[0].get("valor") is not None:
             return int(res.data[0]["valor"])
     except Exception:
@@ -263,16 +301,26 @@ def guardar_tiempo_pregunta_config(nuevo_tiempo):
         return False
 
 def guardar_num_preguntas_config(tipo, cantidad):
+    columna = "num_preguntas_global" if tipo == "global" else "num_preguntas_manual"
     clave_nombre = f"num_preguntas_{tipo}"
     try:
-        res = supabase.table("config_prompts").select("id").eq("nombre", clave_nombre).execute()
+        # Esquema vigente: número de preguntas almacenado en columnas de config_prompts.
+        res = supabase.table("config_prompts").select("id").order("id", desc=True).limit(1).execute()
         if res.data:
-            supabase.table("config_prompts").update({"valor": str(cantidad)}).eq("nombre", clave_nombre).execute()
+            supabase.table("config_prompts").update({columna: int(cantidad)}).eq("id", res.data[0]["id"]).execute()
+            return True
+    except Exception:
+        # Compatibilidad con instalaciones antiguas que aún usan nombre/valor.
+        pass
+    try:
+        res = supabase.table("config_prompts").select("id").eq("nombre", clave_nombre).order("id", desc=True).limit(1).execute()
+        if res.data:
+            supabase.table("config_prompts").update({"valor": str(cantidad)}).eq("id", res.data[0]["id"]).execute()
         else:
             supabase.table("config_prompts").insert({"nombre": clave_nombre, "valor": str(cantidad)}).execute()
         return True
     except Exception as e:
-        st.error(f"Error al guardar número de preguntas ({tipo}): {e}")
+        st.error(f"Error al guardar número de preguntas ({tipo}) en config_prompts.{columna}: {e}")
         return False
 
 def obtener_modelos_ia_disponibles():
@@ -1611,6 +1659,22 @@ def renderizar_temporizador_realtime(idx):
         st.warning("⏰ ¡Tiempo agotado en esta pregunta! La selección ha quedado bloqueada.")
 
 @st.fragment(run_every=1)
+def renderizar_temporizador_examen():
+    total_p = len(st.session_state.preguntas_seleccionadas)
+    limite = int(st.session_state.get("tiempo_limite_examen_actual", total_p * TIEMPO_LIMITE_PREGUNTA))
+    inicio = st.session_state.tiempo_inicio_examen or time.time()
+    restante = max(0, limite - int(time.time() - inicio))
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.progress(restante / max(1, limite), text="Tiempo total del examen")
+    with c2:
+        st.metric("Tiempo restante", f"{restante // 60:02d}:{restante % 60:02d}")
+    if restante <= 0 and not st.session_state.get("tiempo_examen_agotado", False):
+        st.session_state.tiempo_examen_agotado = True
+        st.rerun()
+
+
+@st.fragment(run_every=1)
 def renderizar_temporizador_revision():
     if st.session_state.tiempo_inicio_revision is None:
         st.session_state.tiempo_inicio_revision = time.time()
@@ -1841,139 +1905,87 @@ else:
                 st.session_state.tiempo_inicio_revision = None
                 st.rerun()
 
-    # CUESTIONARIO ACTIVO
+    # CUESTIONARIO ACTIVO: TODAS LAS PREGUNTAS EN UNA SOLA PANTALLA
     elif st.session_state.examen_activo:
-        st.markdown("<div id='pregunta_activa'></div>", unsafe_allow_html=True)
-        st.components.v1.html(
-            "<script>window.parent.document.getElementById('pregunta_activa').scrollIntoView({behavior: 'smooth'});</script>",
-            height=0
-        )
-
-        idx = st.session_state.indice_pregunta
         total_p = len(st.session_state.preguntas_seleccionadas)
-        
-        if idx < total_p:
-            p_actual = st.session_state.preguntas_seleccionadas[idx]
-            
-            col_info, col_ayuda = st.columns([3, 2])
-            with col_info:
-                st.subheader(f"Pregunta {idx + 1} de {total_p}")
-                st.caption(f"📌 **Subíndice/Categoría:** {p_actual.get('subindice', p_actual.get('apartado', 'General'))} | Dificultad: **{p_actual.get('dificultad', 'dificil')}**")
-            with col_ayuda:
-                st.caption(f"💡 Ayudas disponibles: **{st.session_state.comodines_restantes} / 3**")
+        tiempo_limite_total = int(st.session_state.get("tiempo_limite_examen_actual", total_p * TIEMPO_LIMITE_PREGUNTA))
+        transcurrido_total = int(time.time() - (st.session_state.tiempo_inicio_examen or time.time()))
+        restante_total = max(0, tiempo_limite_total - transcurrido_total)
+        st.markdown("<div id='pregunta_activa'></div>", unsafe_allow_html=True)
+        st.subheader(f"📝 Examen completo · {total_p} preguntas")
+        st.caption("Todas las preguntas están disponibles en esta pantalla. Responde en el orden que prefieras y revisa tus selecciones antes de entregar.")
+        renderizar_temporizador_examen()
+        if restante_total <= 0:
+            st.warning("⏰ Se agotó el tiempo. Las respuestas seleccionadas se entregarán automáticamente al confirmar.")
 
-            tiempo_base = st.session_state.tiempos_restantes_preguntas.get(idx, TIEMPO_LIMITE_PREGUNTA)
-            if st.session_state.tiempo_inicio_pregunta is None:
-                st.session_state.tiempo_inicio_pregunta = time.time()
-                
-            tiempo_transcurrido = int(time.time() - st.session_state.tiempo_inicio_pregunta)
-            tiempo_restante = max(0, tiempo_base - tiempo_transcurrido)
-            
-            # Temporizador dinámico en tiempo real utilizando Streamlit Fragment
-            renderizar_temporizador_realtime(idx)
-
-            deshabilitar_opciones = (tiempo_restante <= 0)
-            if deshabilitar_opciones:
-                st.session_state.tiempos_restantes_preguntas[idx] = 0
-
-            # Garantizar que la pregunta siempre sea visible para examen por manual o global
-            texto_pregunta = p_actual.get("pregunta", "Pregunta no disponible")
-            st.markdown(f"<div class='pregunta-titulo'>{texto_pregunta}</div>", unsafe_allow_html=True)
-
-            resp_previa = next((r["opcion_elegida"] for r in st.session_state.respuestas_detalle if r["idx_pregunta"] == idx), None)
-            idx_previa = None
-            if resp_previa and resp_previa in p_actual["opciones_barajadas"]:
-                idx_previa = p_actual["opciones_barajadas"].index(resp_previa)
-
-            # Función para guardar automáticamente la selección del radio button cuando cambia
-            def registrar_respuesta_pregunta(elec_val=None):
-                if elec_val is None:
-                    elec_val = st.session_state.get(f"p_{idx}")
-                
-                if elec_val is not None and elec_val != "":
-                    es_corr = (elec_val == p_actual["respuesta_correcta_texto"])
-                    op_guardada = elec_val
-                else:
-                    es_corr = False
-                    op_guardada = "En blanco (Sin responder)"
-
-                st.session_state.respuestas_detalle = [r for r in st.session_state.respuestas_detalle if r["idx_pregunta"] != idx]
-                st.session_state.respuestas_detalle.append({
-                    "idx_pregunta": idx,
-                    "pregunta": p_actual["pregunta"],
-                    "subindice": p_actual.get("subindice", "General"),
-                    "dificultad": p_actual.get("dificultad", "dificil"),
-                    "opcion_elegida": op_guardada,
-                    "respuesta_correcta_texto": p_actual["respuesta_correcta_texto"],
-                    "opciones_posibles": p_actual["opciones_barajadas"],
-                    "es_correcta": es_corr
-                })
-
-            eleccion = st.radio(
-                "Selecciona una opción:", 
-                p_actual["opciones_barajadas"], 
-                index=idx_previa, 
-                key=f"p_{idx}",
-                disabled=deshabilitar_opciones,
-                on_change=registrar_respuesta_pregunta
-            )
-            
-            if idx in st.session_state.pistas_activadas:
-                pista_texto = p_actual.get("pista", "Lee con atención las opciones y descarta las inconsistentes.")
-                st.info(f"💡 **Pista:** {pista_texto}")
-            else:
-                if st.session_state.comodines_restantes > 0 and not deshabilitar_opciones:
-                    if st.button("💡 Pedir Ayuda (Gasta 1 comodín)", key=f"btn_pista_{idx}"):
+        respuestas_previas = {r.get("idx_pregunta"): r.get("opcion_elegida") for r in st.session_state.respuestas_detalle}
+        for idx, p_actual in enumerate(st.session_state.preguntas_seleccionadas):
+            with st.container(border=True):
+                st.markdown(f"#### Pregunta {idx + 1} de {total_p}")
+                st.caption(f"📌 Categoría: {p_actual.get('subindice', p_actual.get('apartado', 'General'))} · Dificultad: {p_actual.get('dificultad', 'dificil')}")
+                st.markdown(f"<div class='pregunta-titulo'>{p_actual.get('pregunta', 'Pregunta no disponible')}</div>", unsafe_allow_html=True)
+                opciones = p_actual.get("opciones_barajadas", [])
+                previa = respuestas_previas.get(idx)
+                idx_previa = opciones.index(previa) if previa in opciones else None
+                st.radio(
+                    "Selecciona una respuesta:",
+                    opciones,
+                    index=idx_previa,
+                    key=f"p_{idx}",
+                    disabled=restante_total <= 0,
+                    label_visibility="visible"
+                )
+                if idx in st.session_state.pistas_activadas:
+                    st.info(f"💡 Pista: {p_actual.get('pista', 'Revisa los conceptos clave.')}")
+                elif st.session_state.comodines_restantes > 0 and restante_total > 0:
+                    if st.button("💡 Mostrar pista (consume 1 ayuda)", key=f"btn_pista_{idx}"):
                         st.session_state.comodines_restantes -= 1
                         st.session_state.pistas_activadas.add(idx)
                         st.rerun()
-                elif deshabilitar_opciones:
-                    st.caption("🚫 Tiempo agotado. No se pueden pedir comodines.")
-                else:
-                    st.caption("🚫 Has agotado tus 3 comodines de ayuda.")
 
-            st.write("")
-            col_b1, col_b2, col_b3 = st.columns(3)
-
-            with col_b1:
-                lbl_btn = "Ir a Revisión" if st.session_state.modificando_desde_revision else "Responder / Siguiente"
-                
-                if st.button(lbl_btn, key=f"btn_sig_{idx}", use_container_width=True):
-                    st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
-                    registrar_respuesta_pregunta(eleccion)
-                    
-                    if st.session_state.modificando_desde_revision:
-                        st.session_state.modificando_desde_revision = False
-                        st.session_state.modo_revision = True
-                    else:
-                        st.session_state.indice_pregunta += 1
-                        st.session_state.tiempo_inicio_pregunta = None
-                    
-                    st.rerun()
-
-            with col_b2:
-                if st.button("📋 Ir a Revisión Directa", key=f"btn_rev_{idx}", use_container_width=True):
-                    st.session_state.tiempos_restantes_preguntas[idx] = max(0, tiempo_restante)
-                    registrar_respuesta_pregunta(eleccion)
-                    st.session_state.modificando_desde_revision = False
-                    st.session_state.modo_revision = True
-                    st.rerun()
-
-            with col_b3:
-                if st.button("🚫 Cancelar Examen (Nota 0)", key=f"btn_canc_{idx}", use_container_width=True):
-                    registrar_respuesta_pregunta(eleccion)
-                    cancelar_examen_bd()
-                    st.session_state.examen_activo = False
-                    st.session_state.modo_revision = False
-                    st.session_state.examen_finalizado = True
-                    st.rerun()
-
-            if tiempo_restante <= 0:
-                registrar_respuesta_pregunta(eleccion)
-
-        else:
-            st.session_state.modo_revision = True
-            st.rerun()
+        st.caption(f"Ayudas disponibles: {st.session_state.comodines_restantes} / 3")
+        col_finish1, col_finish2 = st.columns(2)
+        with col_finish1:
+            if st.button("📋 Revisar y entregar examen", key="btn_revisar_entregar_todo", use_container_width=True):
+                respuestas_detalle = []
+                for idx, p_item in enumerate(st.session_state.preguntas_seleccionadas):
+                    eleccion = st.session_state.get(f"p_{idx}")
+                    if not eleccion:
+                        eleccion = "En blanco (Sin responder)"
+                    respuestas_detalle.append({
+                        "idx_pregunta": idx,
+                        "pregunta": p_item.get("pregunta", ""),
+                        "subindice": p_item.get("subindice", "General"),
+                        "dificultad": p_item.get("dificultad", "dificil"),
+                        "opcion_elegida": eleccion,
+                        "respuesta_correcta_texto": p_item.get("respuesta_correcta_texto", ""),
+                        "opciones_posibles": p_item.get("opciones_barajadas", []),
+                        "es_correcta": eleccion == p_item.get("respuesta_correcta_texto", "")
+                    })
+                st.session_state.respuestas_detalle = respuestas_detalle
+                st.session_state.modo_revision = True
+                st.session_state.tiempo_inicio_revision = None
+                st.rerun()
+        with col_finish2:
+            if st.button("🚫 Cancelar examen (nota 0)", key="btn_cancelar_examen_todo", use_container_width=True):
+                respuestas_detalle = []
+                for idx, p_item in enumerate(st.session_state.preguntas_seleccionadas):
+                    eleccion = st.session_state.get(f"p_{idx}") or "En blanco (Sin responder)"
+                    respuestas_detalle.append({
+                        "idx_pregunta": idx, "pregunta": p_item.get("pregunta", ""),
+                        "subindice": p_item.get("subindice", "General"),
+                        "dificultad": p_item.get("dificultad", "dificil"),
+                        "opcion_elegida": eleccion,
+                        "respuesta_correcta_texto": p_item.get("respuesta_correcta_texto", ""),
+                        "opciones_posibles": p_item.get("opciones_barajadas", []),
+                        "es_correcta": False
+                    })
+                st.session_state.respuestas_detalle = respuestas_detalle
+                cancelar_examen_bd()
+                st.session_state.examen_activo = False
+                st.session_state.modo_revision = False
+                st.session_state.examen_finalizado = True
+                st.rerun()
 
     # MENÚ PRINCIPAL
     else:
@@ -2130,6 +2142,8 @@ else:
                         st.session_state.tiempos_restantes_preguntas = {}
                         st.session_state.modificando_desde_revision = False
                         st.session_state.tiempo_inicio_examen = time.time()
+                        st.session_state.tiempo_limite_examen_actual = len(preguntas_preparadas) * TIEMPO_LIMITE_PREGUNTA
+                        st.session_state.tiempo_examen_agotado = False
                         st.session_state.tiempo_inicio_pregunta = None
                         st.session_state.tiempo_inicio_revision = None
                         st.session_state.comodines_restantes = 3
@@ -2207,6 +2221,8 @@ else:
                                 st.session_state.tiempos_restantes_preguntas = {}
                                 st.session_state.modificando_desde_revision = False
                                 st.session_state.tiempo_inicio_examen = time.time()
+                                st.session_state.tiempo_limite_examen_actual = len(preguntas_preparadas) * TIEMPO_LIMITE_PREGUNTA
+                                st.session_state.tiempo_examen_agotado = False
                                 st.session_state.tiempo_inicio_pregunta = None
                                 st.session_state.tiempo_inicio_revision = None
                                 st.session_state.comodines_restantes = 3
