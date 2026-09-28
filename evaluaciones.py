@@ -199,7 +199,7 @@ st.markdown("""
     [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
     [data-testid="stPopover"], [data-baseweb="popover"] {
         background-color: #ffffff !important;
-        color: #111111 !important;
+        color: #AFACAC !important;
         border-color: #ead9c8 !important;
     }
     [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
@@ -208,7 +208,7 @@ st.markdown("""
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
         border: 1px solid #e8d7c5 !important;
-        color: #111111 !important;
+        color: #AFACAC !important;
         box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
     }
     .stRadio div[role='radiogroup'] > label:hover {
