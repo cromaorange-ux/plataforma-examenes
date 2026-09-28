@@ -43,20 +43,20 @@ st.markdown("""
     :root {
         --primary-color: #8094B0;
         --secondary-color: #327DCD;
-        --background-color: #fff7ef;
+        --background-color: #FFE8D2;
         --card-bg: #FFFFFF;
         --text-color: #B2C0D7;
         --border-radius: 12px;
     }
 
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #fff7ef !important;
+        background-color: #FFE8D2 !important;
         color: ##B2C0D7 !important; 
     }
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
-        background-color: #fff7ef;
+        background-color: #FFE8D2;
         color: ##B2C0D7 !important;
     }
     .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
@@ -201,7 +201,7 @@ st.markdown("""
     [role="dialog"],
     [data-baseweb="modal"] > div {
         background-color: #FFFFFF !important;
-        color: #FFF7EF !important;
+        color: #FFE8D2 !important;
         border-color: #EAD9C8 !important;
     }
 
@@ -216,7 +216,7 @@ st.markdown("""
     [role="dialog"] button {
         background: #FFE8D2 !important;
         background-color: #FFE8D2 !important;
-        color: #FFF7EF !important;
+        color: #FFE8D2 !important;
         border: 1px solid #F0C9A4 !important;
         box-shadow: none !important;
     }
@@ -224,8 +224,8 @@ st.markdown("""
     /* ICONOS DEL BOTÓN */
     [data-testid="stDialog"] button svg,
     [role="dialog"] button svg {
-        color: #FFF7EF !important;
-        fill: #FFF7EF !important;
+        color: #FFE8D2 !important;
+        fill: #FFE8D2 !important;
     }
 
     /* AL PASAR EL CURSOR */
@@ -233,7 +233,7 @@ st.markdown("""
     [role="dialog"] button:hover {
         background: #FFDAB8 !important;
         background-color: #FFDAB8 !important;
-        color: #FFF7EF !important;
+        color: #FFE8D2 !important;
         border-color: #EAB889 !important;
     }
 
@@ -241,14 +241,14 @@ st.markdown("""
     [data-testid="stDialog"] button:active,
     [role="dialog"] button:active {
         background: #F5CBA5 !important;
-        color: #000000 !important;
+        color: #FFF7EF !important;
     }
 
     /* CAMPO DE CONTRASEÑA */
     [data-testid="stDialog"] input,
     [role="dialog"] input {
-        background-color: #FFF7EF !important;
-        color: #FFF7EF !important;
+        background-color: #FFE8D2 !important;
+        color: #FFE8D2 !important;
         border: 1px solid #EAD9C8 !important;
     }
     """, unsafe_allow_html=True)
