@@ -92,7 +92,7 @@ st.markdown("""
         transition: all 0.2s ease-in-out;
         width: 100%;
         margin-bottom: 8px !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        box-shadow: 0 1px 3px rgba(F,F,F,F.F);
     }
 
     .stRadio div[role='radiogroup'] > label p {
