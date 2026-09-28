@@ -203,7 +203,7 @@ st.markdown("""
         border-color: #ead9c8 !important;
     }
     [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
-        color: #111111 !important;
+        color: #AFACAC !important;
     }
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
