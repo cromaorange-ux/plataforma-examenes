@@ -209,7 +209,7 @@ st.markdown("""
     [data-testid="stDialog"],
     [role="dialog"],
     [data-baseweb="modal"] > div {
-        background-color: #FFFFFF !important;
+        background-color: #000000 !important;
         color: #FFF7EF !important;
         border-color: #EAD9C8 !important;
     }
