@@ -41,11 +41,11 @@ st.markdown("""
     footer {visibility: hidden;}
 
     :root {
-        --primary-color: #1A365D;
-        --secondary-color: #2B6CB0;
+        --primary-color: #8094B0;
+        --secondary-color: #327DCD;
         --background-color: #fff7ef;
         --card-bg: #FFFFFF;
-        --text-color: #141b26;
+        --text-color: #B2C0D7;
         --border-radius: 12px;
     }
 
