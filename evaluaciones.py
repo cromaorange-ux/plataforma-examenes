@@ -57,11 +57,11 @@ st.markdown("""
         padding-top: 2rem;
         padding-bottom: 3rem;
         background-color: #fff7ef;
-        color: #141b26 !important;
+        color: ##B2C0D7 !important;
     }
     .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
     [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] {
-        color: #141b26;
+        color: #e7d9ca;
     }
     [data-testid="stExpander"], [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff;
@@ -69,7 +69,7 @@ st.markdown("""
     }
     input, textarea, [data-baseweb="select"] > div {
         background-color: #ffffff !important;
-        color: #141b26 !important;
+        color: #B2C0D7 !important;
     }
 
     /* ESTILOS DE RADIO BUTTON PARA OPCIONES EN BLANCO */
@@ -77,7 +77,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #141b26 !important;
+        color: #B2C0D7 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -96,7 +96,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #141b26 !important;
+        color: #B2C0D7 !important;
         font-weight: 600 !important;
     }
 
@@ -131,7 +131,7 @@ st.markdown("""
     }
 
     .user-card {
-        background-color: #141b26 !important;
+        background-color: #B2C0D7 !important;
         border: 1px solid #E2E8F0;
         border-radius: var(--border-radius);
         padding: 20px;
@@ -154,7 +154,7 @@ st.markdown("""
     }
 
     .manual-card {
-        background-color: #141b26 !important;
+        background-color: #B2C0D7 !important;
         border: 1px solid #E2E8F0;
         border-top: 5px solid #2B6CB0;
         border-radius: var(--border-radius);
