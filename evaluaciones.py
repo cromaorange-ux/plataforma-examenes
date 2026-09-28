@@ -199,11 +199,11 @@ st.markdown("""
     [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
     [data-testid="stPopover"], [data-baseweb="popover"] {
         background-color: #ffffff !important;
-        color: ##0D0C0C !important;
+        color: #DDDADA !important;
         border-color: #ead9c8 !important;
     }
     [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
-        color: #0D0C0C !important;
+        color: #DDDADA !important;
     }
     .stRadio div[role='radiogroup'] > label {
         background-color: #fffaf5 !important;
