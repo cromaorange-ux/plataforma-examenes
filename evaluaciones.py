@@ -41,27 +41,27 @@ st.markdown("""
     footer {visibility: hidden;}
 
     :root {
-        --primary-color: #1A365D;
-        --secondary-color: #2B6CB0;
+        --primary-color: #8094B0;
+        --secondary-color: #327DCD;
         --background-color: #fff7ef;
         --card-bg: #FFFFFF;
-        --text-color: #141b26;
+        --text-color: #B2C0D7;
         --border-radius: 12px;
     }
 
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         background-color: #fff7ef !important;
-        color: #141b26 !important;
+        color: ##B2C0D7 !important; 
     }
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
         background-color: #fff7ef;
-        color: #141b26 !important;
+        color: ##B2C0D7 !important;
     }
     .stMarkdown, .stText, p, label, h1, h2, h3, h4, h5, h6,
     [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] {
-        color: #141b26;
+        color: #2B1800;
     }
     [data-testid="stExpander"], [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff;
@@ -69,7 +69,7 @@ st.markdown("""
     }
     input, textarea, [data-baseweb="select"] > div {
         background-color: #ffffff !important;
-        color: #141b26 !important;
+        color: #B2C0D7 !important;
     }
 
     /* ESTILOS DE RADIO BUTTON PARA OPCIONES EN BLANCO */
@@ -77,7 +77,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #141b26 !important;
+        color: #B2C0D7 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -96,7 +96,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #141b26 !important;
+        color: #B2C0D7 !important;
         font-weight: 600 !important;
     }
 
@@ -131,8 +131,8 @@ st.markdown("""
     }
 
     .user-card {
-        background-color: #141b26 !important;
-        border: 1px solid #E2E8F0;
+        background-color: #B2C0D7 !important;
+        border: 1px solid #768EB7;
         border-radius: var(--border-radius);
         padding: 20px;
         text-align: center;
@@ -154,7 +154,7 @@ st.markdown("""
     }
 
     .manual-card {
-        background-color: #141b26 !important;
+        background-color: #B2C0D7 !important;
         border: 1px solid #E2E8F0;
         border-top: 5px solid #2B6CB0;
         border-radius: var(--border-radius);
@@ -196,47 +196,62 @@ st.markdown("""
     }
 
     /* Diálogos, ventanas emergentes y opciones: paleta clara */
-    [data-testid="stDialog"], [role="dialog"], [data-baseweb="modal"] > div,
-    [data-testid="stPopover"], [data-baseweb="popover"] {
-        background-color: #ffffff !important;
-        color: #111111 !important;
-        border-color: #ead9c8 !important;
-    }
-    [role="dialog"] *, [data-baseweb="popover"] *, [data-testid="stDialog"] * {
-        color: #111111 !important;
-    }
-    .stRadio div[role='radiogroup'] > label {
-        background-color: #fffaf5 !important;
-        border: 1px solid #e8d7c5 !important;
-        color: #111111 !important;
-        box-shadow: 0 1px 2px rgba(80, 45, 15, 0.06) !important;
-    }
-    .stRadio div[role='radiogroup'] > label:hover {
-        background-color: #fff0df !important;
-        border-color: #efbd8c !important;
-    }
-    [role="dialog"] .stButton > button, [data-testid="stDialog"] .stButton > button {
-        background-color: #ffe8d2 !important;
-        color: #171717 !important;
-        border: 1px solid #f0c9a4 !important;
-    }
-    [role="dialog"] .stButton > button:hover, [data-testid="stDialog"] .stButton > button:hover {
-        background-color: #ffdab8 !important;
-    }
-    /* Barra de tiempo y comodines fija/visible durante el examen */
-    div[class*="st-key-exam_status_bar"] {
-        position: sticky !important;
-        top: 0.35rem !important;
-        z-index: 999 !important;
-        background: #fff7ef !important;
-        border: 1px solid #ead9c8 !important;
-        border-radius: 10px !important;
-        padding: 0.55rem 0.75rem 0.25rem 0.75rem !important;
-        box-shadow: 0 3px 12px rgba(43, 24, 0, 0.12) !important;
+    /* VENTANA EMERGENTE */
+    [data-testid="stDialog"],
+    [role="dialog"],
+    [data-baseweb="modal"] > div {
+        background-color: #FFFFFF !important;
+        color: #FFF7EF !important;
+        border-color: #EAD9C8 !important;
     }
 
-    </style>
-""", unsafe_allow_html=True)
+    /* TEXTO DE LA VENTANA */
+    [data-testid="stDialog"] *,
+    [role="dialog"] * {
+        color: #000000 !important;
+    }
+
+    /* BOTÓN INGRESAR: FONDO CLARO Y TEXTO NEGRO */
+    [data-testid="stDialog"] button,
+    [role="dialog"] button {
+        background: #FFE8D2 !important;
+        background-color: #FFE8D2 !important;
+        color: #FFF7EF !important;
+        border: 1px solid #F0C9A4 !important;
+        box-shadow: none !important;
+    }
+
+    /* ICONOS DEL BOTÓN */
+    [data-testid="stDialog"] button svg,
+    [role="dialog"] button svg {
+        color: #FFF7EF !important;
+        fill: #FFF7EF !important;
+    }
+
+    /* AL PASAR EL CURSOR */
+    [data-testid="stDialog"] button:hover,
+    [role="dialog"] button:hover {
+        background: #FFDAB8 !important;
+        background-color: #FFDAB8 !important;
+        color: #FFF7EF !important;
+        border-color: #EAB889 !important;
+    }
+
+    /* AL PULSAR EL BOTÓN */
+    [data-testid="stDialog"] button:active,
+    [role="dialog"] button:active {
+        background: #F5CBA5 !important;
+        color: #000000 !important;
+    }
+
+    /* CAMPO DE CONTRASEÑA */
+    [data-testid="stDialog"] input,
+    [role="dialog"] input {
+        background-color: #FFF7EF !important;
+        color: #FFF7EF !important;
+        border: 1px solid #EAD9C8 !important;
+    }
+    """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # CREDENCIALES Y CLIENTES
@@ -1677,21 +1692,27 @@ def renderizar_temporizador_examen():
     inicio = st.session_state.tiempo_inicio_examen or time.time()
     restante = max(0, limite - int(time.time() - inicio))
     comodines = int(st.session_state.get("comodines_restantes", 0))
-
-    # Contenedor con clave CSS propia para mantener la barra visible al desplazarse.
-    with st.container(key="exam_status_bar"):
-        c1, c2, c3 = st.columns([2.5, 1.2, 1.2])
-        with c1:
-            st.progress(restante / max(1, limite), text="Tiempo total del examen")
-        with c2:
-            st.metric("⏱️ Tiempo restante", f"{restante // 60:02d}:{restante % 60:02d}")
-        with c3:
-            st.metric("💡 Comodines", f"{comodines} / 3")
-        if restante <= 60 and restante > 0:
-            st.warning("Queda 1 minuto o menos para finalizar el examen.")
-        if comodines <= 0:
-            st.caption("No quedan comodines disponibles.")
-
+    color_tiempo = "#B42318" if restante <= 60 else "#183B2B"
+    color_ayuda = "#B42318" if comodines <= 0 else "#183B2B"
+    st.markdown(
+        f"""
+        <div class="exam-fixed-status">
+            <div class="exam-status-item"><span>⏳ Tiempo restante</span><strong style="color:{color_tiempo}">{restante // 60:02d}:{restante % 60:02d}</strong></div>
+            <div class="exam-status-divider"></div>
+            <div class="exam-status-item"><span>💡 Comodines disponibles</span><strong style="color:{color_ayuda}">{comodines} / 3</strong></div>
+        </div>
+        <style>
+        .exam-fixed-status {{ position:fixed; top:0.35rem; left:50%; transform:translateX(-50%); width:min(720px, calc(100vw - 24px)); z-index:999999; display:flex; justify-content:center; align-items:center; gap:22px; padding:10px 18px; background:#FFFFFF; border:1px solid #E8D7C5; border-radius:12px; box-shadow:0 4px 16px rgba(30,20,10,.18); color:#111111; }}
+        .exam-status-item {{ display:flex; flex-direction:column; align-items:center; gap:2px; min-width:150px; }}
+        .exam-status-item span {{ font-size:12px; color:#4A5568; }}
+        .exam-status-item strong {{ font-size:20px; line-height:1.2; }}
+        .exam-status-divider {{ height:34px; width:1px; background:#E8D7C5; }}
+        @media (max-width:480px) {{ .exam-fixed-status {{ gap:8px; padding:8px; }} .exam-status-item {{ min-width:0; flex:1; }} .exam-status-item span {{ font-size:10px; }} .exam-status-item strong {{ font-size:17px; }} }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    st.progress(restante / max(1, limite), text="Tiempo total del examen")
     if restante <= 0 and not st.session_state.get("tiempo_examen_agotado", False):
         st.session_state.tiempo_examen_agotado = True
         st.rerun()
@@ -1934,81 +1955,77 @@ else:
         tiempo_limite_total = int(st.session_state.get("tiempo_limite_examen_actual", total_p * TIEMPO_LIMITE_PREGUNTA))
         transcurrido_total = int(time.time() - (st.session_state.tiempo_inicio_examen or time.time()))
         restante_total = max(0, tiempo_limite_total - transcurrido_total)
-        st.markdown("<div id='pregunta_activa'></div>", unsafe_allow_html=True)
+        # La barra fija queda fuera del formulario para que el fragmento del reloj
+        # pueda actualizarse cada segundo sin refrescar las respuestas.
+        st.markdown("<div style='height:62px'></div>", unsafe_allow_html=True)
         st.subheader(f"📝 Examen completo · {total_p} preguntas")
         st.caption("Todas las preguntas están disponibles en esta pantalla. Responde en el orden que prefieras y revisa tus selecciones antes de entregar.")
         renderizar_temporizador_examen()
         if restante_total <= 0:
-            st.warning("⏰ Se agotó el tiempo. Las respuestas seleccionadas se entregarán automáticamente al confirmar.")
+            st.warning("⏰ Se agotó el tiempo. Las respuestas seleccionadas se entregarán al confirmar.")
 
+        # Los radios están dentro de un formulario: seleccionar una opción no
+        # provoca un rerun del script. Solo se envían al pulsar un botón del formulario.
         respuestas_previas = {r.get("idx_pregunta"): r.get("opcion_elegida") for r in st.session_state.respuestas_detalle}
-        for idx, p_actual in enumerate(st.session_state.preguntas_seleccionadas):
-            with st.container(border=True):
-                st.markdown(f"#### Pregunta {idx + 1} de {total_p}")
-                st.caption(f"📌 Categoría: {p_actual.get('subindice', p_actual.get('apartado', 'General'))} · Dificultad: {p_actual.get('dificultad', 'dificil')}")
-                st.markdown(f"<div class='pregunta-titulo'>{p_actual.get('pregunta', 'Pregunta no disponible')}</div>", unsafe_allow_html=True)
-                opciones = p_actual.get("opciones_barajadas", [])
-                previa = respuestas_previas.get(idx)
-                idx_previa = opciones.index(previa) if previa in opciones else None
-                st.radio(
-                    "Selecciona una respuesta:",
-                    opciones,
-                    index=idx_previa,
-                    key=f"p_{idx}",
-                    disabled=restante_total <= 0,
-                    label_visibility="visible"
-                )
-                if idx in st.session_state.pistas_activadas:
-                    st.info(f"💡 Pista: {p_actual.get('pista', 'Revisa los conceptos clave.')}")
-                elif st.session_state.comodines_restantes > 0 and restante_total > 0:
-                    if st.button("💡 Mostrar pista (consume 1 ayuda)", key=f"btn_pista_{idx}"):
-                        st.session_state.comodines_restantes -= 1
-                        st.session_state.pistas_activadas.add(idx)
-                        st.rerun()
+        accion_pista = None
+        accion_revisar = False
+        accion_cancelar = False
+        with st.form("form_responder_examen_completo", clear_on_submit=False):
+            for idx, p_actual in enumerate(st.session_state.preguntas_seleccionadas):
+                with st.container(border=True):
+                    st.markdown(f"#### Pregunta {idx + 1} de {total_p}")
+                    st.caption(f"📌 Categoría: {p_actual.get('subindice', p_actual.get('apartado', 'General'))} · Dificultad: {p_actual.get('dificultad', 'dificil')}")
+                    st.markdown(f"<div class='pregunta-titulo'>{p_actual.get('pregunta', 'Pregunta no disponible')}</div>", unsafe_allow_html=True)
+                    opciones = p_actual.get("opciones_barajadas", [])
+                    previa = respuestas_previas.get(idx)
+                    idx_previa = opciones.index(previa) if previa in opciones else None
+                    st.radio(
+                        "Selecciona una respuesta:", opciones, index=idx_previa,
+                        key=f"p_{idx}", disabled=restante_total <= 0,
+                        label_visibility="visible"
+                    )
+                    if idx in st.session_state.pistas_activadas:
+                        st.info(f"💡 Pista: {p_actual.get('pista', 'Revisa los conceptos clave.')}")
+                    elif st.session_state.comodines_restantes > 0 and restante_total > 0:
+                        if st.form_submit_button("💡 Mostrar pista (consume 1 ayuda)", key=f"btn_pista_{idx}"):
+                            accion_pista = idx
 
-        st.caption(f"Ayudas disponibles: {st.session_state.comodines_restantes} / 3")
-        col_finish1, col_finish2 = st.columns(2)
-        with col_finish1:
-            if st.button("📋 Revisar y entregar examen", key="btn_revisar_entregar_todo", use_container_width=True):
-                respuestas_detalle = []
-                for idx, p_item in enumerate(st.session_state.preguntas_seleccionadas):
-                    eleccion = st.session_state.get(f"p_{idx}")
-                    if not eleccion:
-                        eleccion = "En blanco (Sin responder)"
-                    respuestas_detalle.append({
-                        "idx_pregunta": idx,
-                        "pregunta": p_item.get("pregunta", ""),
-                        "subindice": p_item.get("subindice", "General"),
-                        "dificultad": p_item.get("dificultad", "dificil"),
-                        "opcion_elegida": eleccion,
-                        "respuesta_correcta_texto": p_item.get("respuesta_correcta_texto", ""),
-                        "opciones_posibles": p_item.get("opciones_barajadas", []),
-                        "es_correcta": eleccion == p_item.get("respuesta_correcta_texto", "")
-                    })
-                st.session_state.respuestas_detalle = respuestas_detalle
-                st.session_state.modo_revision = True
-                st.session_state.tiempo_inicio_revision = None
-                st.rerun()
-        with col_finish2:
-            if st.button("🚫 Cancelar examen (nota 0)", key="btn_cancelar_examen_todo", use_container_width=True):
-                respuestas_detalle = []
-                for idx, p_item in enumerate(st.session_state.preguntas_seleccionadas):
-                    eleccion = st.session_state.get(f"p_{idx}") or "En blanco (Sin responder)"
-                    respuestas_detalle.append({
-                        "idx_pregunta": idx, "pregunta": p_item.get("pregunta", ""),
-                        "subindice": p_item.get("subindice", "General"),
-                        "dificultad": p_item.get("dificultad", "dificil"),
-                        "opcion_elegida": eleccion,
-                        "respuesta_correcta_texto": p_item.get("respuesta_correcta_texto", ""),
-                        "opciones_posibles": p_item.get("opciones_barajadas", []),
-                        "es_correcta": False
-                    })
-                st.session_state.respuestas_detalle = respuestas_detalle
+            st.caption(f"Ayudas disponibles: {st.session_state.comodines_restantes} / 3")
+            col_finish1, col_finish2 = st.columns(2)
+            with col_finish1:
+                accion_revisar = st.form_submit_button("📋 Revisar y entregar examen", key="btn_revisar_entregar_todo", use_container_width=True)
+            with col_finish2:
+                accion_cancelar = st.form_submit_button("🚫 Cancelar examen (nota 0)", key="btn_cancelar_examen_todo", use_container_width=True)
+
+        if accion_pista is not None:
+            st.session_state.comodines_restantes = max(0, st.session_state.comodines_restantes - 1)
+            st.session_state.pistas_activadas.add(accion_pista)
+            st.rerun()
+
+        if accion_revisar or accion_cancelar:
+            respuestas_detalle = []
+            for idx, p_item in enumerate(st.session_state.preguntas_seleccionadas):
+                eleccion = st.session_state.get(f"p_{idx}") or "En blanco (Sin responder)"
+                respuestas_detalle.append({
+                    "idx_pregunta": idx,
+                    "pregunta": p_item.get("pregunta", ""),
+                    "subindice": p_item.get("subindice", "General"),
+                    "dificultad": p_item.get("dificultad", "dificil"),
+                    "opcion_elegida": eleccion,
+                    "respuesta_correcta_texto": p_item.get("respuesta_correcta_texto", ""),
+                    "opciones_posibles": p_item.get("opciones_barajadas", []),
+                    "es_correcta": (eleccion == p_item.get("respuesta_correcta_texto", "")) if accion_revisar else False
+                })
+            st.session_state.respuestas_detalle = respuestas_detalle
+            if accion_cancelar:
                 cancelar_examen_bd()
                 st.session_state.examen_activo = False
                 st.session_state.modo_revision = False
                 st.session_state.examen_finalizado = True
-                st.rerun()
+            else:
+                st.session_state.modo_revision = True
+                st.session_state.tiempo_inicio_revision = None
+            st.rerun()
 
     # MENÚ PRINCIPAL
     else:
