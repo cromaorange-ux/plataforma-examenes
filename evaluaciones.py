@@ -241,7 +241,7 @@ st.markdown("""
     [data-testid="stDialog"] button:active,
     [role="dialog"] button:active {
         background: #F5CBA5 !important;
-        color: #F5CBA5 !important;
+        color: #000000 !important;
     }
 
     /* CAMPO DE CONTRASEÑA */
