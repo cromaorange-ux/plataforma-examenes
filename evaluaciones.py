@@ -96,7 +96,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #B2C0D7 !important;
+        color: #171616 !important;
         font-weight: 600 !important;
     }
 
