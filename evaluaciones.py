@@ -45,7 +45,7 @@ st.markdown("""
         --secondary-color: #327DCD;
         --background-color: #fff7ef;
         --card-bg: #FFFFFF;
-        --text-color: #B2C0D7;
+        --text-color: #171616;
         --border-radius: 12px;
     }
 
@@ -77,7 +77,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #171616 !important;
+        color: #B2C0D7 !important;
     }
     
     .stRadio div[role='radiogroup'] {
