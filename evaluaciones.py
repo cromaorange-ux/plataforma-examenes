@@ -195,6 +195,41 @@ st.markdown("""
         transition: background-color 0.2s ease, border-color 0.2s ease !important;
     }
 
+    /* Botones de descarga en naranja, igual que Mostrar Análisis IA */
+    .stDownloadButton > button,
+    [data-testid="stDownloadButton"] button {
+        background-color: #e87916 !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        border: 1px solid #e87916 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+    .stDownloadButton > button:hover,
+    [data-testid="stDownloadButton"] button:hover {
+        background-color: #c65f0b !important;
+        border-color: #c65f0b !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+
+    /* Controles para importar CSV y JSON en naranja claro */
+    [data-testid="stFileUploader"] section,
+    [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
+        background-color: #FFE8D2 !important;
+        border-color: #F0C9A4 !important;
+    }
+    [data-testid="stFileUploader"] button {
+        background-color: #FFE8D2 !important;
+        color: #2B1800 !important;
+        -webkit-text-fill-color: #2B1800 !important;
+        border: 1px solid #F0C9A4 !important;
+    }
+    [data-testid="stFileUploader"] button:hover {
+        background-color: #FFDAB8 !important;
+        border-color: #EAB889 !important;
+    }
+
     .stButton > button:hover,
     [data-testid="stFormSubmitButton"] > button:hover,
     [data-testid="stFormSubmitButton"] button:hover {
@@ -224,8 +259,8 @@ st.markdown("""
     [data-testid="stDialog"] button,
     [role="dialog"] button {
         background: #FFE8D2 !important;
-        background-color: ##FFBA79 !important;
-        color: #000000 !important;
+        background-color: #FFE8D2 !important;
+        color: #FFF7EF !important;
         border: 1px solid #F0C9A4 !important;
         box-shadow: none !important;
     }
@@ -233,7 +268,7 @@ st.markdown("""
     /* ICONOS DEL BOTÓN */
     [data-testid="stDialog"] button svg,
     [role="dialog"] button svg {
-        color: #D56B00 !important;
+        color: #FFF7EF !important;
         fill: #FFF7EF !important;
     }
 
@@ -2720,7 +2755,7 @@ else:
                                         value=texto_respuesta_correcta
                                     )
                                 
-                                nuevo_estado = st.checkbox("Marcar esta pregunta como Correcta para el empleado", value=p_objetivo.get("es_correcta", False))
+                                st.caption("El acierto se recalculará automáticamente comparando la respuesta elegida por el empleado con la nueva respuesta correcta.")
                                 motivo_edicion = st.text_area("📋 Motivo de la corrección (Obligatorio):*")
                                 
                                 btn_guardar_edit = st.form_submit_button("Guardar Corrección Auditada")
@@ -2734,11 +2769,15 @@ else:
                                         st.error("❌ El motivo de la corrección es obligatorio.")
                                     else:
                                         try:
+                                            estado_anterior = bool(p_objetivo.get("es_correcta", False))
+                                            respuesta_empleado = str(p_objetivo.get("opcion_elegida", "") or "").strip()
+                                            respuesta_correcta_nueva = str(resp_correcta_input).strip()
+                                            nuevo_estado = respuesta_empleado.casefold() == respuesta_correcta_nueva.casefold()
                                             respuestas_lista[p_idx]["es_correcta"] = nuevo_estado
-                                            respuestas_lista[p_idx]["respuesta_correcta_texto"] = resp_correcta_input
+                                            respuestas_lista[p_idx]["respuesta_correcta_texto"] = respuesta_correcta_nueva
                                             respuestas_lista[p_idx]["opciones_posibles"] = opciones_disponibles
                                             
-                                            correctas_nuevas = sum(1 for r in respuestas_lista if r["es_correcta"])
+                                            correctas_nuevas = sum(1 for r in respuestas_lista if bool(r.get("es_correcta", False)))
                                             total_preg = len(respuestas_lista)
                                             nuevo_porc = round((correctas_nuevas / total_preg) * 100, 2)
                                             nueva_nota = round((correctas_nuevas / total_preg) * 10, 2)
@@ -2753,9 +2792,25 @@ else:
                                                 "intento_id": int(intento_target_id),
                                                 "usuario_modificador": persona_modifica.strip(),
                                                 "fecha_modificacion": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                                                "valor_anterior": json.dumps({"es_correcta": p_objetivo.get("es_correcta"), "respuesta_correcta": texto_respuesta_correcta}),
-                                                "valor_nuevo": json.dumps({"es_correcta": nuevo_estado, "respuesta_correcta": resp_correcta_input}),
-                                                "motivo": motivo_edicion.strip()
+                                                "valor_anterior": json.dumps({
+                                                    "es_correcta": estado_anterior,
+                                                    "respuesta_correcta": texto_respuesta_correcta,
+                                                    "respuesta_empleado": respuesta_empleado,
+                                                    "estado_empleado": "ACIERTO" if estado_anterior else "FALLO"
+                                                }, ensure_ascii=False),
+                                                "valor_nuevo": json.dumps({
+                                                    "es_correcta": nuevo_estado,
+                                                    "respuesta_correcta": respuesta_correcta_nueva,
+                                                    "respuesta_empleado": respuesta_empleado,
+                                                    "estado_empleado": "ACIERTO" if nuevo_estado else "FALLO",
+                                                    "modificado_por": persona_modifica.strip()
+                                                }, ensure_ascii=False),
+                                                "motivo": (
+                                                    f"{motivo_edicion.strip()} | "
+                                                    f"Resultado anterior: {'ACIERTO' if estado_anterior else 'FALLO'}; "
+                                                    f"resultado tras corrección: {'ACIERTO' if nuevo_estado else 'FALLO'}; "
+                                                    f"modificado por: {persona_modifica.strip()}"
+                                                )
                                             }
                                             
                                             supabase.table("auditoria_modificaciones").insert(registro_audit).execute()
