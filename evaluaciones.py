@@ -77,7 +77,7 @@ st.markdown("""
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
-        color: #B2C0D7 !important;
+        color: #171616 !important;
     }
     
     .stRadio div[role='radiogroup'] {
@@ -96,7 +96,7 @@ st.markdown("""
     }
 
     .stRadio div[role='radiogroup'] > label p {
-        color: #171616 !important;
+        color: #B2C0D7 !important;
         font-weight: 600 !important;
     }
 
